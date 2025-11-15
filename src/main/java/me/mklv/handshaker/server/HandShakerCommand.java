@@ -93,6 +93,7 @@ public class HandShakerCommand {
         
         dispatcher.register(handshaker);
     }
+<<<<<<< HEAD
 
     private static int reload(CommandContext<ServerCommandSource> ctx) {
         BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
@@ -618,4 +619,6 @@ public class HandShakerCommand {
         
         return Command.SINGLE_SUCCESS;
     }
+=======
+>>>>>>> c6ec968 (Update HandShakerCommand.java)
 }
