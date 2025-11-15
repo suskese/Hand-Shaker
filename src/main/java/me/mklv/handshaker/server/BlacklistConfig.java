@@ -62,7 +62,7 @@ public class BlacklistConfig {
         KickMode oldKickMode = null;
     }
 
-    public enum Mode {BLACKLIST, WHITELIST}
+    public enum Mode {BLACKLIST, WHITELIST, REQUIRE}
     public enum Behavior {STRICT, VANILLA}
     public enum IntegrityMode {SIGNED, DEV}
     public enum KickMode {ALL, FABRIC} // For backwards compatibility
@@ -195,7 +195,7 @@ public class BlacklistConfig {
                 String msg = getKickMessage().replace("{mod}", String.join(", ", hits));
                 player.networkHandler.disconnect(Text.of(msg));
             }
-        } else { // WHITELIST
+        } else { // WHITELIST OR REQUIRE
             if (isFabric || !getWhitelistedMods().isEmpty()) {
                 Set<String> whitelistedMods = getWhitelistedMods();
                 List<String> missing = new ArrayList<>();
@@ -210,15 +210,18 @@ public class BlacklistConfig {
                     return;
                 }
 
-                List<String> extra = new ArrayList<>();
-                for (String mod : mods) {
-                    if (!whitelistedMods.contains(mod)) {
-                        extra.add(mod);
+                if (getMode() == Mode.WHITELIST) {    // WHITELIST ONLY
+                    
+                    List<String> extra = new ArrayList<>();
+                    for (String mod : mods) {
+                        if (!whitelistedMods.contains(mod)) {
+                            extra.add(mod);
+                        }
                     }
-                }
-                if (!extra.isEmpty()) {
-                    String msg = getExtraWhitelistModMessage().replace("{mod}", String.join(", ", extra));
-                    player.networkHandler.disconnect(Text.of(msg));
+                    if (!extra.isEmpty()) {
+                        String msg = getExtraWhitelistModMessage().replace("{mod}", String.join(", ", extra));
+                        player.networkHandler.disconnect(Text.of(msg));
+                    }
                 }
             }
         }
