@@ -38,6 +38,13 @@ public class HandShakerCommand {
                                     context.getSource().sendFeedback(() -> Text.of("HandShaker mode set to whitelist."), true);
                                     server.checkAllPlayers();
                                     return 1;
+                                }))
+                        .then(literal("require")
+                                .executes(context -> {
+                                    server.getBlacklistConfig().setMode(BlacklistConfig.Mode.REQUIRE);
+                                    context.getSource().sendFeedback(() -> Text.of("HandShaker mode set to require."), true);
+                                    server.checkAllPlayers();
+                                    return 1;
                                 })))
                 .then(literal("whitelist_update")
                         .then(argument("player", StringArgumentType.string())
