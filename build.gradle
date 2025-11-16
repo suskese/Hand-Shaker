@@ -98,6 +98,17 @@ publishing {
 }
 
 afterEvaluate {
+    // Load environment variables from .env file
+    def envFile = file('.env')
+    if (envFile.exists()) {
+        envFile.readLines().each { line ->
+            def (key, value) = line.split('=', 2)
+            if (key && value && !System.getenv(key)) {
+                System.setProperty(key, value)
+            }
+        }
+    }
+
     // This task signs the remapped Fabric JAR using the keystore in the Integrity folder.
     tasks.register('signFabricJar') {
         group = 'build'
@@ -115,11 +126,12 @@ afterEvaluate {
             def jarToSign = remappedJarProvider.get()
             if (file('Integrity/keystore.jks').exists()) {
                 println "--> Signing JAR: ${jarToSign.name}"
+                def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
                 exec {
                     executable = 'jarsigner'
                     args = [
                         '-keystore', file('Integrity/keystore.jks').absolutePath,
-                        '-storepass', 'password',
+                        '-storepass', keystorePassword,
                         '-signedjar', signedJar.get().asFile.absolutePath,
                         jarToSign.absolutePath,
                         'handshaker'

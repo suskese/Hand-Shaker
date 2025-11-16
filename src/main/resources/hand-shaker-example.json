@@ -1,0 +1,16 @@
+{
+  "config": "v2",
+  "integrity": "SIGNED",
+  "behavior": "STRICT",
+  "invalid_signature_kick_message": "Invalid client signature. Please use the official client.",
+  "kick_message": "You are using a blacklisted mod: {mod}. Please remove it to join this server.",
+  "missing_mod_message": "To connect to this server please download 'Hand-shaker' mod.",
+  "missing_whitelist_mod_message": "You are missing required mods: {mod}. Please install them to join this server.",
+  "default_mode": "ALLOWED",
+  "mods": {
+    "hand-shaker": "REQUIRED",
+    "xraymod": "BLACKLISTED",
+    "testmod": "BLACKLISTED",
+    "forge": "BLACKLISTED"
+  }
+}

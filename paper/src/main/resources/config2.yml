@@ -1,4 +1,3 @@
-
 config: v2 #DO NOT CHANGE!!!
 
 Kick Message: "You are using a blacklisted mod: {mod}. Please remove it to join this server."
@@ -28,7 +27,10 @@ Default Mode: allowed
 #"blacklisted" - Unlisted mods will cause kick (restrictive)
 
 Mods:
-  hand-shaker: required
+  handshaker: required
   xraymod: blacklisted
   testmod: blacklisted
   forge: blacklisted
+  sodium: allowed
+  lithium: allowed
+  iris: allowed

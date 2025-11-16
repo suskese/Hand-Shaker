@@ -25,6 +25,7 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 processResources {
+    dependsOn rootProject.tasks.named('copyCert')
     filteringCharset = 'UTF-8'
     filesMatching('plugin.yml') { expand(version: project.version) }
 }

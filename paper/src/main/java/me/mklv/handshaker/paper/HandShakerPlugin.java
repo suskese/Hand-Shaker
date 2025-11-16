@@ -68,31 +68,64 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
     }
 
     private void handleModList(Player player, byte[] data) {
-        String payload = decodeLengthPrefixedString(data);
-        Set<String> mods = new HashSet<>();
-        if (payload != null && !payload.isBlank()) {
-            for (String s : payload.split(",")) {
-                if (!s.isBlank()) mods.add(s.trim().toLowerCase(Locale.ROOT));
+        try {
+            String payload = decodeLengthPrefixedString(data);
+            if (payload == null) {
+                getLogger().warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
+                player.kick(Component.text("Corrupted handshake data").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
             }
+            String nonce = decodeLengthPrefixedString(data, payload.length());
+            if (nonce == null || nonce.isEmpty()) {
+                getLogger().warning("Received mod list from " + player.getName() + " with invalid/missing nonce. Rejecting.");
+                player.kick(Component.text("Invalid handshake: missing nonce").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
+            }
+            Set<String> mods = new HashSet<>();
+            if (!payload.isBlank()) {
+                for (String s : payload.split(",")) {
+                    if (!s.isBlank()) mods.add(s.trim().toLowerCase(Locale.ROOT));
+                }
+            }
+            getLogger().info("Received mod list from " + player.getName() + " with nonce: " + nonce);
+            clients.compute(player.getUniqueId(), (uuid, oldInfo) -> oldInfo == null
+                    ? new ClientInfo(true, mods, false, nonce, null)
+                    : new ClientInfo(true, mods, oldInfo.signatureVerified(), nonce, oldInfo.integrityNonce()));
+        } catch (Exception e) {
+            getLogger().severe("Failed to decode mod list from " + player.getName() + ". Terminating connection: " + e.getMessage());
+            player.kick(Component.text("Corrupted handshake data").color(net.kyori.adventure.text.format.NamedTextColor.RED));
         }
-        clients.compute(player.getUniqueId(), (uuid, oldInfo) -> oldInfo == null
-                ? new ClientInfo(true, mods, false)
-                : new ClientInfo(true, mods, oldInfo.signatureVerified()));
     }
 
     private void handleIntegrityPayload(Player player, byte[] data) {
-        byte[] clientCertificate = decodeLengthPrefixedByteArray(data);
-        boolean verified = false;
-        if (clientCertificate != null && clientCertificate.length > 0 && this.serverCertificate.length > 0) {
-            verified = Arrays.equals(clientCertificate, this.serverCertificate);
-        }
-        getLogger().info("Integrity check for " + player.getName() + ": " + (verified ? "PASSED" : "FAILED"));
+        try {
+            byte[] clientCertificate = decodeLengthPrefixedByteArray(data);
+            if (clientCertificate == null) {
+                getLogger().warning("Failed to decode integrity payload from " + player.getName() + ". Rejecting.");
+                player.kick(Component.text("Corrupted handshake data").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
+            }
+            String nonce = decodeLengthPrefixedString(data, clientCertificate.length);
+            if (nonce == null || nonce.isEmpty()) {
+                getLogger().warning("Received integrity payload from " + player.getName() + " with invalid/missing nonce. Rejecting.");
+                player.kick(Component.text("Invalid handshake: missing nonce").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
+            }
+            boolean verified = false;
+            if (clientCertificate.length > 0 && this.serverCertificate.length > 0) {
+                verified = Arrays.equals(clientCertificate, this.serverCertificate);
+            }
+            getLogger().info("Integrity check for " + player.getName() + " with nonce " + nonce + ": " + (verified ? "PASSED" : "FAILED"));
 
-        final boolean finalVerified = verified;
-        clients.compute(player.getUniqueId(), (uuid, oldInfo) -> oldInfo == null
-                ? new ClientInfo(false, Collections.emptySet(), finalVerified)
-                : new ClientInfo(oldInfo.fabric(), oldInfo.mods(), finalVerified));
-        check(player);
+            final boolean finalVerified = verified;
+            clients.compute(player.getUniqueId(), (uuid, oldInfo) -> oldInfo == null
+                    ? new ClientInfo(false, Collections.emptySet(), finalVerified, null, nonce)
+                    : new ClientInfo(oldInfo.fabric(), oldInfo.mods(), finalVerified, oldInfo.modListNonce(), nonce));
+            check(player);
+        } catch (Exception e) {
+            getLogger().severe("Failed to decode integrity payload from " + player.getName() + ". Terminating connection: " + e.getMessage());
+            player.kick(Component.text("Corrupted handshake data").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+        }
     }
 
     private void check(Player player) {
@@ -113,41 +146,91 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
             }
         }
 
-        // Blacklist/Whitelist mod check
         Set<String> mods = info.mods();
-        if (blacklistConfig.getMode() == BlacklistConfig.Mode.BLACKLIST) {
-            List<String> hits = new ArrayList<>();
-            for (String mod : blacklistConfig.getBlacklistedMods()) {
-                if (mods.contains(mod)) hits.add(mod);
+        
+        if (blacklistConfig.isV2Config()) {
+            // V2 Config logic
+            List<String> requiredMissing = new ArrayList<>();
+            List<String> blacklistedPresent = new ArrayList<>();
+            
+            // Check all player's mods
+            for (String mod : mods) {
+                BlacklistConfig.ModStatus status = blacklistConfig.getModStatus(mod);
+                if (status == BlacklistConfig.ModStatus.BLACKLISTED) {
+                    blacklistedPresent.add(mod);
+                }
             }
-            if (!hits.isEmpty()) {
-                String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", hits));
+            
+            // Check all required mods
+            for (Map.Entry<String, BlacklistConfig.ModStatus> entry : blacklistConfig.getModStatusMap().entrySet()) {
+                if (entry.getValue() == BlacklistConfig.ModStatus.REQUIRED) {
+                    if (!mods.contains(entry.getKey())) {
+                        requiredMissing.add(entry.getKey());
+                    }
+                }
+            }
+            
+            if (!requiredMissing.isEmpty()) {
+                String msg = blacklistConfig.getMissingWhitelistModMessage().replace("{mod}", String.join(", ", requiredMissing));
                 player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
             }
-        } else { // WHITELIST
-            if (info.fabric() || !blacklistConfig.getWhitelistedMods().isEmpty()) {
-                Set<String> whitelistedMods = blacklistConfig.getWhitelistedMods();
-                List<String> missing = new ArrayList<>();
-                for (String mod : whitelistedMods) {
-                    if (!mods.contains(mod)) {
-                        missing.add(mod);
-                    }
+            
+            if (!blacklistedPresent.isEmpty()) {
+                String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", blacklistedPresent));
+                player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
+            }
+        } else {
+            // V1 Config logic (backwards compatibility)
+            if (blacklistConfig.getMode() == BlacklistConfig.Mode.BLACKLIST) {
+                List<String> hits = new ArrayList<>();
+                for (String mod : blacklistConfig.getBlacklistedMods()) {
+                    if (mods.contains(mod)) hits.add(mod);
                 }
-                if (!missing.isEmpty()) {
-                    String msg = blacklistConfig.getMissingWhitelistModMessage().replace("{mod}", String.join(", ", missing));
+                if (!hits.isEmpty()) {
+                    String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", hits));
                     player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                    return;
                 }
+            } else { // WHITELIST OR REQUIRE
+                if (info.fabric() || !blacklistConfig.getWhitelistedMods().isEmpty()) {
+                    Set<String> whitelistedMods = blacklistConfig.getWhitelistedMods();
+                    List<String> missing = new ArrayList<>();
+                    for (String mod : whitelistedMods) {
+                        if (!mods.contains(mod)) {
+                            missing.add(mod);
+                        }
+                    }
+                    if (!missing.isEmpty()) {
+                        String msg = blacklistConfig.getMissingWhitelistModMessage().replace("{mod}", String.join(", ", missing));
+                        player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                        return;
+                    }
 
-                List<String> extra = new ArrayList<>();
-                for (String mod : mods) {
-                    if (!whitelistedMods.contains(mod)) {
-                        extra.add(mod);
+                    if (blacklistConfig.getMode() == BlacklistConfig.Mode.REQUIRE) {    // REQUIRE mode: check blacklist too
+                        List<String> banned = new ArrayList<>();
+                        for (String mod : blacklistConfig.getBlacklistedMods()) {
+                            if (mods.contains(mod)) {
+                                banned.add(mod);
+                            }
+                        }
+                        if (!banned.isEmpty()) {
+                            String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", banned));
+                            player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                            return;
+                        }
+                    } else if (blacklistConfig.getMode() == BlacklistConfig.Mode.WHITELIST) {    // WHITELIST ONLY
+                        List<String> extra = new ArrayList<>();
+                        for (String mod : mods) {
+                            if (!whitelistedMods.contains(mod)) {
+                                extra.add(mod);
+                            }
+                        }
+                        if (!extra.isEmpty()) {
+                            String msg = blacklistConfig.getExtraWhitelistModMessage().replace("{mod}", String.join(", ", extra));
+                            player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                        }
                     }
-                }
-                if (!extra.isEmpty()) {
-                    String msg = blacklistConfig.getExtraWhitelistModMessage().replace("{mod}", String.join(", ", extra));
-                    player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
                 }
             }
         }
@@ -156,7 +239,7 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
         Bukkit.getScheduler().runTaskLater(this, () -> {
-            clients.putIfAbsent(e.getPlayer().getUniqueId(), new ClientInfo(false, Collections.emptySet(), false));
+            clients.putIfAbsent(e.getPlayer().getUniqueId(), new ClientInfo(false, Collections.emptySet(), false, null, null));
             check(e.getPlayer());
         }, 100L); // 5 seconds
     }
@@ -226,5 +309,39 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    private record ClientInfo(boolean fabric, Set<String> mods, boolean signatureVerified) {}
+    private String decodeLengthPrefixedString(byte[] data, int previousDataLength) {
+        try {
+            // Calculate offset: varint size for previous data + previous data length
+            int offset = 0;
+            int numRead = 0;
+            byte read;
+            do {
+                read = data[offset++];
+                numRead++;
+                if (numRead > 5) return null;
+            } while ((read & 0b10000000) != 0);
+            offset += previousDataLength; // Skip the previous data
+            
+            // Now decode the string from the offset
+            int idx = offset;
+            numRead = 0;
+            int result = 0;
+            do {
+                if (idx >= data.length) return null;
+                read = data[idx++];
+                int value = (read & 0b01111111);
+                result |= (value << (7 * numRead));
+                numRead++;
+                if (numRead > 5) return null;
+            } while ((read & 0b10000000) != 0);
+            int length = result;
+            if (length < 0 || idx + length > data.length) return null;
+            return new String(data, idx, length, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            getLogger().warning("Failed to decode string at offset: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private record ClientInfo(boolean fabric, Set<String> mods, boolean signatureVerified, String modListNonce, String integrityNonce) {}
 }

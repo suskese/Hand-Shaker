@@ -10,6 +10,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,16 +30,22 @@ import java.util.concurrent.TimeUnit;
 public class HandShakerServer implements DedicatedServerModInitializer {
     public static final String MOD_ID = "hand-shaker";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID + "-server");
+    private static HandShakerServer instance;
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
     private BlacklistConfig blacklistConfig;
     private MinecraftServer server;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private byte[] serverCertificate;
 
-    public record ClientInfo(Set<String> mods, boolean signatureVerified) {}
+    public record ClientInfo(Set<String> mods, boolean signatureVerified, String modListNonce, String integrityNonce) {}
+
+    public static HandShakerServer getInstance() {
+        return instance;
+    }
 
     @Override
     public void onInitializeServer() {
+        instance = this;
         LOGGER.info("HandShaker server initializing");
         blacklistConfig = new BlacklistConfig(this);
         blacklistConfig.load();
@@ -55,28 +62,54 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         // Register payload handlers
         ServerPlayNetworking.registerGlobalReceiver(HandShaker.ModsListPayload.ID, (payload, context) -> {
             ServerPlayerEntity player = context.player();
-            Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
-            if (payload.mods().isEmpty()) {
-                mods.clear();
+            try {
+                if (payload.nonce() == null || payload.nonce().isEmpty()) {
+                    LOGGER.warn("Received mod list from {} with invalid/missing nonce. Rejecting.", player.getName().getString());
+                    player.networkHandler.disconnect(Text.of("Invalid handshake: missing nonce"));
+                    return;
+                }
+                Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
+                if (payload.mods().isEmpty()) {
+                    mods.clear();
+                }
+                LOGGER.info("Received mod list from {} with nonce: {}", player.getName().getString(), payload.nonce());
+                clients.compute(player.getUuid(), (uuid, oldInfo) ->
+                        new ClientInfo(mods, 
+                                oldInfo != null && oldInfo.signatureVerified(), 
+                                payload.nonce(),
+                                oldInfo != null ? oldInfo.integrityNonce() : null));
+            } catch (Exception e) {
+                LOGGER.error("Failed to decode mod list from {}. Terminating connection.", player.getName().getString(), e);
+                player.networkHandler.disconnect(Text.of("Corrupted handshake data"));
             }
-            LOGGER.info("Received mod list from {}", player.getName().getString());
-            clients.compute(player.getUuid(), (uuid, oldInfo) ->
-                    new ClientInfo(mods, oldInfo != null && oldInfo.signatureVerified()));
         });
 
         ServerPlayNetworking.registerGlobalReceiver(HandShaker.IntegrityPayload.ID, (payload, context) -> {
             ServerPlayerEntity player = context.player();
-            byte[] clientCertificate = payload.signature();
-            boolean verified = false;
-            if (clientCertificate != null && clientCertificate.length > 0 && this.serverCertificate.length > 0) {
-                verified = Arrays.equals(clientCertificate, this.serverCertificate);
-            }
-            LOGGER.info("Integrity check for {}: {}", player.getName().getString(), verified ? "PASSED" : "FAILED");
+            try {
+                if (payload.nonce() == null || payload.nonce().isEmpty()) {
+                    LOGGER.warn("Received integrity payload from {} with invalid/missing nonce. Rejecting.", player.getName().getString());
+                    player.networkHandler.disconnect(Text.of("Invalid handshake: missing nonce"));
+                    return;
+                }
+                byte[] clientCertificate = payload.signature();
+                boolean verified = false;
+                if (clientCertificate != null && clientCertificate.length > 0 && this.serverCertificate.length > 0) {
+                    verified = Arrays.equals(clientCertificate, this.serverCertificate);
+                }
+                LOGGER.info("Integrity check for {} with nonce {}: {}", player.getName().getString(), payload.nonce(), verified ? "PASSED" : "FAILED");
 
-            final boolean finalVerified = verified;
-            clients.compute(player.getUuid(), (uuid, oldInfo) ->
-                    new ClientInfo(oldInfo != null ? oldInfo.mods() : Collections.emptySet(), finalVerified));
-            blacklistConfig.checkPlayer(player, clients.get(player.getUuid()));
+                final boolean finalVerified = verified;
+                clients.compute(player.getUuid(), (uuid, oldInfo) ->
+                        new ClientInfo(oldInfo != null ? oldInfo.mods() : Collections.emptySet(), 
+                                finalVerified,
+                                oldInfo != null ? oldInfo.modListNonce() : null,
+                                payload.nonce()));
+                blacklistConfig.checkPlayer(player, clients.get(player.getUuid()));
+            } catch (Exception e) {
+                LOGGER.error("Failed to decode integrity payload from {}. Terminating connection.", player.getName().getString(), e);
+                player.networkHandler.disconnect(Text.of("Corrupted handshake data"));
+            }
         });
 
         // Register player lifecycle events
@@ -86,7 +119,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                     if (handler.player.networkHandler == null) return; // Player disconnected
                     // If the player is still in the map, re-run the check.
                     // If they are not (e.g. vanilla client), create a default entry and check that.
-                    ClientInfo info = clients.computeIfAbsent(handler.player.getUuid(), uuid -> new ClientInfo(Collections.emptySet(), false));
+                    ClientInfo info = clients.computeIfAbsent(handler.player.getUuid(), uuid -> new ClientInfo(Collections.emptySet(), false, null, null));
                     blacklistConfig.checkPlayer(handler.player, info);
                 });
             }, 5, TimeUnit.SECONDS);
@@ -97,7 +130,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         });
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            HandShakerCommand.register(dispatcher, this);
+            HandShakerCommand.register(dispatcher);
         });
     }
 
@@ -130,7 +163,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         if (server == null) return;
         LOGGER.info("Re-checking all online players...");
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            blacklistConfig.checkPlayer(player, clients.getOrDefault(player.getUuid(), new ClientInfo(Collections.emptySet(), false)));
+            blacklistConfig.checkPlayer(player, clients.getOrDefault(player.getUuid(), new ClientInfo(Collections.emptySet(), false, null, null)));
         }
     }
 }

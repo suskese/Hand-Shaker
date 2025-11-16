@@ -45,6 +45,10 @@ public class HandShaker implements ClientModInitializer {
 		});
 	}
 
+	private String generateNonce() {
+		return java.util.UUID.randomUUID().toString();
+	}
+
 	private void sendModList() {
 		MinecraftClient client = MinecraftClient.getInstance();
 		if (client == null || client.getNetworkHandler() == null) return;
@@ -53,8 +57,9 @@ public class HandShaker implements ClientModInitializer {
 				.sorted()
 				.reduce((a,b) -> a + "," + b)
 				.orElse("");
-		ClientPlayNetworking.send(new ModsListPayload(payload));
-		LOGGER.info("Sent mod list ({} chars)", payload.length());
+		String nonce = generateNonce();
+		ClientPlayNetworking.send(new ModsListPayload(payload, nonce));
+		LOGGER.info("Sent mod list ({} chars) with nonce: {}", payload.length(), nonce);
 	}
 
 	private void sendSignature() {
@@ -62,12 +67,13 @@ public class HandShaker implements ClientModInitializer {
 		if (client == null || client.getNetworkHandler() == null) return;
 
 		Optional<byte[]> certificate = getEmbeddedCertificate();
+		String nonce = generateNonce();
 		if (certificate.isPresent()) {
-			ClientPlayNetworking.send(new IntegrityPayload(certificate.get()));
-			LOGGER.info("Sent integrity certificate ({} bytes)", certificate.get().length);
+			ClientPlayNetworking.send(new IntegrityPayload(certificate.get(), nonce));
+			LOGGER.info("Sent integrity certificate ({} bytes) with nonce: {}", certificate.get().length, nonce);
 		} else {
-			LOGGER.warn("Could not find own embedded certificate. Sending empty payload.");
-			ClientPlayNetworking.send(new IntegrityPayload(new byte[0]));
+			LOGGER.warn("Could not find own embedded certificate. Sending empty payload with nonce.");
+			ClientPlayNetworking.send(new IntegrityPayload(new byte[0], nonce));
 		}
 	}
 
@@ -84,15 +90,21 @@ public class HandShaker implements ClientModInitializer {
 		}
 	}
 
-	public record ModsListPayload(String mods) implements CustomPayload {
+	public record ModsListPayload(String mods, String nonce) implements CustomPayload {
 		public static final CustomPayload.Id<ModsListPayload> ID = new CustomPayload.Id<>(MODS_CHANNEL);
-		public static final PacketCodec<PacketByteBuf, ModsListPayload> CODEC = PacketCodec.tuple(PacketCodecs.STRING, ModsListPayload::mods, ModsListPayload::new);
+		public static final PacketCodec<PacketByteBuf, ModsListPayload> CODEC = PacketCodec.tuple(
+				PacketCodecs.STRING, ModsListPayload::mods,
+				PacketCodecs.STRING, ModsListPayload::nonce,
+				ModsListPayload::new);
 		@Override public Id<? extends CustomPayload> getId() { return ID; }
 	}
 
-	public record IntegrityPayload(byte[] signature) implements CustomPayload {
+	public record IntegrityPayload(byte[] signature, String nonce) implements CustomPayload {
 		public static final CustomPayload.Id<IntegrityPayload> ID = new CustomPayload.Id<>(INTEGRITY_CHANNEL);
-		public static final PacketCodec<PacketByteBuf, IntegrityPayload> CODEC = PacketCodec.tuple(PacketCodecs.BYTE_ARRAY, IntegrityPayload::signature, IntegrityPayload::new);
+		public static final PacketCodec<PacketByteBuf, IntegrityPayload> CODEC = PacketCodec.tuple(
+				PacketCodecs.BYTE_ARRAY, IntegrityPayload::signature,
+				PacketCodecs.STRING, IntegrityPayload::nonce,
+				IntegrityPayload::new);
 		@Override public Id<? extends CustomPayload> getId() { return ID; }
 	}
 }
