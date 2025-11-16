@@ -5,6 +5,10 @@ plugins {
 group = 'me.mklv'
 version = rootProject.version
 
+base {
+    archivesName = 'hand-shaker-paper'
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
