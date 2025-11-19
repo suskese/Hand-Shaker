@@ -9,12 +9,12 @@ Invalid signature kick message: "Invalid client signature. Please use the offici
 Behavior: Strict
 
 #"Strict" - Kick clients with blacklisted mods + Kick non Hand-shaker mod clients
-#"Vanilla" - Kick clients with blacklisted mods but ignoring non Hand-shaker mod clients (Could be dangeours if clients spoofs clients)
+#"Vanilla" - Kick clients with blacklisted mods but ignoring non Hand-shaker mod clients (Could be dangerous if clients spoofs clients)
 
 Integrity: Signed
 
 #"Signed" - Accepts only-signed handshaker copies, preventing using modified handshaker mod
-#"Dev" - Accepts non-signed copys, Only for personal use or self signed copies (Could be potentionaly dangerous)
+#"Dev" - Accepts non-signed copys, Only for personal use or self signed copies (Could be potentially dangerous)
 
 #Per-mod configuration system:
 #"required" - Mod must be present to join the server

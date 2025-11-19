@@ -216,7 +216,7 @@ public class HandShakerCommand implements TabExecutor {
             }
             case "player" -> {
                 if (args.length < 2) {
-                    sender.sendMessage("Usage: /handshaker player <player>");
+                    sender.sendMessage("Usage: /handshaker player <player> [mod] [status]");
                     return true;
                 }
                 Player target = Bukkit.getPlayer(args[1]);
@@ -227,6 +227,31 @@ public class HandShakerCommand implements TabExecutor {
                 Set<String> mods = plugin.getClientMods(target.getUniqueId());
                 if (mods == null || mods.isEmpty()) {
                     sender.sendMessage("No mod list found for " + target.getName() + ".");
+                    return true;
+                }
+                
+                // If mod and status are provided, set the status directly
+                if (args.length >= 4 && isV2) {
+                    String modId = args[2];
+                    if (!mods.contains(modId)) {
+                        sender.sendMessage("§cPlayer " + target.getName() + " does not have mod: " + modId);
+                        return true;
+                    }
+                    
+                    BlacklistConfig.ModStatus status;
+                    switch (args[3].toLowerCase(Locale.ROOT)) {
+                        case "required" -> status = BlacklistConfig.ModStatus.REQUIRED;
+                        case "allowed" -> status = BlacklistConfig.ModStatus.ALLOWED;
+                        case "blacklisted" -> status = BlacklistConfig.ModStatus.BLACKLISTED;
+                        default -> {
+                            sender.sendMessage("§cInvalid status. Use: allowed, required, or blacklisted");
+                            return true;
+                        }
+                    }
+                    
+                    config.setModStatus(modId, status);
+                    sender.sendMessage("§aSet " + modId + " to " + args[3].toLowerCase());
+                    plugin.checkAllPlayers();
                     return true;
                 }
 
@@ -326,7 +351,7 @@ public class HandShakerCommand implements TabExecutor {
             sender.sendMessage("§e/handshaker change <mod> <status> §7- Change mod status");
             sender.sendMessage("§e/handshaker remove <mod> §7- Remove mod from config");
             sender.sendMessage("§e/handshaker list §7- List configured mods");
-            sender.sendMessage("§e/handshaker player <player> §7- View player's mods (interactive)");
+            sender.sendMessage("§e/handshaker player <player> [mod] [status] §7- View/set player's mods");
         } else {
             sender.sendMessage("§6=== HandShaker Commands (v1) ===");
             sender.sendMessage("§e/handshaker reload §7- Reload config");
@@ -402,6 +427,23 @@ public class HandShakerCommand implements TabExecutor {
                 if (isV2) {
                     return StringUtil.copyPartialMatches(args[2], Arrays.asList("allowed", "required", "blacklisted"), new ArrayList<>());
                 }
+            }
+            // Tab-complete mods for /handshaker player <player> <mod>
+            if (args[0].equalsIgnoreCase("player") && isV2) {
+                Player target = Bukkit.getPlayer(args[1]);
+                if (target != null) {
+                    Set<String> clientMods = plugin.getClientMods(target.getUniqueId());
+                    if (clientMods != null) {
+                        return StringUtil.copyPartialMatches(args[2], clientMods, new ArrayList<>());
+                    }
+                }
+            }
+        }
+        
+        if (args.length == 4) {
+            // Tab-complete status for /handshaker player <player> <mod> <status>
+            if (args[0].equalsIgnoreCase("player") && isV2) {
+                return StringUtil.copyPartialMatches(args[3], Arrays.asList("allowed", "required", "blacklisted"), new ArrayList<>());
             }
         }
         
