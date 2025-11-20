@@ -9,5 +9,6 @@ pluginManagement {
 	}
 }
 
-// Include additional subprojects (Paper server plugin)
+// Include additional subprojects (Paper server plugin, Velton anti-cheat)
 include 'paper'
+include 'velton'

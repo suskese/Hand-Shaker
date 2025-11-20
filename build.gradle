@@ -34,13 +34,14 @@ dependencies {
 	
 }
 
-// This task copies the public certificate into the resources of the server and paper modules
+// This task copies the public certificate into the resources of the server, paper, and velton modules
 // so it can be used for verification.
 tasks.register('copyCert', Copy) {
     description = 'Copies the public certificate to the resources directories for embedding.'
     from 'Integrity'
     into 'src/main/resources'
     into 'paper/src/main/resources'
+    into 'velton/src/main/resources'
     include 'public.cer'
 }
 
