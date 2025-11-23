@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class HandShakerPlugin extends JavaPlugin implements Listener {
     public static final String MODS_CHANNEL = "hand-shaker:mods";
     public static final String INTEGRITY_CHANNEL = "hand-shaker:integrity";
+    public static final String VELTON_CHANNEL = "velton:signature";
 
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
     private BlacklistConfig blacklistConfig;
@@ -34,8 +35,10 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
 
         Bukkit.getMessenger().registerIncomingPluginChannel(this, MODS_CHANNEL, (channel, player, message) -> handleModList(player, message));
         Bukkit.getMessenger().registerIncomingPluginChannel(this, INTEGRITY_CHANNEL, (channel, player, message) -> handleIntegrityPayload(player, message));
+        Bukkit.getMessenger().registerIncomingPluginChannel(this, VELTON_CHANNEL, (channel, player, message) -> handleVeltonPayload(player, message));
         Bukkit.getMessenger().registerOutgoingPluginChannel(this, MODS_CHANNEL);
         Bukkit.getMessenger().registerOutgoingPluginChannel(this, INTEGRITY_CHANNEL);
+        Bukkit.getMessenger().registerOutgoingPluginChannel(this, VELTON_CHANNEL);
 
         getServer().getPluginManager().registerEvents(this, this);
         PluginCommand cmd = getCommand("handshaker");
@@ -64,6 +67,7 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
     public void onDisable() {
         Bukkit.getMessenger().unregisterIncomingPluginChannel(this, MODS_CHANNEL);
         Bukkit.getMessenger().unregisterIncomingPluginChannel(this, INTEGRITY_CHANNEL);
+        Bukkit.getMessenger().unregisterIncomingPluginChannel(this, VELTON_CHANNEL);
         clients.clear();
     }
 
@@ -89,8 +93,8 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
             }
             getLogger().info("Received mod list from " + player.getName() + " with nonce: " + nonce);
             clients.compute(player.getUniqueId(), (uuid, oldInfo) -> oldInfo == null
-                    ? new ClientInfo(true, mods, false, nonce, null)
-                    : new ClientInfo(true, mods, oldInfo.signatureVerified(), nonce, oldInfo.integrityNonce()));
+                    ? new ClientInfo(true, mods, false, false, nonce, null, null)
+                    : new ClientInfo(true, mods, oldInfo.signatureVerified(), oldInfo.veltonVerified(), nonce, oldInfo.integrityNonce(), oldInfo.veltonNonce()));
         } catch (Exception e) {
             getLogger().severe("Failed to decode mod list from " + player.getName() + ". Terminating connection: " + e.getMessage());
             player.kick(Component.text("Corrupted handshake data").color(net.kyori.adventure.text.format.NamedTextColor.RED));
@@ -119,11 +123,47 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
 
             final boolean finalVerified = verified;
             clients.compute(player.getUniqueId(), (uuid, oldInfo) -> oldInfo == null
-                    ? new ClientInfo(false, Collections.emptySet(), finalVerified, null, nonce)
-                    : new ClientInfo(oldInfo.fabric(), oldInfo.mods(), finalVerified, oldInfo.modListNonce(), nonce));
+                    ? new ClientInfo(false, Collections.emptySet(), finalVerified, false, null, nonce, null)
+                    : new ClientInfo(oldInfo.fabric(), oldInfo.mods(), finalVerified, oldInfo.veltonVerified(), oldInfo.modListNonce(), nonce, oldInfo.veltonNonce()));
             check(player);
         } catch (Exception e) {
             getLogger().severe("Failed to decode integrity payload from " + player.getName() + ". Terminating connection: " + e.getMessage());
+            player.kick(Component.text("Corrupted handshake data").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+        }
+    }
+
+    private void handleVeltonPayload(Player player, byte[] data) {
+        try {
+            String signatureHash = decodeLengthPrefixedString(data);
+            if (signatureHash == null) {
+                getLogger().warning("Failed to decode Velton payload from " + player.getName() + ". Rejecting.");
+                player.kick(Component.text("Corrupted handshake data").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
+            }
+            String nonce = decodeLengthPrefixedString(data, signatureHash.length());
+            if (nonce == null || nonce.isEmpty()) {
+                getLogger().warning("Received Velton payload from " + player.getName() + " with invalid/missing nonce. Rejecting.");
+                player.kick(Component.text("Invalid handshake: missing nonce").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
+            }
+
+            boolean verified = signatureHash != null && !signatureHash.isEmpty();
+            getLogger().info("Velton check for " + player.getName() + " with nonce " + nonce + ": " + (verified ? "PASSED" : "FAILED"));
+
+            // Kick player if Velton signature is invalid/missing
+            if (!verified) {
+                getLogger().warning("Kicking " + player.getName() + " - Velton signature verification failed");
+                player.kick(Component.text("Anti-cheat verification failed").color(net.kyori.adventure.text.format.NamedTextColor.RED));
+                return;
+            }
+
+            final boolean finalVerified = verified;
+            clients.compute(player.getUniqueId(), (uuid, oldInfo) -> oldInfo == null
+                    ? new ClientInfo(false, Collections.emptySet(), false, finalVerified, null, null, nonce)
+                    : new ClientInfo(oldInfo.fabric(), oldInfo.mods(), oldInfo.signatureVerified(), finalVerified, oldInfo.modListNonce(), oldInfo.integrityNonce(), nonce));
+            check(player);
+        } catch (Exception e) {
+            getLogger().severe("Failed to decode Velton payload from " + player.getName() + ". Terminating connection: " + e.getMessage());
             player.kick(Component.text("Corrupted handshake data").color(net.kyori.adventure.text.format.NamedTextColor.RED));
         }
     }
@@ -239,7 +279,11 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
         Bukkit.getScheduler().runTaskLater(this, () -> {
-            clients.putIfAbsent(e.getPlayer().getUniqueId(), new ClientInfo(false, Collections.emptySet(), false, null, null));
+            ClientInfo info = clients.putIfAbsent(e.getPlayer().getUniqueId(), new ClientInfo(false, Collections.emptySet(), false, false, null, null, null));
+            if (info == null) {
+                info = clients.get(e.getPlayer().getUniqueId());
+            }
+
             check(e.getPlayer());
         }, 100L); // 5 seconds
     }
@@ -343,5 +387,5 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    private record ClientInfo(boolean fabric, Set<String> mods, boolean signatureVerified, String modListNonce, String integrityNonce) {}
+    private record ClientInfo(boolean fabric, Set<String> mods, boolean signatureVerified, boolean veltonVerified, String modListNonce, String integrityNonce, String veltonNonce) {}
 }

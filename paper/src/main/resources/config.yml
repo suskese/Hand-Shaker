@@ -10,6 +10,7 @@ Behavior: Strict
 
 #"Strict" - Kick clients with blacklisted mods + Kick non Hand-shaker mod clients
 #"Vanilla" - Kick clients with blacklisted mods but ignoring non Hand-shaker mod clients (Could be dangerous if clients spoofs clients)
+#"Vanilla" - Kick clients with blacklisted mods but ignoring non Hand-shaker mod clients (Could be dangerous if clients spoofs clients)
 
 Integrity: Signed
 
