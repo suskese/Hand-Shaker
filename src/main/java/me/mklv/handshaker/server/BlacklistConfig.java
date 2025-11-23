@@ -34,7 +34,6 @@ public class BlacklistConfig {
     private static class ConfigData {
         String config = "v2"; // Config version marker - default to v2
         IntegrityMode integrity = IntegrityMode.SIGNED;
-        Mode mode = Mode.BLACKLIST;
         Behavior behavior = Behavior.STRICT;
         @SerializedName("invalid_signature_kick_message")
         String invalidSignatureKickMessage = "Invalid client signature. Please use the official client.";
@@ -44,12 +43,6 @@ public class BlacklistConfig {
         String noHandshakeKickMessage = "To connect to this server please download 'Hand-shaker' mod.";
         @SerializedName("missing_whitelist_mod_message")
         String missingWhitelistModMessage = "You are missing required mods: {mod}. Please install them to join this server.";
-        @SerializedName("extra_whitelist_mod_message")
-        String extraWhitelistModMessage = "You have mods that are not on the whitelist: {mod}. Please remove them to join.";
-        @SerializedName("blacklisted_mods")
-        Set<String> blacklistedMods = new LinkedHashSet<>();
-        @SerializedName("whitelisted_mods")
-        Set<String> whitelistedMods = new LinkedHashSet<>();
 
         // V2 Config fields
         @SerializedName("default_mode")
@@ -58,8 +51,15 @@ public class BlacklistConfig {
 
         // For backwards compatibility
         @SerializedName("kickMode")
-        KickMode oldKickMode = null;
-        
+        transient KickMode oldKickMode = null;
+        transient Mode mode = Mode.BLACKLIST;
+        @SerializedName("blacklisted_mods")
+        transient Set<String> blacklistedMods = new LinkedHashSet<>();
+        @SerializedName("whitelisted_mods")
+        transient Set<String> whitelistedMods = new LinkedHashSet<>();
+        @SerializedName("extra_whitelist_mod_message")
+        transient String extraWhitelistModMessage = "You have mods that are not on the whitelist: {mod}. Please remove them to join.";
+                
         // Initialize with default v2 mods
         {
             mods.put("hand-shaker", ModStatus.REQUIRED);
