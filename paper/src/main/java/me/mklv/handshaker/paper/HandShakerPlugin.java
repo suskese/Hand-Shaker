@@ -188,91 +188,36 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
 
         Set<String> mods = info.mods();
         
-        if (blacklistConfig.isV2Config()) {
-            // V2 Config logic
-            List<String> requiredMissing = new ArrayList<>();
-            List<String> blacklistedPresent = new ArrayList<>();
-            
-            // Check all player's mods
-            for (String mod : mods) {
-                BlacklistConfig.ModStatus status = blacklistConfig.getModStatus(mod);
-                if (status == BlacklistConfig.ModStatus.BLACKLISTED) {
-                    blacklistedPresent.add(mod);
+        List<String> requiredMissing = new ArrayList<>();
+        List<String> blacklistedPresent = new ArrayList<>();
+        
+        // Check all player's mods
+        for (String mod : mods) {
+            BlacklistConfig.ModStatus status = blacklistConfig.getModStatus(mod);
+            if (status == BlacklistConfig.ModStatus.BLACKLISTED) {
+                blacklistedPresent.add(mod);
+            }
+        }
+        
+        // Check all required mods
+        for (Map.Entry<String, BlacklistConfig.ModStatus> entry : blacklistConfig.getModStatusMap().entrySet()) {
+            if (entry.getValue() == BlacklistConfig.ModStatus.REQUIRED) {
+                if (!mods.contains(entry.getKey())) {
+                    requiredMissing.add(entry.getKey());
                 }
             }
-            
-            // Check all required mods
-            for (Map.Entry<String, BlacklistConfig.ModStatus> entry : blacklistConfig.getModStatusMap().entrySet()) {
-                if (entry.getValue() == BlacklistConfig.ModStatus.REQUIRED) {
-                    if (!mods.contains(entry.getKey())) {
-                        requiredMissing.add(entry.getKey());
-                    }
-                }
-            }
-            
-            if (!requiredMissing.isEmpty()) {
-                String msg = blacklistConfig.getMissingWhitelistModMessage().replace("{mod}", String.join(", ", requiredMissing));
-                player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                return;
-            }
-            
-            if (!blacklistedPresent.isEmpty()) {
-                String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", blacklistedPresent));
-                player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                return;
-            }
-        } else {
-            // V1 Config logic (backwards compatibility)
-            if (blacklistConfig.getMode() == BlacklistConfig.Mode.BLACKLIST) {
-                List<String> hits = new ArrayList<>();
-                for (String mod : blacklistConfig.getBlacklistedMods()) {
-                    if (mods.contains(mod)) hits.add(mod);
-                }
-                if (!hits.isEmpty()) {
-                    String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", hits));
-                    player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                }
-            } else { // WHITELIST OR REQUIRE
-                if (info.fabric() || !blacklistConfig.getWhitelistedMods().isEmpty()) {
-                    Set<String> whitelistedMods = blacklistConfig.getWhitelistedMods();
-                    List<String> missing = new ArrayList<>();
-                    for (String mod : whitelistedMods) {
-                        if (!mods.contains(mod)) {
-                            missing.add(mod);
-                        }
-                    }
-                    if (!missing.isEmpty()) {
-                        String msg = blacklistConfig.getMissingWhitelistModMessage().replace("{mod}", String.join(", ", missing));
-                        player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                        return;
-                    }
-
-                    if (blacklistConfig.getMode() == BlacklistConfig.Mode.REQUIRE) {    // REQUIRE mode: check blacklist too
-                        List<String> banned = new ArrayList<>();
-                        for (String mod : blacklistConfig.getBlacklistedMods()) {
-                            if (mods.contains(mod)) {
-                                banned.add(mod);
-                            }
-                        }
-                        if (!banned.isEmpty()) {
-                            String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", banned));
-                            player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                            return;
-                        }
-                    } else if (blacklistConfig.getMode() == BlacklistConfig.Mode.WHITELIST) {    // WHITELIST ONLY
-                        List<String> extra = new ArrayList<>();
-                        for (String mod : mods) {
-                            if (!whitelistedMods.contains(mod)) {
-                                extra.add(mod);
-                            }
-                        }
-                        if (!extra.isEmpty()) {
-                            String msg = blacklistConfig.getExtraWhitelistModMessage().replace("{mod}", String.join(", ", extra));
-                            player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
-                        }
-                    }
-                }
-            }
+        }
+        
+        if (!requiredMissing.isEmpty()) {
+            String msg = blacklistConfig.getMissingWhitelistModMessage().replace("{mod}", String.join(", ", requiredMissing));
+            player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
+            return;
+        }
+        
+        if (!blacklistedPresent.isEmpty()) {
+            String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", blacklistedPresent));
+            player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
+            return;
         }
     }
 

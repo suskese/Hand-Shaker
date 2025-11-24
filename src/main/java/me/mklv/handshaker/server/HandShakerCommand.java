@@ -22,71 +22,40 @@ import static net.minecraft.server.command.CommandManager.literal;
 public class HandShakerCommand {
     
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
-        BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
-        boolean isV2 = config.isV2Config();
-        
         var handshaker = literal("handshaker")
             .then(literal("reload")
-                .executes(HandShakerCommand::reload));
-        
-        if (isV2) {
-            // V2 config commands
-            handshaker
-                .then(literal("add")
-                    .then(literal("*")
+                .executes(HandShakerCommand::reload))
+            .then(literal("add")
+                .then(literal("*")
+                    .then(argument("status", StringArgumentType.word())
+                        .suggests(HandShakerCommand::suggestStatuses)
+                        .executes(HandShakerCommand::addAllMods)))
+                .then(argument("mod", StringArgumentType.word())
+                    .suggests(HandShakerCommand::suggestMods)
+                    .then(argument("status", StringArgumentType.word())
+                        .suggests(HandShakerCommand::suggestStatuses)
+                        .executes(HandShakerCommand::addMod))))
+            .then(literal("change")
+                .then(argument("mod", StringArgumentType.word())
+                    .suggests(HandShakerCommand::suggestConfiguredMods)
+                    .then(argument("status", StringArgumentType.word())
+                        .suggests(HandShakerCommand::suggestStatuses)
+                        .executes(HandShakerCommand::changeMod))))
+            .then(literal("remove")
+                .then(argument("mod", StringArgumentType.word())
+                    .suggests(HandShakerCommand::suggestConfiguredMods)
+                    .executes(HandShakerCommand::removeMod)))
+            .then(literal("list")
+                .executes(HandShakerCommand::listMods))
+            .then(literal("player")
+                .then(argument("player", StringArgumentType.word())
+                    .suggests(HandShakerCommand::suggestPlayers)
+                    .executes(HandShakerCommand::showPlayer)
+                    .then(argument("mod", StringArgumentType.word())
+                        .suggests(HandShakerCommand::suggestPlayerMods)
                         .then(argument("status", StringArgumentType.word())
                             .suggests(HandShakerCommand::suggestStatuses)
-                            .executes(HandShakerCommand::addAllMods)))
-                    .then(argument("mod", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestMods)
-                        .then(argument("status", StringArgumentType.word())
-                            .suggests(HandShakerCommand::suggestStatuses)
-                            .executes(HandShakerCommand::addMod))))
-                .then(literal("change")
-                    .then(argument("mod", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestConfiguredMods)
-                        .then(argument("status", StringArgumentType.word())
-                            .suggests(HandShakerCommand::suggestStatuses)
-                            .executes(HandShakerCommand::changeMod))))
-                .then(literal("remove")
-                    .then(argument("mod", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestConfiguredMods)
-                        .executes(HandShakerCommand::removeMod)))
-                .then(literal("list")
-                    .executes(HandShakerCommand::listMods))
-                .then(literal("player")
-                    .then(argument("player", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestPlayers)
-                        .executes(HandShakerCommand::showPlayer)
-                        .then(argument("mod", StringArgumentType.word())
-                            .suggests(HandShakerCommand::suggestPlayerMods)
-                            .then(argument("status", StringArgumentType.word())
-                                .suggests(HandShakerCommand::suggestStatuses)
-                                .executes(HandShakerCommand::setPlayerModStatus)))));
-        } else {
-            // V1 config commands
-            handshaker
-                .then(literal("mode")
-                    .then(argument("mode", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestModes)
-                        .executes(HandShakerCommand::setMode)))
-                .then(literal("add")
-                    .then(argument("mod", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestMods)
-                        .executes(HandShakerCommand::addModV1)))
-                .then(literal("remove")
-                    .then(argument("mod", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestBlacklistedMods)
-                        .executes(HandShakerCommand::removeMod)))
-                .then(literal("player")
-                    .then(argument("player", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestPlayers)
-                        .executes(HandShakerCommand::showPlayerV1)))
-                .then(literal("whitelist_update")
-                    .then(argument("player", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestPlayers)
-                        .executes(HandShakerCommand::whitelistUpdate)));
-        }
+                            .executes(HandShakerCommand::setPlayerModStatus)))));
         
         dispatcher.register(handshaker);
     }
@@ -271,103 +240,14 @@ public class HandShakerCommand {
         ctx.getSource().sendFeedback(() -> message, true);
         HandShakerServer.getInstance().checkAllPlayers();
         return Command.SINGLE_SUCCESS;
-    }    // ===== V1 Commands =====
-    
-    private static int setMode(CommandContext<ServerCommandSource> ctx) {
-        String modeStr = StringArgumentType.getString(ctx, "mode");
-        BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
-        
-        BlacklistConfig.Mode mode;
-        try {
-            mode = BlacklistConfig.Mode.valueOf(modeStr.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            ctx.getSource().sendError(Text.literal("Unknown mode. Use blacklist, whitelist, or require."));
-            return 0;
-        }
-        
-        config.setMode(mode);
-        Text message = Text.literal("HandShaker mode set to " + modeStr + ".");
-        ctx.getSource().sendFeedback(() -> message, true);
-        HandShakerServer.getInstance().checkAllPlayers();
-        return Command.SINGLE_SUCCESS;
     }
-    
-    private static int addModV1(CommandContext<ServerCommandSource> ctx) {
-        String modId = StringArgumentType.getString(ctx, "mod");
-        BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
-        
-        boolean added = config.addMod(modId);
-        Text message = Text.literal(added ? "Added " + modId : modId + " already in blacklist.");
-        ctx.getSource().sendFeedback(() -> message, true);
-        if (added) HandShakerServer.getInstance().checkAllPlayers();
-        return Command.SINGLE_SUCCESS;
-    }
-    
-    private static int showPlayerV1(CommandContext<ServerCommandSource> ctx) {
-        String playerName = StringArgumentType.getString(ctx, "player");
-        ServerPlayerEntity player = ctx.getSource().getServer().getPlayerManager().getPlayer(playerName);
-        
-        if (player == null) {
-            ctx.getSource().sendError(Text.literal("Player '" + playerName + "' not found."));
-            return 0;
-        }
-        
-        HandShakerServer.ClientInfo clientInfo = HandShakerServer.getInstance().getClients().get(player.getUuid());
-        Set<String> mods = clientInfo != null ? clientInfo.mods() : null;
-        if (mods == null || mods.isEmpty()) {
-            ctx.getSource().sendError(Text.literal("No mod list found for " + playerName + "."));
-            return 0;
-        }
-        
-        BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
-        Set<String> blacklisted = config.getBlacklistedMods();
-        
-        ctx.getSource().sendMessage(Text.literal("=== " + playerName + "'s Mods ===").formatted(Formatting.GOLD));
-        
-        for (String mod : mods) {
-            if (blacklisted.contains(mod)) {
-                ctx.getSource().sendMessage(Text.literal("  • " + mod + " [BLACKLISTED]").formatted(Formatting.RED));
-            } else {
-                ctx.getSource().sendMessage(Text.literal("  • " + mod).formatted(Formatting.WHITE));
-            }
-        }
-        
-        return Command.SINGLE_SUCCESS;
-    }
-    
-    private static int whitelistUpdate(CommandContext<ServerCommandSource> ctx) {
-        String playerName = StringArgumentType.getString(ctx, "player");
-        ServerPlayerEntity player = ctx.getSource().getServer().getPlayerManager().getPlayer(playerName);
-        
-        if (player == null) {
-            ctx.getSource().sendError(Text.literal("Player not found."));
-            return 0;
-        }
-        
-        HandShakerServer.ClientInfo clientInfo = HandShakerServer.getInstance().getClients().get(player.getUuid());
-        Set<String> mods = clientInfo != null ? clientInfo.mods() : null;
-        if (mods == null) {
-            ctx.getSource().sendError(Text.literal("Mod list for " + playerName + " not found. Make sure they are online and using Fabric."));
-            return 0;
-        }
-        
-        BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
-        config.setWhitelist(mods);
-        
-        int size = mods.size();
-        Text message = Text.literal("Whitelist updated with " + playerName + "'s mods. " + size + " mods added.");
-        ctx.getSource().sendFeedback(() -> message, true);
-        HandShakerServer.getInstance().checkAllPlayers();
-        return Command.SINGLE_SUCCESS;
-    }
-    
-    // ===== Shared Commands =====
+
     
     private static int removeMod(CommandContext<ServerCommandSource> ctx) {
         String modId = StringArgumentType.getString(ctx, "mod");
         BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
         
-        boolean removed = config.removeMod(modId);
+        boolean removed = config.removeModStatus(modId);
         Text message = Text.literal(removed ? "Removed " + modId : modId + " not found.");
         ctx.getSource().sendFeedback(() -> message, true);
         return Command.SINGLE_SUCCESS;
@@ -377,10 +257,6 @@ public class HandShakerCommand {
     
     private static CompletableFuture<Suggestions> suggestStatuses(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
         return CommandSource.suggestMatching(new String[]{"allowed", "required", "blacklisted"}, builder);
-    }
-    
-    private static CompletableFuture<Suggestions> suggestModes(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
-        return CommandSource.suggestMatching(new String[]{"blacklist", "whitelist", "require"}, builder);
     }
     
     private static CompletableFuture<Suggestions> suggestPlayers(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
@@ -422,10 +298,5 @@ public class HandShakerCommand {
     private static CompletableFuture<Suggestions> suggestConfiguredMods(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
         BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
         return CommandSource.suggestMatching(config.getModStatusMap().keySet(), builder);
-    }
-    
-    private static CompletableFuture<Suggestions> suggestBlacklistedMods(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
-        BlacklistConfig config = HandShakerServer.getInstance().getBlacklistConfig();
-        return CommandSource.suggestMatching(config.getBlacklistedMods(), builder);
     }
 }
