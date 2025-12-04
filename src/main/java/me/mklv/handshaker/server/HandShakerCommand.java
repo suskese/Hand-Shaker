@@ -26,6 +26,7 @@ public class HandShakerCommand {
         boolean isV2 = config.isV2Config();
         
         var handshaker = literal("handshaker")
+            .requires(source -> source.hasPermissionLevel(2))
             .then(literal("reload")
                 .executes(HandShakerCommand::reload));
         
