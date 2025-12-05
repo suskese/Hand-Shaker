@@ -23,6 +23,7 @@ public class HandShakerCommand {
     
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
         var handshaker = literal("handshaker")
+            .requires(source -> source.hasPermissionLevel(2))
             .then(literal("reload")
                 .executes(HandShakerCommand::reload))
             .then(literal("add")
@@ -68,8 +69,7 @@ public class HandShakerCommand {
         HandShakerServer.getInstance().checkAllPlayers();
         return Command.SINGLE_SUCCESS;
     }
-    
-    // ===== V2 Commands =====
+
     
     private static int addMod(CommandContext<ServerCommandSource> ctx) {
         String modId = StringArgumentType.getString(ctx, "mod");

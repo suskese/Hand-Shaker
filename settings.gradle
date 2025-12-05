@@ -9,6 +9,5 @@ pluginManagement {
 	}
 }
 
-// Include additional subprojects (Paper server plugin, Velton anti-cheat)
 include 'paper'
-include 'velton'
+include 'velton' // Velton addon (Source code is private)

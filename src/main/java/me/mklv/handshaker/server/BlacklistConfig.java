@@ -2,7 +2,7 @@ package me.mklv.handshaker.server;
 
 import com.google.gson.*;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.reflect.TypeToken;
+// import com.google.gson.reflect.TypeToken;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
@@ -22,13 +22,8 @@ public class BlacklistConfig {
             .registerTypeAdapter(ModStatus.class, new ModStatusDeserializer())
             .registerTypeAdapter(DefaultMode.class, new DefaultModeDeserializer())
             .create();
-    private final HandShakerServer server;
     private File configFile;
     private ConfigData configData;
-
-    public BlacklistConfig(HandShakerServer server) {
-        this.server = server;
-    }
 
     private static class ConfigData {
         String config = "v2"; // Config version marker - default to v2

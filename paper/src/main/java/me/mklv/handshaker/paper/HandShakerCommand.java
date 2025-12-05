@@ -140,7 +140,6 @@ public class HandShakerCommand implements TabExecutor {
                 sender.sendMessage("§6=== Configured Mods (Default: " + config.getDefaultMode() + ") ===");
                 
                 if (!(sender instanceof Player player)) {
-                    // Console - simple list
                     for (Map.Entry<String, BlacklistConfig.ModStatus> entry : mods.entrySet()) {
                         String statusColor = switch (entry.getValue()) {
                             case REQUIRED -> "§a";
@@ -150,7 +149,6 @@ public class HandShakerCommand implements TabExecutor {
                         sender.sendMessage(statusColor + entry.getKey() + " §7- §f" + entry.getValue());
                     }
                 } else {
-                    // Player - clickable list to remove
                     for (Map.Entry<String, BlacklistConfig.ModStatus> entry : mods.entrySet()) {
                         NamedTextColor statusColor = switch (entry.getValue()) {
                             case REQUIRED -> NamedTextColor.GREEN;
@@ -185,7 +183,6 @@ public class HandShakerCommand implements TabExecutor {
                     return true;
                 }
                 
-                // If mod and status are provided, set the status directly
                 if (args.length >= 4) {
                     String modId = args[2];
                     if (!mods.contains(modId)) {
@@ -211,12 +208,10 @@ public class HandShakerCommand implements TabExecutor {
                 }
 
                 if (!(sender instanceof Player player)) {
-                    // Console fallback
                     sender.sendMessage(target.getName() + "'s mods: " + String.join(", ", mods));
                     return true;
                 }
                 
-                // Show interactive buttons
                 player.sendMessage(Component.text("=== " + target.getName() + "'s Mods ===").color(NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
                     for (String mod : mods) {
                         BlacklistConfig.ModStatus currentStatus = config.getModStatus(mod);

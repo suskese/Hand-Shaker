@@ -311,7 +311,6 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
             } while ((read & 0b10000000) != 0);
             offset += previousDataLength; // Skip the previous data
             
-            // Now decode the string from the offset
             int idx = offset;
             numRead = 0;
             int result = 0;

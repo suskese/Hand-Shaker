@@ -2,7 +2,7 @@ package me.mklv;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
-import net.fabricmc.loader.api.ModContainer;
+// import net.fabricmc.loader.api.ModContainer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
@@ -17,11 +17,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateEncodingException;
+// import java.security.cert.Certificate;
+// import java.security.cert.CertificateEncodingException;
 import java.util.Optional;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
+// import java.util.jar.JarEntry;
+// import java.util.jar.JarFile;
 
 public class HandShaker implements ClientModInitializer {
 	public static final String MOD_ID = "hand-shaker";

@@ -16,26 +16,17 @@ base {
 }
 
 repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
+	// Placeholder
 }
 
 dependencies {
-	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-
-	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 	
 }
 
-// This task copies the public certificate into the resources of the server, paper, and velton modules
-// so it can be used for verification.
 tasks.register('copyCert', Copy) {
     description = 'Copies the public certificate to the resources directories for embedding.'
     from 'Integrity'
@@ -45,7 +36,6 @@ tasks.register('copyCert', Copy) {
     include 'public.cer'
 }
 
-// Ensure the certificate is copied before the resources are processed.
 tasks.withType(ProcessResources).configureEach {
     dependsOn tasks.named('copyCert')
 }
@@ -77,7 +67,6 @@ jar {
 	}
 }
 
-// configure the maven publication
 publishing {
 	publications {
 		create("mavenJava", MavenPublication) {
@@ -92,7 +81,6 @@ publishing {
 }
 
 afterEvaluate {
-    // Load environment variables from .env file
     def envFile = file('.env')
     if (envFile.exists()) {
         envFile.readLines().each { line ->
@@ -103,7 +91,6 @@ afterEvaluate {
         }
     }
 
-    // This task signs the remapped Fabric JAR using the keystore in the Integrity folder.
     tasks.register('signFabricJar') {
         group = 'build'
         description = 'Signs the remapped Fabric client JAR.'
@@ -146,7 +133,6 @@ afterEvaluate {
         def signedJarProvider = tasks.named('signFabricJar').flatMap { it.outputs.files.elements.map { fs -> fs.first().asFile } }
         def paperJarProvider = project(':paper').tasks.named('jar').flatMap { it.archiveFile }
 
-        // --- Merge contents lazily ---
         from(signedJarProvider.map { file -> zipTree(file) })
         from(paperJarProvider.map { file -> zipTree(file) }) {
             exclude 'META-INF/MANIFEST.MF'
@@ -156,7 +142,6 @@ afterEvaluate {
         archiveBaseName.set("${project.archives_base_name}-merged")
         destinationDirectory.set(layout.buildDirectory.dir("output"))
 
-        // --- Copy manifest lazily from the Fabric jar ---
         manifest {
             from(signedJarProvider.map { file ->
                 zipTree(file).matching {
@@ -166,6 +151,5 @@ afterEvaluate {
         }
     }
 
-    // Run mergeJars automatically after build
     build.finalizedBy(tasks.named('mergeJars'))
 }

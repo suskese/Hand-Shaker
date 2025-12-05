@@ -2,7 +2,7 @@
 >[!WARNING]
 >### **This project requires to be set up on both sides, client and server side.**
 
-# **HandShaker 4.0.0**
+# **HandShaker 5.0.0**
 
 HandShaker is a cross-platform mod/plugin system for Minecraft servers and clients.  
 It lets Paper/Fabric servers see which Fabric mods players are using, and automatically enforce a blacklist with customizable kick messages.

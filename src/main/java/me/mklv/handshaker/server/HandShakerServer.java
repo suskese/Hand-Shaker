@@ -53,7 +53,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
     public void onInitializeServer() {
         instance = this;
         LOGGER.info("HandShaker server initializing");
-        blacklistConfig = new BlacklistConfig(this);
+        blacklistConfig = new BlacklistConfig();
         blacklistConfig.load();
 
         loadServerCertificate();
@@ -163,8 +163,6 @@ public class HandShakerServer implements DedicatedServerModInitializer {
             scheduler.schedule(() -> {
                 server.execute(() -> {
                     if (handler.player.networkHandler == null) return; // Player disconnected
-                    // If the player is still in the map, re-run the check.
-                    // If they are not (e.g. vanilla client), create a default entry and check that.
                     ClientInfo info = clients.computeIfAbsent(handler.player.getUuid(), uuid -> new ClientInfo(Collections.emptySet(), false, false, null, null, null));
 
                     blacklistConfig.checkPlayer(handler.player, info);
