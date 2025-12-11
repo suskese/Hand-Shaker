@@ -25,6 +25,13 @@ dependencies {
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 	
+	// Database dependencies - include in JAR
+	include implementation('org.xerial:sqlite-jdbc:3.47.1.0')
+	include implementation('com.zaxxer:HikariCP:6.2.1')
+	include implementation('org.slf4j:slf4j-api:2.0.16')
+	
+	modImplementation "me.lucko:fabric-permissions-api:0.3.1"
+	include "me.lucko:fabric-permissions-api:0.3.1"
 }
 
 tasks.register('copyCert', Copy) {

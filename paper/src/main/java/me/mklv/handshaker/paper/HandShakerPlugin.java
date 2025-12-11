@@ -24,12 +24,15 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
 
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
     private BlacklistConfig blacklistConfig;
+    private PlayerHistoryDatabase playerHistoryDb;
     private byte[] serverCertificate;
 
     @Override
     public void onEnable() {
         blacklistConfig = new BlacklistConfig(this);
         blacklistConfig.load();
+        
+        playerHistoryDb = new PlayerHistoryDatabase(getDataFolder(), getLogger());
 
         loadServerCertificate();
 
@@ -68,6 +71,9 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
         Bukkit.getMessenger().unregisterIncomingPluginChannel(this, MODS_CHANNEL);
         Bukkit.getMessenger().unregisterIncomingPluginChannel(this, INTEGRITY_CHANNEL);
         Bukkit.getMessenger().unregisterIncomingPluginChannel(this, VELTON_CHANNEL);
+        if (playerHistoryDb != null) {
+            playerHistoryDb.close();
+        }
         clients.clear();
     }
 
@@ -92,6 +98,16 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
                 }
             }
             getLogger().info("Received mod list from " + player.getName() + " with nonce: " + nonce);
+            
+            // Sync with database
+            if (playerHistoryDb != null) {
+                try {
+                    playerHistoryDb.syncPlayerMods(player.getUniqueId(), player.getName(), mods);
+                } catch (Exception dbEx) {
+                    getLogger().warning("Failed to sync player mods to database: " + dbEx.getMessage());
+                }
+            }
+            
             clients.compute(player.getUniqueId(), (uuid, oldInfo) -> oldInfo == null
                     ? new ClientInfo(true, mods, false, false, nonce, null, null)
                     : new ClientInfo(true, mods, oldInfo.signatureVerified(), oldInfo.veltonVerified(), nonce, oldInfo.integrityNonce(), oldInfo.veltonNonce()));
@@ -188,35 +204,10 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
 
         Set<String> mods = info.mods();
         
-        List<String> requiredMissing = new ArrayList<>();
-        List<String> blacklistedPresent = new ArrayList<>();
-        
-        // Check all player's mods
-        for (String mod : mods) {
-            BlacklistConfig.ModStatus status = blacklistConfig.getModStatus(mod);
-            if (status == BlacklistConfig.ModStatus.BLACKLISTED) {
-                blacklistedPresent.add(mod);
-            }
-        }
-        
-        // Check all required mods
-        for (Map.Entry<String, BlacklistConfig.ModStatus> entry : blacklistConfig.getModStatusMap().entrySet()) {
-            if (entry.getValue() == BlacklistConfig.ModStatus.REQUIRED) {
-                if (!mods.contains(entry.getKey())) {
-                    requiredMissing.add(entry.getKey());
-                }
-            }
-        }
-        
-        if (!requiredMissing.isEmpty()) {
-            String msg = blacklistConfig.getMissingWhitelistModMessage().replace("{mod}", String.join(", ", requiredMissing));
-            player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
-            return;
-        }
-        
-        if (!blacklistedPresent.isEmpty()) {
-            String msg = blacklistConfig.getKickMessage().replace("{mod}", String.join(", ", blacklistedPresent));
-            player.kick(Component.text(msg).color(net.kyori.adventure.text.format.NamedTextColor.RED));
+        // Use new checkPlayer method which handles all logic including bans/kicks/warns
+        String kickReason = blacklistConfig.checkPlayer(player, mods);
+        if (kickReason != null) {
+            player.kick(Component.text(kickReason).color(net.kyori.adventure.text.format.NamedTextColor.RED));
             return;
         }
     }
@@ -239,6 +230,10 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
     }
 
     public BlacklistConfig getBlacklistConfig() { return blacklistConfig; }
+    
+    public PlayerHistoryDatabase getPlayerHistoryDb() {
+        return playerHistoryDb;
+    }
 
     public Set<String> getClientMods(UUID uuid) {
         ClientInfo info = clients.get(uuid);

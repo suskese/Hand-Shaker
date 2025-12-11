@@ -39,6 +39,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
     private static HandShakerServer instance;
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
     private BlacklistConfig blacklistConfig;
+    private PlayerHistoryDatabase playerHistoryDb;
     private MinecraftServer server;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private byte[] serverCertificate;
@@ -55,11 +56,18 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         LOGGER.info("HandShaker server initializing");
         blacklistConfig = new BlacklistConfig();
         blacklistConfig.load();
+        
+        playerHistoryDb = new PlayerHistoryDatabase();
 
         loadServerCertificate();
 
         ServerLifecycleEvents.SERVER_STARTED.register(server -> this.server = server);
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> scheduler.shutdown());
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            scheduler.shutdown();
+            if (playerHistoryDb != null) {
+                playerHistoryDb.close();
+            }
+        });
 
         // Register payload types
         PayloadTypeRegistry.playC2S().register(HandShaker.ModsListPayload.ID, HandShaker.ModsListPayload.CODEC);
@@ -80,6 +88,12 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                     mods.clear();
                 }
                 LOGGER.info("Received mod list from {} with nonce: {}", player.getName().getString(), payload.nonce());
+                
+                // Sync with database
+                if (playerHistoryDb != null) {
+                    playerHistoryDb.syncPlayerMods(player.getUuid(), player.getName().getString(), mods);
+                }
+                
                 clients.compute(player.getUuid(), (uuid, oldInfo) ->
                         new ClientInfo(mods, 
                                 oldInfo != null && oldInfo.signatureVerified(),
@@ -198,6 +212,14 @@ public class HandShakerServer implements DedicatedServerModInitializer {
 
     public BlacklistConfig getBlacklistConfig() {
         return blacklistConfig;
+    }
+
+    public PlayerHistoryDatabase getPlayerHistoryDb() {
+        return playerHistoryDb;
+    }
+
+    public MinecraftServer getServer() {
+        return server;
     }
 
     public Map<UUID, ClientInfo> getClients() {
