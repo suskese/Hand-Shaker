@@ -117,8 +117,10 @@ public class BlacklistConfig {
             }
         }
 
-        if (config.has("Mods")) {
-            JsonObject modsObj = config.getAsJsonObject("Mods");
+        // Check for both "Mods" (v3) and "mods" (v2) keys
+        String modsKey = config.has("Mods") ? "Mods" : (config.has("mods") ? "mods" : null);
+        if (modsKey != null) {
+            JsonObject modsObj = config.getAsJsonObject(modsKey);
             
             if (version.equals("v3")) {
                 for (String modId : modsObj.keySet()) {
@@ -135,12 +137,12 @@ public class BlacklistConfig {
                     }
                 }
             } else {
+                // v2 format - migrate to v3
                 for (String modId : modsObj.keySet()) {
                     String mode = modsObj.get(modId).getAsString();
                     modConfigMap.put(modId.toLowerCase(Locale.ROOT), new ModConfig(mode, "kick", null));
                 }
-                config.addProperty("config", "v3");
-                save();
+                save(); // Save will auto-upgrade to v3 format with capital "Mods"
             }
         }
     }
@@ -263,12 +265,6 @@ public class BlacklistConfig {
         freshConfig.addProperty("Missing required mod message", missingWhitelistModMessage);
         freshConfig.addProperty("Default Mode", defaultMode == DefaultMode.ALLOWED ? "allowed" : "blacklisted");
 
-        JsonArray ignoredArray = new JsonArray();
-        for (String mod : ignoredMods) {
-            ignoredArray.add(mod);
-        }
-        freshConfig.add("Ignored Mods", ignoredArray);
-
         JsonObject modsObj = new JsonObject();
         for (Map.Entry<String, ModConfig> entry : modConfigMap.entrySet()) {
             ModConfig cfg = entry.getValue();
@@ -281,6 +277,12 @@ public class BlacklistConfig {
             modsObj.add(entry.getKey(), modObj);
         }
         freshConfig.add("Mods", modsObj);
+
+        JsonArray ignoredArray = new JsonArray();
+        for (String mod : ignoredMods) {
+            ignoredArray.add(mod);
+        }
+        freshConfig.add("Ignored Mods", ignoredArray);
 
         try (FileWriter writer = new FileWriter(file)) {
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
