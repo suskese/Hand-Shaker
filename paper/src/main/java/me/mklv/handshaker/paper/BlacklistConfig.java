@@ -251,20 +251,23 @@ public class BlacklistConfig {
     }
 
     public void save() {
-        config.addProperty("config", "v3");
-        config.addProperty("Kick Message", kickMessage);
-        config.addProperty("Missing required mod message", missingWhitelistModMessage);
-        config.addProperty("Missing mod message", noHandshakeKickMessage);
-        config.addProperty("Invalid signature kick message", invalidSignatureKickMessage);
-        config.addProperty("Behavior", behavior == Behavior.STRICT ? "Strict" : "Vanilla");
-        config.addProperty("Integrity", integrityMode == IntegrityMode.SIGNED ? "Signed" : "Dev");
-        config.addProperty("Default Mode", defaultMode == DefaultMode.ALLOWED ? "allowed" : "blacklisted");
+        // Create a fresh config object to prevent duplicates and old keys
+        JsonObject freshConfig = new JsonObject();
+        
+        freshConfig.addProperty("config", "v3");
+        freshConfig.addProperty("Integrity", integrityMode == IntegrityMode.SIGNED ? "Signed" : "Dev");
+        freshConfig.addProperty("Behavior", behavior == Behavior.STRICT ? "Strict" : "Vanilla");
+        freshConfig.addProperty("Invalid signature kick message", invalidSignatureKickMessage);
+        freshConfig.addProperty("Kick Message", kickMessage);
+        freshConfig.addProperty("Missing mod message", noHandshakeKickMessage);
+        freshConfig.addProperty("Missing required mod message", missingWhitelistModMessage);
+        freshConfig.addProperty("Default Mode", defaultMode == DefaultMode.ALLOWED ? "allowed" : "blacklisted");
 
         JsonArray ignoredArray = new JsonArray();
         for (String mod : ignoredMods) {
             ignoredArray.add(mod);
         }
-        config.add("Ignored Mods", ignoredArray);
+        freshConfig.add("Ignored Mods", ignoredArray);
 
         JsonObject modsObj = new JsonObject();
         for (Map.Entry<String, ModConfig> entry : modConfigMap.entrySet()) {
@@ -277,13 +280,15 @@ public class BlacklistConfig {
             }
             modsObj.add(entry.getKey(), modObj);
         }
-        config.add("Mods", modsObj);
+        freshConfig.add("Mods", modsObj);
 
         try (FileWriter writer = new FileWriter(file)) {
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            gson.toJson(config, writer);
+            gson.toJson(freshConfig, writer);
         } catch (IOException e) {
             plugin.getLogger().severe("Could not save hand-shaker.json!");
         }
+
+        config = freshConfig;
     }
 }
