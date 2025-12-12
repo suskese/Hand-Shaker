@@ -30,8 +30,8 @@ dependencies {
 	include implementation('com.zaxxer:HikariCP:6.2.1')
 	include implementation('org.slf4j:slf4j-api:2.0.16')
 	
-	modImplementation "me.lucko:fabric-permissions-api:0.3.1"
-	include "me.lucko:fabric-permissions-api:0.3.1"
+	modImplementation "me.lucko:fabric-permissions-api:0.6.1"
+	include "me.lucko:fabric-permissions-api:0.6.1"
 }
 
 tasks.register('copyCert', Copy) {
@@ -115,15 +115,18 @@ afterEvaluate {
             if (file('Integrity/keystore.jks').exists()) {
                 println "--> Signing JAR: ${jarToSign.name}"
                 def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
-                exec {
-                    executable = 'jarsigner'
-                    args = [
-                        '-keystore', file('Integrity/keystore.jks').absolutePath,
-                        '-storepass', keystorePassword,
-                        '-signedjar', signedJar.get().asFile.absolutePath,
-                        jarToSign.absolutePath,
-                        'handshaker'
-                    ]
+                def command = [
+                    'jarsigner',
+                    '-keystore', file('Integrity/keystore.jks').absolutePath,
+                    '-storepass', keystorePassword,
+                    '-signedjar', signedJar.get().asFile.absolutePath,
+                    jarToSign.absolutePath,
+                    'handshaker'
+                ]
+                def process = command.execute()
+                process.waitFor()
+                if (process.exitValue() != 0) {
+                    throw new GradleException("Failed to sign JAR: ${process.errorStream.text}")
                 }
             } else {
                 println "--> Keystore not found in Integrity/keystore.jks. Skipping signing."

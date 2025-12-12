@@ -28,10 +28,10 @@
 		"hand-shaker.mixins.json"
 	],
 	"depends": {
-		"fabricloader": ">=0.17.2",
-		"minecraft": "~1.21",
+		"fabricloader": ">=0.18.2",
+		"minecraft": "1.21.11",
 		"java": ">=21",
-		"fabric-api": "*"
+		"fabric-api": ">=0.139.5+1.21.11"
 	},
 	"custom": {
 		"modmenu":{

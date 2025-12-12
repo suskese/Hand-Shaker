@@ -1,14 +1,11 @@
 package me.mklv.handshaker.server;
-
 import com.google.gson.*;
 import com.google.gson.annotations.SerializedName;
-// import com.google.gson.reflect.TypeToken;
 import me.lucko.fabric.api.permissions.v0.Permissions;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
-
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -290,8 +287,8 @@ public class BlacklistConfig {
     public void checkPlayer(ServerPlayerEntity player, HandShakerServer.ClientInfo info) {
         if (info == null) return; // Should not happen, but safeguard
 
-        // Check for bypass permission
-        if (Permissions.check(player, "handshaker.bypass", 2)) {
+        // Check for bypass permission (no op default - explicit permission only)
+        if (Permissions.check(player, "handshaker.bypass", false)) {
             return; // Player has bypass permission
         }
 
@@ -360,8 +357,9 @@ public class BlacklistConfig {
                 MinecraftServer serverInstance = HandShakerServer.getInstance().getServer();
                 if (serverInstance != null) {
                     com.mojang.authlib.GameProfile profile = player.getGameProfile();
+                    net.minecraft.server.PlayerConfigEntry playerConfigEntry = new net.minecraft.server.PlayerConfigEntry(profile);
                     net.minecraft.server.BannedPlayerEntry banEntry = new net.minecraft.server.BannedPlayerEntry(
-                        profile, null, "HandShaker", null, banReason
+                        playerConfigEntry, null, "HandShaker", null, banReason
                     );
                     serverInstance.getPlayerManager().getUserBanList().add(banEntry);
                 }
