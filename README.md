@@ -1,11 +1,15 @@
 >[!WARNING]
 >### **This project requires to be set up on both sides, client and server side.**
 
+<hr/>
+
 [![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/available/modrinth_vector.svg)](https://modrinth.com/plugin/hand-shaker)
 [![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/supported/paper_vector.svg)](https://papermc.io/)
 [![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/documentation/generic_vector.svg)](https://github.com/suskese/Hand-Shaker/wiki)
 [![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/donate/kofi-plural-alt_vector.svg)](https://ko-fi.com/icevallish)
 [![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/requires/fabric-api_vector.svg)](https://modrinth.com/mod/fabric-api)
+
+<hr/>
 
 # **HandShaker 5.0.0**
 
