@@ -1,6 +1,6 @@
 plugins {
     id 'java'
-    id 'com.github.johnrengelman.shadow' version '8.1.1'
+    id 'com.gradleup.shadow' version '9.3.0'
 }
 
 group = 'me.mklv'
@@ -44,8 +44,6 @@ shadowJar {
     archiveClassifier.set('')
 
     relocate 'com.zaxxer.hikari', 'me.mklv.handshaker.libs.hikari'
-    relocate 'org.sqlite', 'me.mklv.handshaker.libs.sqlite'
-    relocate 'org.slf4j', 'me.mklv.handshaker.libs.slf4j'
 
     dependencies {
         exclude(dependency('io.papermc.paper:paper-api'))

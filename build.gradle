@@ -98,7 +98,7 @@ afterEvaluate {
         }
     }
 
-    tasks.register('signFabricJar') {
+    tasks.register('signFabricJar', Exec) {
         group = 'build'
         description = 'Signs the remapped Fabric client JAR.'
         dependsOn(tasks.named('remapJar'))
@@ -110,27 +110,18 @@ afterEvaluate {
         inputs.file('Integrity/keystore.jks')
         outputs.file(signedJar)
 
-        doLast {
+        onlyIf { file('Integrity/keystore.jks').exists() }
+
+        doFirst {
             def jarToSign = remappedJarProvider.get()
-            if (file('Integrity/keystore.jks').exists()) {
-                println "--> Signing JAR: ${jarToSign.name}"
-                def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
-                def command = [
-                    'jarsigner',
-                    '-keystore', file('Integrity/keystore.jks').absolutePath,
-                    '-storepass', keystorePassword,
-                    '-signedjar', signedJar.get().asFile.absolutePath,
-                    jarToSign.absolutePath,
-                    'handshaker'
-                ]
-                def process = command.execute()
-                process.waitFor()
-                if (process.exitValue() != 0) {
-                    throw new GradleException("Failed to sign JAR: ${process.errorStream.text}")
-                }
-            } else {
-                println "--> Keystore not found in Integrity/keystore.jks. Skipping signing."
-            }
+            def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
+            println "--> Signing JAR: ${jarToSign.name}"
+            commandLine 'jarsigner',
+                '-keystore', file('Integrity/keystore.jks').absolutePath,
+                '-storepass', keystorePassword,
+                '-signedjar', signedJar.get().asFile.absolutePath,
+                jarToSign.absolutePath,
+                'handshaker'
         }
     }
 
