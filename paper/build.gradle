@@ -44,8 +44,8 @@ shadowJar {
     archiveClassifier.set('')
 
     relocate 'com.zaxxer.hikari', 'me.mklv.handshaker.libs.hikari'
-    relocate 'org.sqlite', 'me.mklv.handshaker.libs.sqlite'
-    relocate 'org.slf4j', 'me.mklv.handshaker.libs.slf4j'
+    // relocate 'org.sqlite', 'me.mklv.handshaker.libs.sqlite'
+    // relocate 'org.slf4j', 'me.mklv.handshaker.libs.slf4j'
 
     dependencies {
         exclude(dependency('io.papermc.paper:paper-api'))
