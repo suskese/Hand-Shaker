@@ -135,10 +135,11 @@ afterEvaluate {
         group = 'build'
         description = 'Merges the Fabric and Paper jars into one combined jar'
 
-        dependsOn(tasks.named('signFabricJar')) // Ensure signing happens before merging
+        dependsOn(tasks.named('signFabricJar'))
+        dependsOn(project(':paper').tasks.named('shadowJar'))
 
         def signedJarProvider = tasks.named('signFabricJar').flatMap { it.outputs.files.elements.map { fs -> fs.first().asFile } }
-        def paperJarProvider = project(':paper').tasks.named('jar').flatMap { it.archiveFile }
+        def paperJarProvider = project(':paper').tasks.named('shadowJar').flatMap { it.archiveFile }
 
         from(signedJarProvider.map { file -> zipTree(file) })
         from(paperJarProvider.map { file -> zipTree(file) }) {
