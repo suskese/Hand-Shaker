@@ -23,7 +23,9 @@ public class HandShakerCommand {
     
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
         var handshaker = literal("handshaker")
-            .requires(source -> Permissions.check(source, "handshaker.admin", 2))
+            .requires(source -> {
+                return Permissions.check(source, "handshaker.admin", 4);
+            })
             .then(literal("reload")
                 .executes(HandShakerCommand::reload))
             .then(literal("add")
