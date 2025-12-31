@@ -9,5 +9,6 @@ pluginManagement {
 	}
 }
 
-include 'paper'
-include 'velton' // Velton addon (Source code is private)
+include 'src:fabric'
+include 'src:paper'
+include 'src:velton' // Velton addon (Source code is private)

@@ -1,163 +1,55 @@
 plugins {
-	id 'fabric-loom' version "${loom_version}"
-	id 'maven-publish'
+    id 'base'
 }
 
-subprojects {
-    group = rootProject.group
-    version = rootProject.version
-}
-
-version = project.mod_version
-group = project.maven_group
-
-base {
-	archivesName = project.archives_base_name
-}
-
-repositories {
-	// Placeholder
-}
-
-dependencies {
-	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-	
-	// Database dependencies - include in JAR
-	include implementation('org.xerial:sqlite-jdbc:3.47.1.0')
-	include implementation('com.zaxxer:HikariCP:6.2.1')
-	include implementation('org.slf4j:slf4j-api:2.0.16')
-	
-	modImplementation "me.lucko:fabric-permissions-api:0.3.1"
-	include "me.lucko:fabric-permissions-api:0.3.1"
-}
-
-tasks.register('copyCert', Copy) {
-    description = 'Copies the public certificate to the resources directories for embedding.'
-    from 'Integrity'
-    into 'src/main/resources'
-    into 'paper/src/main/resources'
-    into 'velton/src/main/resources'
-    include 'public.cer'
-}
-
-tasks.withType(ProcessResources).configureEach {
-    dependsOn tasks.named('copyCert')
-}
-
-processResources {
-	inputs.property "version", project.version
-
-	filesMatching("fabric.mod.json") {
-		expand "version": inputs.properties.version
-	}
-}
-
-tasks.withType(JavaCompile).configureEach {
-	it.options.release = 21
-}
-
-java {
-	withSourcesJar()
-
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
-}
-
-jar {
-	inputs.property "archivesName", project.base.archivesName
-
-	from("LICENSE") {
-		rename { "${it}_${inputs.properties.archivesName}"}
-	}
-}
-
-publishing {
-	publications {
-		create("mavenJava", MavenPublication) {
-			artifactId = project.archives_base_name
-			from components.java
-		}
-	}
-
-	repositories {
-
-	}
-}
-
-afterEvaluate {
-    def envFile = file('.env')
-    if (envFile.exists()) {
-        envFile.readLines().each { line ->
-            def (key, value) = line.split('=', 2)
-            if (key && value && !System.getenv(key)) {
-                System.setProperty(key, value)
-            }
+tasks.register('copyCert') {
+    doLast {
+        copy {
+            from 'Integrity/public.cer'
+            into 'src/fabric/src/main/resources'
+        }
+        copy {
+            from 'Integrity/public.cer'
+            into 'src/paper/src/main/resources'
+        }
+        copy {
+            from 'Integrity/public.cer'
+            into 'src/velton/src/main/resources'
         }
     }
+}
 
-    tasks.register('signFabricJar') {
-        group = 'build'
-        description = 'Signs the remapped Fabric client JAR.'
-        dependsOn(tasks.named('remapJar'))
+tasks.register('copyArtifacts') {
+    def fabricProject = project(':src:fabric')
+    def paperProject = project(':src:paper')
+    def veltonProject = project(':src:velton')
 
-        def remappedJarProvider = tasks.named('remapJar').flatMap { it.outputs.files.elements.map { fs -> fs.first().asFile } }
-        def signedJar = layout.buildDirectory.file("libs/${project.archives_base_name}-${project.version}-signed.jar")
+    dependsOn fabricProject.tasks.named('assemble')
+    dependsOn paperProject.tasks.named('assemble')
+    dependsOn veltonProject.tasks.named('assemble')
 
-        inputs.file(remappedJarProvider)
-        inputs.file('Integrity/keystore.jks')
-        outputs.file(signedJar)
+    def fabricLibs = fabricProject.layout.buildDirectory.dir('libs')
+    def paperLibs = paperProject.layout.buildDirectory.dir('libs')
+    def veltonLibs = veltonProject.layout.buildDirectory.dir('libs')
 
-        doLast {
-            def jarToSign = remappedJarProvider.get()
-            if (file('Integrity/keystore.jks').exists()) {
-                println "--> Signing JAR: ${jarToSign.name}"
-                def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
-                exec {
-                    executable = 'jarsigner'
-                    args = [
-                        '-keystore', file('Integrity/keystore.jks').absolutePath,
-                        '-storepass', keystorePassword,
-                        '-signedjar', signedJar.get().asFile.absolutePath,
-                        jarToSign.absolutePath,
-                        'handshaker'
-                    ]
-                }
-            } else {
-                println "--> Keystore not found in Integrity/keystore.jks. Skipping signing."
-            }
+    doLast {
+        copy {
+            from fabricLibs
+            into layout.buildDirectory.dir('output')
+            include '*-signed.jar'
+        }
+        copy {
+            from paperLibs
+            into layout.buildDirectory.dir('output')
+        }
+        copy {
+            from veltonLibs
+            into layout.buildDirectory.dir('output')
+            include '*-signed.jar'
         }
     }
+}
 
-    tasks.register('mergeJars', Jar) {
-        group = 'build'
-        description = 'Merges the Fabric and Paper jars into one combined jar'
-
-        dependsOn(tasks.named('signFabricJar'))
-        dependsOn(project(':paper').tasks.named('shadowJar'))
-
-        def signedJarProvider = tasks.named('signFabricJar').flatMap { it.outputs.files.elements.map { fs -> fs.first().asFile } }
-        def paperJarProvider = project(':paper').tasks.named('shadowJar').flatMap { it.archiveFile }
-
-        from(signedJarProvider.map { file -> zipTree(file) })
-        from(paperJarProvider.map { file -> zipTree(file) }) {
-            exclude 'META-INF/MANIFEST.MF'
-            exclude 'public.cer'
-        }
-
-        archiveBaseName.set("${project.archives_base_name}-merged")
-        destinationDirectory.set(layout.buildDirectory.dir("output"))
-
-        manifest {
-            from(signedJarProvider.map { file ->
-                zipTree(file).matching {
-                    include 'META-INF/MANIFEST.MF'
-                }.files.first()
-            })
-        }
-    }
-
-    build.finalizedBy(tasks.named('mergeJars'))
+tasks.named('build') {
+    dependsOn 'copyArtifacts'
 }
