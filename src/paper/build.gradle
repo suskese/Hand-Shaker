@@ -4,11 +4,11 @@ plugins {
     id 'com.gradleup.shadow' version '9.3.0'
 }
 
-group = 'me.mklv'
-version = rootProject.version
+group = project.maven_group
+version = project.mod_version + "-" + project.plugin_version
 
 base {
-    archivesName = 'hand-shaker-paper'
+    archivesName = "${project.archives_base_name}-paper"
 }
 
 java {
@@ -23,7 +23,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly 'io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT'
+    compileOnly "io.papermc.paper:paper-api:${paper_api}"
     
     // Database dependencies
     implementation 'org.xerial:sqlite-jdbc:3.47.1.0'
@@ -42,13 +42,11 @@ processResources {
     filesMatching('plugin.yml') { expand(version: projectVersion) }
 }
 
-/*
+
 shadowJar {
     archiveClassifier.set('')
 
     relocate 'com.zaxxer.hikari', 'me.mklv.handshaker.libs.hikari'
-    // relocate 'org.sqlite', 'me.mklv.handshaker.libs.sqlite'
-    // relocate 'org.slf4j', 'me.mklv.handshaker.libs.slf4j'
 
     dependencies {
         exclude(dependency('io.papermc.paper:paper-api'))
@@ -56,27 +54,17 @@ shadowJar {
         exclude(dependency('org.slf4j:slf4j-api'))
     }
 }
-*/
+
 
 jar {
-    enabled = true
-}
-
-tasks.named('shadowJar') {
     enabled = false
 }
 
-/*
+tasks.named('shadowJar') {
+    enabled = true
+}
+
+
 tasks.named('assemble') {
     dependsOn shadowJar
-}
-*/
-
-publishing {
-    publications {
-        maven(MavenPublication) {
-            from components.java
-            artifactId = 'hand-shaker-paper'
-        }
-    }
 }

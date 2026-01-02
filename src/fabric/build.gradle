@@ -8,7 +8,7 @@ subprojects {
     version = rootProject.version
 }
 
-version = project.mod_version
+version = project.mod_version + "-" + project.minecraft_version
 group = project.maven_group
 
 base {
@@ -30,8 +30,7 @@ dependencies {
 	include implementation('com.zaxxer:HikariCP:6.2.1')
 	include implementation('org.slf4j:slf4j-api:2.0.16')
 	
-	modImplementation "me.lucko:fabric-permissions-api:0.3.1"
-	include "me.lucko:fabric-permissions-api:0.3.1"
+	include(modImplementation("me.lucko:fabric-permissions-api:${fabric_permissions_api}"))
 }
 
 tasks.withType(ProcessResources).configureEach {
