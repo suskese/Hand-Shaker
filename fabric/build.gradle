@@ -1,0 +1,7 @@
+// This is a container project that configures all Fabric version subprojects
+// Individual builds happen in fabric/1.21.1, fabric/1.21.5, etc.
+
+subprojects {
+    group = rootProject.group
+    version = rootProject.version
+}

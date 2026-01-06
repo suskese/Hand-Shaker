@@ -40,7 +40,7 @@ replay_*.log
 *.jfr
 
 
-Integrity/
+.Integrity/
 public.cer
 .env
 velton

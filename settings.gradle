@@ -7,8 +7,15 @@ pluginManagement {
 		mavenCentral()
 		gradlePluginPortal()
 	}
+	
+	plugins {
+		id 'fabric-loom' version '1.14-SNAPSHOT'
+	}
 }
 
-include 'src:fabric'
-include 'src:paper'
-include 'src:velton' // Velton addon (Source code is private)
+include 'fabric:1.21.1'
+include 'fabric:1.21.5'
+include 'fabric:1.21.10'
+include 'fabric:1.21.11'
+include 'paper'
+include 'velton' // Velton addon (Source code is private)
