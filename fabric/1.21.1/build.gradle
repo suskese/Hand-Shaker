@@ -1,0 +1,153 @@
+plugins {
+	id 'fabric-loom'
+	id 'maven-publish'
+}
+
+version = rootProject.mod_version
+group = rootProject.maven_group
+
+sourceSets {
+	main {
+		java {
+			srcDir "${projectDir.parentFile}/common/java"
+			srcDir "src/main/java"
+		}
+		resources {
+			srcDir "${projectDir.parentFile}/common/resources"
+			srcDir "src/main/resources"
+		}
+	}
+}
+
+base {
+	archivesName = "${rootProject.archives_base_name}-fabric-1.21.1"
+}
+
+repositories {
+	mavenCentral()
+	maven {
+		name = "Fabric"
+		url = "https://maven.fabricmc.net/"
+	}
+	maven {
+		name = "ParchmentMC"
+		url = "https://maven.parchmentmc.org"
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${minecraft_version}"
+	mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
+	modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+	
+	include implementation('org.xerial:sqlite-jdbc:3.47.1.0')
+	include implementation('com.zaxxer:HikariCP:6.2.1')
+	include implementation('org.slf4j:slf4j-api:2.0.16')
+	
+	include(modImplementation("me.lucko:fabric-permissions-api:${fabric_permissions_api}"))
+}
+
+tasks.withType(ProcessResources).configureEach {
+    dependsOn rootProject.tasks.named('copyCert')
+}
+
+processResources {
+	def version = rootProject.version
+	def supportedVersions = supported_mc_versions
+	filesMatching("fabric.mod.json") {
+		filter { line ->
+			line.replace('${version}', version)
+				.replace('${supported_mc_versions}', supportedVersions)
+		}
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.named('sourcesJar').configure {
+	duplicatesStrategy = 'exclude'
+}
+
+jar {
+	inputs.property "archivesName", project.base.archivesName
+
+	from("LICENSE") {
+		rename { "${it}_${inputs.properties.archivesName}"}
+	}
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			artifactId = rootProject.archives_base_name
+			from components.java
+		}
+	}
+
+	repositories {
+
+	}
+}
+
+afterEvaluate {
+    def envFile = rootProject.file('.env')
+    if (envFile.exists()) {
+        envFile.readLines().each { line ->
+            def (key, value) = line.split('=', 2)
+            if (key && value && !System.getenv(key)) {
+                System.setProperty(key, value)
+            }
+        }
+    }
+
+    tasks.register('signFabricJar', Exec) {
+        group = 'build'
+        description = 'Signs the remapped Fabric client JAR.'
+        dependsOn(tasks.named('remapJar'))
+
+        def remappedJarProvider = tasks.named('remapJar').flatMap { it.outputs.files.elements.map { fs -> fs.first().asFile } }
+        def signedJar = layout.buildDirectory.file("libs/${rootProject.archives_base_name}-fabric-1.21.1-${rootProject.version}-signed.jar")
+
+        inputs.file(remappedJarProvider)
+        inputs.file(rootProject.file('.Integrity/keystore.jks'))
+        outputs.file(signedJar)
+
+        executable = 'jarsigner'
+
+        doFirst {
+            def jarToSign = remappedJarProvider.get()
+            if (rootProject.file('.Integrity/keystore.jks').exists()) {
+                println "--> Signing JAR: ${jarToSign.name}"
+                def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
+                args = [
+                    '-keystore', rootProject.file('.Integrity/keystore.jks').absolutePath,
+                    '-storepass', keystorePassword,
+                    '-signedjar', signedJar.get().asFile.absolutePath,
+                    jarToSign.absolutePath,
+                    'handshaker'
+                ]
+            } else {
+                println "--> Keystore not found in Integrity/keystore.jks. Skipping signing."
+                enabled = false
+            }
+        }
+    }
+
+    tasks.named('assemble').configure {
+        dependsOn('signFabricJar')
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add("-Xlint:deprecation")
+}

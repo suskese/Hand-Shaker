@@ -1,0 +1,58 @@
+# Automatically build the project and run any configured tests for every push
+# and submitted pull request. This can help catch issues that only occur on
+# certain platforms or Java versions, and provides a first line of defence
+# against bad commits.
+
+name: Build
+
+on: [pull_request, push]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'microsoft'
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Build project
+        run: ./gradlew build
+
+      - name: Upload merged jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-jar
+          path: build/output/*-merged.jar
+
+      - name: Upload Fabric jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabric-jar
+          path: build/libs/*.jar
+
+      - name: Upload Paper jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-jar
+          path: paper/build/libs/*.jar
+
+      - name: Upload all artifacts (ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-artifacts
+          path: |
+            build/libs/
+            paper/build/libs/
+            build/output/

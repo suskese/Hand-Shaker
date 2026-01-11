@@ -1,0 +1,90 @@
+plugins {
+    id 'base'
+}
+
+version = mod_version
+group = maven_group
+
+tasks.register('copyCert') {
+    doLast {
+        copy {
+            from '.Integrity/public.cer'
+            into 'paper/src/main/resources'
+        }
+        copy {
+            from '.Integrity/public.cer'
+            into 'fabric/common/resources'
+        }
+        copy {
+            from '.Integrity/public.cer'
+            into 'velton/src/main/resources'
+        }
+    }
+}
+
+tasks.register('copyArtifacts') {
+    def fabric121Project = project('fabric:1.21.1')
+    def fabric1215Project = project('fabric:1.21.5')
+    def fabric12110Project = project('fabric:1.21.10')
+    def fabric12111Project = project('fabric:1.21.11')
+    def fabricclientProject = project('fabric:client')
+    def paperProject = project('paper')
+    def veltonProject = project('velton')
+
+    dependsOn fabric121Project.tasks.named('assemble')
+    dependsOn fabric1215Project.tasks.named('assemble')
+    dependsOn fabric12110Project.tasks.named('assemble')
+    dependsOn fabric12111Project.tasks.named('assemble')
+    dependsOn fabricclientProject.tasks.named('assemble')
+    dependsOn paperProject.tasks.named('assemble')
+    dependsOn veltonProject.tasks.named('assemble')
+
+    def fabric121Libs = fabric121Project.layout.buildDirectory.dir('libs')
+    def fabric1215Libs = fabric1215Project.layout.buildDirectory.dir('libs')
+    def fabric12110Libs = fabric12110Project.layout.buildDirectory.dir('libs')
+    def fabric12111Libs = fabric12111Project.layout.buildDirectory.dir('libs')
+    def fabricclientLibs = fabricclientProject.layout.buildDirectory.dir('libs')
+    def paperLibs = paperProject.layout.buildDirectory.dir('libs')
+    def veltonLibs = veltonProject.layout.buildDirectory.dir('libs')
+
+    doLast {
+        copy {
+            from fabric121Libs
+            into layout.buildDirectory.dir('output')
+            include '*-signed.jar'
+        }
+        copy {
+            from fabric1215Libs
+            into layout.buildDirectory.dir('output')
+            include '*-signed.jar'
+        }
+        copy {
+            from fabric12110Libs
+            into layout.buildDirectory.dir('output')
+            include '*-signed.jar'
+        }
+        copy {
+            from fabric12111Libs
+            into layout.buildDirectory.dir('output')
+            include '*-signed.jar'
+        }
+        copy {
+            from fabricclientLibs
+            into layout.buildDirectory.dir('output')
+            include '*-signed.jar'
+        }
+        copy {
+            from paperLibs
+            into layout.buildDirectory.dir('output')
+        }
+        copy {
+            from veltonLibs
+            into layout.buildDirectory.dir('output')
+            include '*-signed.jar'
+        }
+    }
+}
+
+tasks.named('build') {
+    dependsOn 'copyArtifacts'
+}

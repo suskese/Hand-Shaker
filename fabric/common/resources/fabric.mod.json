@@ -1,0 +1,46 @@
+{
+	"schemaVersion": 1,
+	"id": "hand-shaker",
+	"version": "${version}",
+	"name": "Hand Shaker",
+	"description": "Sends client mod list to server to check blacklist, required, allowed mods.",
+	"authors": [
+		"Suskese / IceVallish"
+	],
+	"contact": {
+		"sources": "https://github.com/suskese/hand-shaker",
+		"issues": "https://github.com/suskese/hand-shaker/issues",
+		"homepage": "https://modrinth.com/plugin/hand-shaker"
+
+	},
+	"license": "MIT",
+	"icon": "assets/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"client": [
+			"me.mklv.HandShaker"
+		],
+		"server": [
+			"me.mklv.handshaker.server.HandShakerServer"
+		]
+	},
+	"mixins": [
+		"hand-shaker.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.17.2",
+		"minecraft": "${supported_mc_versions}",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"custom": {
+		"modmenu":{
+			"links":{
+				"modmenu.wiki": "https://github.com/suskese/hand-shaker/wiki",
+				"modmenu.modrinth": "https://modrinth.com/plugin/hand-shaker",
+				"modmenu.kofi":"https://ko-fi.com/icevallish",
+				"modmenu.discord":"https://discord.gg/qB8V6HPtmr"
+			}
+		}
+	}
+}

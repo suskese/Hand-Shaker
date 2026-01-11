@@ -1,0 +1,21 @@
+name: HandShaker
+main: me.mklv.handshaker.HandShakerPlugin
+version: ${version}
+api-version: "1.21"
+author: mklv
+description: Client mod handshake and blacklist validation
+softdepend: []
+commands:
+  handshaker:
+    aliases: [hs]
+    description: HandShaker admin commands
+    usage: /handshaker reload | add <mod> | remove <mod> | player <player> [mod] | mode <blacklist|whitelist> | whitelist_update <player>
+    permission: handshaker.admin
+    permission-message: You must be a server operator to use this command.
+permissions:
+  handshaker.admin:
+    description: Allows access to HandShaker admin commands
+    default: op
+  handshaker.bypass:
+    description: Bypass mod blacklist/whitelist checks
+    default: false
