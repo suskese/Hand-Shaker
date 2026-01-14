@@ -1,8 +1,19 @@
-[![](https://github.com/gabrielvicenteYT/modrinth-icons/raw/main/Branding/Badge/badge-dark.svg)](https://modrinth.com/plugin/hand-shaker)
 >[!WARNING]
 >### **This project requires to be set up on both sides, client and server side.**
 
-# **HandShaker 4.0.0**
+<hr/>
+
+[![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/available/modrinth_vector.svg)](https://modrinth.com/plugin/hand-shaker)
+[![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/available/curseforge_vector.svg)](https://www.curseforge.com/minecraft/mc-mods/hand-shaker)
+[![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/supported/paper_vector.svg)](https://papermc.io/)
+[![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/supported/purpur_vector.svg)](https://purpurmc.org/)
+[![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/documentation/generic_vector.svg)](https://github.com/suskese/Hand-Shaker/wiki)
+[![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/donate/kofi-plural-alt_vector.svg)](https://ko-fi.com/icevallish)
+[![](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/requires/fabric-api_vector.svg)](https://modrinth.com/mod/fabric-api)
+
+<hr/>
+
+# **HandShaker 5.0.0**
 
 HandShaker is a cross-platform mod/plugin system for Minecraft servers and clients.  
 It lets Paper/Fabric servers see which Fabric mods players are using, and automatically enforce a blacklist with customizable kick messages.
@@ -17,6 +28,7 @@ It lets Paper/Fabric servers see which Fabric mods players are using, and automa
 - **Integrity**: Prevents self-compiled hand-shaker mods from being used
 - **See other player mods**: Allows to See/Blacklist/Allow other player mods
 <<<<<<< HEAD
+<<<<<<< HEAD
 - **Store player mods into db**
 - **Insta-ban users for using any mod**
 <<<<<<< HEAD
@@ -25,6 +37,10 @@ It lets Paper/Fabric servers see which Fabric mods players are using, and automa
 =======
 - **Bedrock player friendly**
 >>>>>>> 1f22a3b6977fb0c7b764010aa923939f869ebb0c
+=======
+- **Store player mods into db**
+- **Insta-ban users for using any mod**
+>>>>>>> origin/v5-21.x
 ## [Changelogs](https://github.com/suskese/hand-shaker/releases)
 ## [Installation](https://github.com/suskese/hand-shaker/wiki/Installation)
 ## [Configuration](https://github.com/suskese/hand-shaker/wiki/Configuration)
@@ -33,10 +49,14 @@ It lets Paper/Fabric servers see which Fabric mods players are using, and automa
 
 ## Permissions
 <<<<<<< HEAD
+<<<<<<< HEAD
 - `handshaker.bypass` - Bypass restrictions
 =======
 
 >>>>>>> origin/v4
+=======
+- `handshaker.bypass` - Bypass restrictions
+>>>>>>> origin/v5-21.x
 - `handshaker.admin` — Required for all `/handshaker` commands (ops have this by default).
 
 

@@ -1,37 +1,66 @@
 package me.mklv.handshaker.paper;
 
-import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.configuration.ConfigurationSection;
-import java.io.File;
-import java.io.IOException;
+import com.google.gson.*;
+import org.bukkit.entity.Player;
+import java.io.*;
+import java.nio.file.Files;
+import java.time.Duration;
 import java.util.*;
 
 public class BlacklistConfig {
     private final HandShakerPlugin plugin;
     private File file;
-    private YamlConfiguration config;
+    private JsonObject config;
 
-    public enum Mode {BLACKLIST, WHITELIST, REQUIRE}
     public enum Behavior { STRICT, VANILLA }
     public enum IntegrityMode { SIGNED, DEV }
-    public enum ModStatus { REQUIRED, ALLOWED, BLACKLISTED }
     public enum DefaultMode { ALLOWED, BLACKLISTED }
+    
+    public enum Action {
+        KICK, BAN;
+        
+        public static Action fromString(String str) {
+            if (str == null) return KICK;
+            return switch (str.toUpperCase(Locale.ROOT)) {
+                case "BAN" -> BAN;
+                default -> KICK;
+            };
+        }
+    }
 
-    private Mode mode = Mode.BLACKLIST;
+    public static class ModConfig {
+        private String mode;
+        private String action;
+        private String warnMessage;
+
+        public ModConfig(String mode, String action, String warnMessage) {
+            this.mode = mode != null ? mode : "allowed";
+            this.action = action != null ? action : "kick";
+            this.warnMessage = warnMessage;
+        }
+
+        public String getMode() { return mode; }
+        public void setMode(String mode) { this.mode = mode; }
+        public Action getAction() { return Action.fromString(action); }
+        public void setAction(String action) { this.action = action; }
+        public String getWarnMessage() { return warnMessage; }
+        public void setWarnMessage(String warnMessage) { this.warnMessage = warnMessage; }
+        
+        public boolean isRequired() { return "required".equalsIgnoreCase(mode); }
+        public boolean isBlacklisted() { return "blacklisted".equalsIgnoreCase(mode); }
+        public boolean isAllowed() { return "allowed".equalsIgnoreCase(mode); }
+    }
+
     private Behavior behavior = Behavior.STRICT;
     private IntegrityMode integrityMode = IntegrityMode.SIGNED;
-    private final Set<String> blacklistedMods = new LinkedHashSet<>();
-    private final Set<String> whitelistedMods = new LinkedHashSet<>();
     private String kickMessage = "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
     private String noHandshakeKickMessage = "To connect to this server please download 'Hand-shaker' mod.";
     private String missingWhitelistModMessage = "You are missing required mods: {mod}. Please install them to join this server.";
-    private String extraWhitelistModMessage = "You have mods that are not on the whitelist: {mod}. Please remove them to join.";
     private String invalidSignatureKickMessage = "Invalid client signature. Please use the official client.";
     
-    // V2 config fields
-    private boolean isV2Config = false;
-    private final Map<String, ModStatus> modStatusMap = new LinkedHashMap<>();
+    private final Map<String, ModConfig> modConfigMap = new LinkedHashMap<>();
     private DefaultMode defaultMode = DefaultMode.ALLOWED;
+    private final Set<String> ignoredMods = new HashSet<>();
 
     public BlacklistConfig(HandShakerPlugin plugin) {
         this.plugin = plugin;
@@ -39,206 +68,229 @@ public class BlacklistConfig {
 
     public void load() {
         if (file == null) {
-            file = new File(plugin.getDataFolder(), "config.yml");
+            file = new File(plugin.getDataFolder(), "hand-shaker.json");
         }
 
         if (!file.exists()) {
-            file.getParentFile().mkdirs();
-            plugin.saveResource("config.yml", false);
+            try {
+                Files.copy(
+                    Objects.requireNonNull(plugin.getClass().getResourceAsStream("/hand-shaker-example.json")),
+                    file.toPath()
+                );
+            } catch (IOException | NullPointerException e) {
+                plugin.getLogger().warning("Could not create default hand-shaker.json");
+            }
         }
-        config = YamlConfiguration.loadConfiguration(file);
-        blacklistedMods.clear();
-        whitelistedMods.clear();
-        modStatusMap.clear();
+
+        try (FileReader reader = new FileReader(file)) {
+            config = JsonParser.parseReader(reader).getAsJsonObject();
+        } catch (IOException | JsonSyntaxException e) {
+            plugin.getLogger().severe("Failed to load hand-shaker.json: " + e.getMessage());
+            config = new JsonObject();
+        }
+
+        modConfigMap.clear();
+        ignoredMods.clear();
+
+        String version = config.has("config") ? config.get("config").getAsString() : "v2";
         
-        // Check if this is a v2 config
-        String configVersion = config.getString("config", "v1");
-        isV2Config = configVersion.equalsIgnoreCase("v2");
+        integrityMode = config.has("Integrity") && config.get("Integrity").getAsString().equalsIgnoreCase("dev") 
+            ? IntegrityMode.DEV : IntegrityMode.SIGNED;
+        
+        String behaviorStr = config.has("Behavior") ? config.get("Behavior").getAsString() : "strict";
+        behavior = behaviorStr.toLowerCase(Locale.ROOT).startsWith("strict") ? Behavior.STRICT : Behavior.VANILLA;
 
-        // Parse Integrity Mode
-        String integrityString = config.getString("Integrity", "signed").toUpperCase(Locale.ROOT);
-        integrityMode = integrityString.equals("SIGNED") ? IntegrityMode.SIGNED : IntegrityMode.DEV;
+        kickMessage = config.has("Kick Message") ? config.get("Kick Message").getAsString() : kickMessage;
+        noHandshakeKickMessage = config.has("Missing mod message") ? config.get("Missing mod message").getAsString() : noHandshakeKickMessage;
+        missingWhitelistModMessage = config.has("Missing whitelist mod message") 
+            ? config.get("Missing whitelist mod message").getAsString()
+            : (config.has("Missing required mod message") ? config.get("Missing required mod message").getAsString() : missingWhitelistModMessage);
+        invalidSignatureKickMessage = config.has("Invalid signature kick message") 
+            ? config.get("Invalid signature kick message").getAsString() : invalidSignatureKickMessage;
 
-        // Parse Behavior
-        String behaviorString = config.getString("Behavior", "strict").toUpperCase(Locale.ROOT);
-        if (behaviorString.isEmpty()) {
-            // Backwards compatibility
-            String oldMode = config.getString("Kick Mode", config.getString("KickMode", "Fabric")).toUpperCase(Locale.ROOT);
-            behavior = oldMode.startsWith("ALL") ? Behavior.STRICT : Behavior.VANILLA;
-        } else {
-            behavior = behaviorString.startsWith("STRICT") ? Behavior.STRICT : Behavior.VANILLA;
+        String defaultModeStr = config.has("Default Mode") ? config.get("Default Mode").getAsString() : "allowed";
+        defaultMode = defaultModeStr.equalsIgnoreCase("blacklisted") ? DefaultMode.BLACKLISTED : DefaultMode.ALLOWED;
+
+        if (config.has("Ignored Mods") && config.get("Ignored Mods").isJsonArray()) {
+            for (JsonElement elem : config.getAsJsonArray("Ignored Mods")) {
+                ignoredMods.add(elem.getAsString().toLowerCase(Locale.ROOT));
+            }
         }
 
-        // Parse Kick Messages
-        kickMessage = config.getString("Kick Message", "You are using a blacklisted mod: {mod}. Please remove it to join this server.");
-        noHandshakeKickMessage = config.getString("Missing mod message", "To connect to this server please download 'Hand-shaker' mod.");
-        missingWhitelistModMessage = config.getString("Missing whitelist mod message", 
-            config.getString("Missing required mod message", "You are missing required mods: {mod}. Please install them to join this server."));
-        extraWhitelistModMessage = config.getString("Extra whitelist mod message", "You have mods that are not on the whitelist: {mod}. Please remove them to join.");
-        invalidSignatureKickMessage = config.getString("Invalid signature kick message", "Invalid client signature. Please use the official client.");
-
-        if (isV2Config) {
-            // V2 Config Format
-            String defaultModeString = config.getString("Default Mode", "allowed").toUpperCase(Locale.ROOT);
-            defaultMode = defaultModeString.equals("BLACKLISTED") ? DefaultMode.BLACKLISTED : DefaultMode.ALLOWED;
+        // Check for both "Mods" (v3) and "mods" (v2) keys
+        String modsKey = config.has("Mods") ? "Mods" : (config.has("mods") ? "mods" : null);
+        if (modsKey != null) {
+            JsonObject modsObj = config.getAsJsonObject(modsKey);
             
-            // Parse Mods section
-            ConfigurationSection modsSection = config.getConfigurationSection("Mods");
-            if (modsSection != null) {
-                for (String modId : modsSection.getKeys(false)) {
-                    String statusString = modsSection.getString(modId, "allowed").toUpperCase(Locale.ROOT);
-                    ModStatus status;
-                    switch (statusString) {
-                        case "REQUIRED" -> status = ModStatus.REQUIRED;
-                        case "BLACKLISTED" -> status = ModStatus.BLACKLISTED;
-                        default -> status = ModStatus.ALLOWED;
+            if (version.equals("v3")) {
+                for (String modId : modsObj.keySet()) {
+                    JsonElement elem = modsObj.get(modId);
+                    if (elem.isJsonObject()) {
+                        JsonObject modObj = elem.getAsJsonObject();
+                        String mode = modObj.has("mode") ? modObj.get("mode").getAsString() : "allowed";
+                        String action = modObj.has("action") ? modObj.get("action").getAsString() : "kick";
+                        String warnMsg = modObj.has("warn-message") ? modObj.get("warn-message").getAsString() : null;
+                        modConfigMap.put(modId.toLowerCase(Locale.ROOT), new ModConfig(mode, action, warnMsg));
+                    } else {
+                        String mode = elem.getAsString();
+                        modConfigMap.put(modId.toLowerCase(Locale.ROOT), new ModConfig(mode, "kick", null));
                     }
-                    modStatusMap.put(modId.toLowerCase(Locale.ROOT), status);
                 }
-            }
-        } else {
-            // V1 Config Format (backwards compatibility)
-            String modeString = config.getString("Operation Mode", "blacklist").toUpperCase(Locale.ROOT);
-            if (modeString.equals("WHITELIST")) {
-                mode = Mode.WHITELIST;
-            } else if (modeString.equals("REQUIRE")) {
-                mode = Mode.REQUIRE;
             } else {
-                mode = Mode.BLACKLIST;
-            }
-
-            // Parse Blacklisted Mods
-            if (config.isList("Blacklisted Mods")) {
-                for (Object o : config.getList("Blacklisted Mods")) {
-                    if (o != null) blacklistedMods.add(o.toString().toLowerCase(Locale.ROOT));
+                // v2 format - migrate to v3
+                for (String modId : modsObj.keySet()) {
+                    String mode = modsObj.get(modId).getAsString();
+                    modConfigMap.put(modId.toLowerCase(Locale.ROOT), new ModConfig(mode, "kick", null));
                 }
-            }
-
-            // Parse Whitelisted Mods
-            if (config.isList("Whitelisted Mods")) {
-                for (Object o : config.getList("Whitelisted Mods")) {
-                    if (o != null) whitelistedMods.add(o.toString().toLowerCase(Locale.ROOT));
-                }
+                save(); // Save will auto-upgrade to v3 format with capital "Mods"
             }
         }
     }
 
-    public Mode getMode() { return mode; }
-    public void setMode(Mode mode) { this.mode = mode; save(); }
     public Behavior getBehavior() { return behavior; }
     public IntegrityMode getIntegrityMode() { return integrityMode; }
-    public Set<String> getBlacklistedMods() { return Collections.unmodifiableSet(blacklistedMods); }
-    public Set<String> getWhitelistedMods() { return Collections.unmodifiableSet(whitelistedMods); }
     public String getKickMessage() { return kickMessage; }
     public String getNoHandshakeKickMessage() { return noHandshakeKickMessage; }
     public String getMissingWhitelistModMessage() { return missingWhitelistModMessage; }
-    public String getExtraWhitelistModMessage() { return extraWhitelistModMessage; }
     public String getInvalidSignatureKickMessage() { return invalidSignatureKickMessage; }
-    public boolean isV2Config() { return isV2Config; }
-    public Map<String, ModStatus> getModStatusMap() { return Collections.unmodifiableMap(modStatusMap); }
+    public Map<String, ModConfig> getModConfigMap() { return Collections.unmodifiableMap(modConfigMap); }
     public DefaultMode getDefaultMode() { return defaultMode; }
+    public Set<String> getIgnoredMods() { return Collections.unmodifiableSet(ignoredMods); }
 
-    // V2 Config methods
-    public boolean setModStatus(String modId, ModStatus status) {
-        if (!isV2Config) return false;
+    public boolean addIgnoredMod(String modId) {
+        if (ignoredMods.add(modId.toLowerCase(Locale.ROOT))) {
+            save();
+            return true;
+        }
+        return false;
+    }
+
+    public boolean removeIgnoredMod(String modId) {
+        if (ignoredMods.remove(modId.toLowerCase(Locale.ROOT))) {
+            save();
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isIgnored(String modId) {
+        return ignoredMods.contains(modId.toLowerCase(Locale.ROOT));
+    }
+
+    public boolean setModConfig(String modId, String mode, String action, String warnMessage) {
         modId = modId.toLowerCase(Locale.ROOT);
-        ModStatus oldStatus = modStatusMap.get(modId);
-        if (oldStatus == status) return false;
-        modStatusMap.put(modId, status);
+        ModConfig existing = modConfigMap.get(modId);
+        
+        if (existing != null) {
+            if (mode != null) existing.setMode(mode);
+            if (action != null) existing.setAction(action);
+            if (warnMessage != null) existing.setWarnMessage(warnMessage);
+        } else {
+            modConfigMap.put(modId, new ModConfig(mode, action, warnMessage));
+        }
+        
         save();
         return true;
     }
 
-    public boolean removeModStatus(String modId) {
-        if (!isV2Config) return false;
+    public boolean removeModConfig(String modId) {
         modId = modId.toLowerCase(Locale.ROOT);
-        boolean removed = modStatusMap.remove(modId) != null;
+        boolean removed = modConfigMap.remove(modId) != null;
         if (removed) save();
         return removed;
     }
 
-    public ModStatus getModStatus(String modId) {
-        if (!isV2Config) return null;
+    public ModConfig getModConfig(String modId) {
         modId = modId.toLowerCase(Locale.ROOT);
-        ModStatus status = modStatusMap.get(modId);
-        if (status != null) return status;
-        return defaultMode == DefaultMode.ALLOWED ? ModStatus.ALLOWED : ModStatus.BLACKLISTED;
+        ModConfig cfg = modConfigMap.get(modId);
+        if (cfg != null) return cfg;
+        String defaultModeStr = defaultMode == DefaultMode.ALLOWED ? "allowed" : "blacklisted";
+        return new ModConfig(defaultModeStr, "kick", null);
     }
 
-    public void addAllMods(Set<String> mods, ModStatus status) {
-        if (!isV2Config) return;
+    public void addAllMods(Set<String> mods, String mode, String action, String warnMessage) {
         for (String mod : mods) {
-            modStatusMap.put(mod.toLowerCase(Locale.ROOT), status);
+            modConfigMap.put(mod.toLowerCase(Locale.ROOT), new ModConfig(mode, action, warnMessage));
         }
         save();
     }
 
-    // V1 Config methods (backwards compatibility)
-    public boolean addMod(String modId) {
-        if (isV2Config) {
-            return setModStatus(modId, ModStatus.BLACKLISTED);
+    public String checkPlayer(Player player, Set<String> clientMods) {
+        // Check for bypass permission
+        if (player.hasPermission("handshaker.bypass")) {
+            return null; // Player has bypass permission
         }
-        boolean added = blacklistedMods.add(modId.toLowerCase(Locale.ROOT));
-        if(added) save();
-        return added;
-    }
-    
-    public boolean removeMod(String modId) {
-        if (isV2Config) {
-            return removeModStatus(modId);
-        }
-        boolean removed = blacklistedMods.remove(modId.toLowerCase(Locale.ROOT));
-        if(removed) save();
-        return removed;
-    }
+        
+        Set<String> missingRequired = new HashSet<>();
+        Set<String> blacklistedFound = new HashSet<>();
 
-    public void setWhitelistedMods(Set<String> mods) {
-        if (isV2Config) {
-            addAllMods(mods, ModStatus.REQUIRED);
-            return;
+        for (Map.Entry<String, ModConfig> entry : modConfigMap.entrySet()) {
+            String modId = entry.getKey();
+            ModConfig cfg = entry.getValue();
+            boolean hasM = clientMods.contains(modId);
+
+            if (cfg.isRequired() && !hasM) {
+                missingRequired.add(modId);
+            } else if (cfg.isBlacklisted() && hasM) {
+                Action act = cfg.getAction();
+                blacklistedFound.add(modId);
+                
+                if (act == Action.BAN) {
+                    String reason = kickMessage.replace("{mod}", modId);
+                    player.ban(reason, (Duration) null, null);
+                }
+            }
         }
-        whitelistedMods.clear();
-        for (String mod : mods) {
-            whitelistedMods.add(mod.toLowerCase(Locale.ROOT));
+
+        if (!missingRequired.isEmpty()) {
+            return missingWhitelistModMessage.replace("{mod}", String.join(", ", missingRequired));
         }
-        save();
+        if (!blacklistedFound.isEmpty()) {
+            return kickMessage.replace("{mod}", String.join(", ", blacklistedFound));
+        }
+
+        return null;
     }
 
     public void save() {
-        if (isV2Config) {
-            // Save V2 format
-            config.set("config", "v2");
-            config.set("Kick Message", kickMessage);
-            config.set("Missing required mod message", missingWhitelistModMessage);
-            config.set("Missing mod message", noHandshakeKickMessage);
-            config.set("Invalid signature kick message", invalidSignatureKickMessage);
-            config.set("Behavior", behavior == Behavior.STRICT ? "Strict" : "Vanilla");
-            config.set("Integrity", integrityMode == IntegrityMode.SIGNED ? "Signed" : "Dev");
-            config.set("Default Mode", defaultMode == DefaultMode.ALLOWED ? "allowed" : "blacklisted");
-            
-            // Save mods with their status
-            config.set("Mods", null); // Clear old section
-            for (Map.Entry<String, ModStatus> entry : modStatusMap.entrySet()) {
-                String statusString = switch (entry.getValue()) {
-                    case REQUIRED -> "required";
-                    case BLACKLISTED -> "blacklisted";
-                    case ALLOWED -> "allowed";
-                };
-                config.set("Mods." + entry.getKey(), statusString);
+        // Create a fresh config object to prevent duplicates and old keys
+        JsonObject freshConfig = new JsonObject();
+        
+        freshConfig.addProperty("config", "v3");
+        freshConfig.addProperty("Integrity", integrityMode == IntegrityMode.SIGNED ? "Signed" : "Dev");
+        freshConfig.addProperty("Behavior", behavior == Behavior.STRICT ? "Strict" : "Vanilla");
+        freshConfig.addProperty("Invalid signature kick message", invalidSignatureKickMessage);
+        freshConfig.addProperty("Kick Message", kickMessage);
+        freshConfig.addProperty("Missing mod message", noHandshakeKickMessage);
+        freshConfig.addProperty("Missing required mod message", missingWhitelistModMessage);
+        freshConfig.addProperty("Default Mode", defaultMode == DefaultMode.ALLOWED ? "allowed" : "blacklisted");
+
+        JsonObject modsObj = new JsonObject();
+        for (Map.Entry<String, ModConfig> entry : modConfigMap.entrySet()) {
+            ModConfig cfg = entry.getValue();
+            JsonObject modObj = new JsonObject();
+            modObj.addProperty("mode", cfg.getMode());
+            modObj.addProperty("action", cfg.action);
+            if (cfg.getWarnMessage() != null) {
+                modObj.addProperty("warn-message", cfg.getWarnMessage());
             }
-        } else {
-            // Save V1 format
-            config.set("Integrity", integrityMode == IntegrityMode.SIGNED ? "Signed" : "Dev");
-            config.set("Operation Mode", mode == Mode.WHITELIST ? "whitelist" : mode == Mode.REQUIRE ? "require" : "blacklist");
-            config.set("Behavior", behavior == Behavior.STRICT ? "Strict" : "Vanilla");
-            config.set("Kick Message", kickMessage);
-            config.set("Missing mod message", noHandshakeKickMessage);
-            config.set("Missing whitelist mod message", missingWhitelistModMessage);
-            config.set("Extra whitelist mod message", extraWhitelistModMessage);
-            config.set("Invalid signature kick message", invalidSignatureKickMessage);
-            config.set("Blacklisted Mods", new ArrayList<>(blacklistedMods));
-            config.set("Whitelisted Mods", new ArrayList<>(whitelistedMods));
+            modsObj.add(entry.getKey(), modObj);
         }
-        try { config.save(file); } catch (IOException e) { plugin.getLogger().severe("Could not save config.yml!"); }
+        freshConfig.add("Mods", modsObj);
+
+        JsonArray ignoredArray = new JsonArray();
+        for (String mod : ignoredMods) {
+            ignoredArray.add(mod);
+        }
+        freshConfig.add("Ignored Mods", ignoredArray);
+
+        try (FileWriter writer = new FileWriter(file)) {
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            gson.toJson(freshConfig, writer);
+        } catch (IOException e) {
+            plugin.getLogger().severe("Could not save hand-shaker.json!");
+        }
+
+        config = freshConfig;
     }
 }
