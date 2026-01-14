@@ -29,6 +29,7 @@ It lets Paper/Fabric servers see which Fabric mods players are using, and automa
 - **See other player mods**: Allows to See/Blacklist/Allow other player mods
 - **Store player mods into db**
 - **Insta-ban users for using any mod**
+- **Bedrock player friendly**
 ## [Changelogs](https://github.com/suskese/hand-shaker/releases)
 ## [Installation](https://github.com/suskese/hand-shaker/wiki/Installation)
 ## [Configuration](https://github.com/suskese/hand-shaker/wiki/Configuration)
