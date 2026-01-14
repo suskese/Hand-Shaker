@@ -234,6 +234,44 @@ public class HandShakerServer implements DedicatedServerModInitializer {
             blacklistConfig.checkPlayer(player, clients.getOrDefault(player.getUuid(), new ClientInfo(Collections.emptySet(), false, false, null, null, null)));
         }
     }
+    
+    public boolean isBedrockPlayer(ServerPlayerEntity player) {
+        UUID playerUuid = player.getUuid();
+        
+        // Try Floodgate API first (if available)
+        try {
+            Class<?> floodgateApiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
+            Object api = floodgateApiClass.getMethod("getInstance").invoke(null);
+            boolean isFloodgate = (boolean) floodgateApiClass.getMethod("isFloodgatePlayer", UUID.class)
+                    .invoke(api, playerUuid);
+            if (isFloodgate) {
+                return true;
+            }
+        } catch (ClassNotFoundException e) {
+            // Floodgate not installed, continue to Geyser check
+        } catch (Exception e) {
+            LOGGER.warn("Error checking Floodgate for {}: {}", player.getName().getString(), e.getMessage());
+        }
+        
+        // Try Geyser API (if available) - works for Geyser-only setups
+        try {
+            Class<?> geyserApiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
+            Object geyserApi = geyserApiClass.getMethod("api").invoke(null);
+            
+            if (geyserApi != null) {
+                Object connection = geyserApiClass.getMethod("connectionByUuid", UUID.class)
+                        .invoke(geyserApi, playerUuid);
+                // If connection exists, player is connected through Geyser
+                return connection != null;
+            }
+        } catch (ClassNotFoundException e) {
+            // Geyser not installed
+        } catch (Exception e) {
+            LOGGER.warn("Error checking Geyser for {}: {}", player.getName().getString(), e.getMessage());
+        }
+        
+        return false;
+    }
 
     public record VeltonPayload(String signatureHash, String nonce) implements CustomPayload {
         public static final CustomPayload.Id<VeltonPayload> ID = new CustomPayload.Id<>(VELTON_CHANNEL);

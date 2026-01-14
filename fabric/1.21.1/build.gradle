@@ -33,6 +33,10 @@ repositories {
 		name = "ParchmentMC"
 		url = "https://maven.parchmentmc.org"
 	}
+	maven {
+		name = "OpenCollab"
+		url = "https://repo.opencollab.dev/main/"
+	}
 }
 
 dependencies {
@@ -40,6 +44,9 @@ dependencies {
 	mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${loader_version}"
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+	
+	compileOnly 'org.geysermc.geyser:api:2.9.0-SNAPSHOT'
+	compileOnly 'org.geysermc.floodgate:api:2.2.4-SNAPSHOT'
 	
 	include implementation('org.xerial:sqlite-jdbc:3.47.1.0')
 	include implementation('com.zaxxer:HikariCP:6.2.1')

@@ -2,6 +2,7 @@
   "config": "v3",
   "Integrity": "Signed",
   "Behavior": "Strict",
+  "Allow Bedrock Players": false,
   "Invalid signature kick message": "Invalid client signature. Please use the official client.",
   "Kick Message": "You are using a blacklisted mod: {mod}. Please remove it to join this server.",
   "Missing mod message": "To connect to this server please download \u0027Hand-shaker\u0027 mod.",

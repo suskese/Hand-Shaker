@@ -22,6 +22,7 @@ public class HandShaker implements ClientModInitializer {
 	public static final Identifier INTEGRITY_CHANNEL = Identifier.of(MOD_ID, "integrity");
 
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+	@SuppressWarnings("null")
 	@Override
 	public void onInitializeClient() {
 		LOGGER.info("HandShaker client initializing");

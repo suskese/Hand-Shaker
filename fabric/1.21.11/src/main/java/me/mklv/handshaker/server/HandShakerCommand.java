@@ -21,10 +21,11 @@ import static net.minecraft.server.command.CommandManager.literal;
 
 public class HandShakerCommand {
     
+    @SuppressWarnings("deprecation")
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
         var handshaker = literal("handshaker")
             .requires(source -> {
-                return Permissions.check(source, "handshaker.admin");
+                return Permissions.check(source, "handshaker.admin", 4);
             })
             .then(literal("reload")
                 .executes(HandShakerCommand::reload))

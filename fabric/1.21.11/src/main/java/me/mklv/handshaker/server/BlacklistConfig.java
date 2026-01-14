@@ -30,6 +30,8 @@ public class BlacklistConfig {
         String config = "v3"; // Config version marker - v3 for new structure
         IntegrityMode integrity = IntegrityMode.SIGNED;
         Behavior behavior = Behavior.STRICT;
+        @SerializedName("allow_bedrock_players")
+        boolean allowBedrockPlayers = false;
         @SerializedName("invalid_signature_kick_message")
         String invalidSignatureKickMessage = "Invalid client signature. Please use the official client.";
         @SerializedName("kick_message")
@@ -211,6 +213,7 @@ public class BlacklistConfig {
     public Map<String, ModConfig> getModConfigMap() { return Collections.unmodifiableMap(configData.mods); }
     public Set<String> getIgnoredMods() { return Collections.unmodifiableSet(configData.ignoredMods); }
     public DefaultMode getDefaultMode() { return configData.defaultMode; }
+    public boolean isAllowBedrockPlayers() { return configData.allowBedrockPlayers; }
 
     public boolean setModConfig(String modId, ModStatus status, Action action, String warnMessage) {
         modId = modId.toLowerCase(Locale.ROOT);
@@ -282,6 +285,12 @@ public class BlacklistConfig {
 
     public void checkPlayer(ServerPlayerEntity player, HandShakerServer.ClientInfo info) {
         if (info == null) return; // Should not happen, but safeguard
+
+        // If Bedrock players are allowed and this is a Bedrock player, allow them without checks
+        if (isAllowBedrockPlayers() && HandShakerServer.getInstance().isBedrockPlayer(player)) {
+            HandShakerServer.LOGGER.info("Bedrock player {} allowed to join without mod checks", player.getName().getString());
+            return;
+        }
 
         // Check for bypass permission (no op default - explicit permission only)
         if (Permissions.check(player, "handshaker.bypass", false)) {

@@ -185,6 +185,12 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
     }
 
     private void check(Player player) {
+        // If Bedrock players are allowed and this is a Bedrock player, allow them to join without checks
+        if (blacklistConfig.isAllowBedrockPlayers() && isBedrockPlayer(player)) {
+            getLogger().info("Bedrock player " + player.getName() + " allowed to join without mod checks");
+            return;
+        }
+        
         ClientInfo info = clients.get(player.getUniqueId());
         if (info == null) return; // Player data not yet received, do nothing.
 
@@ -238,6 +244,44 @@ public class HandShakerPlugin extends JavaPlugin implements Listener {
     public Set<String> getClientMods(UUID uuid) {
         ClientInfo info = clients.get(uuid);
         return info != null ? info.mods : null;
+    }
+
+    private boolean isBedrockPlayer(Player player) {
+        UUID playerUuid = player.getUniqueId();
+        
+        // Try Floodgate API first (if available)
+        try {
+            Class<?> floodgateApiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
+            Object api = floodgateApiClass.getMethod("getInstance").invoke(null);
+            boolean isFloodgate = (boolean) floodgateApiClass.getMethod("isFloodgatePlayer", UUID.class)
+                    .invoke(api, playerUuid);
+            if (isFloodgate) {
+                return true;
+            }
+        } catch (ClassNotFoundException e) {
+            // Floodgate not installed, continue to Geyser check
+        } catch (Exception e) {
+            getLogger().warning("Error checking Floodgate for " + player.getName() + ": " + e.getMessage());
+        }
+        
+        // Try Geyser API (if available) - works for Geyser-only setups
+        try {
+            Class<?> geyserApiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
+            Object geyserApi = geyserApiClass.getMethod("api").invoke(null);
+            
+            if (geyserApi != null) {
+                Object connection = geyserApiClass.getMethod("connectionByUuid", UUID.class)
+                        .invoke(geyserApi, playerUuid);
+                // If connection exists, player is connected through Geyser
+                return connection != null;
+            }
+        } catch (ClassNotFoundException e) {
+            // Geyser not installed
+        } catch (Exception e) {
+            getLogger().warning("Error checking Geyser for " + player.getName() + ": " + e.getMessage());
+        }
+        
+        return false;
     }
 
     public void checkAllPlayers() {

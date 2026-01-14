@@ -57,6 +57,7 @@ public class BlacklistConfig {
     private String noHandshakeKickMessage = "To connect to this server please download 'Hand-shaker' mod.";
     private String missingWhitelistModMessage = "You are missing required mods: {mod}. Please install them to join this server.";
     private String invalidSignatureKickMessage = "Invalid client signature. Please use the official client.";
+    private boolean allowBedrockPlayers = false;
     
     private final Map<String, ModConfig> modConfigMap = new LinkedHashMap<>();
     private DefaultMode defaultMode = DefaultMode.ALLOWED;
@@ -68,6 +69,8 @@ public class BlacklistConfig {
 
     public void load() {
         if (file == null) {
+            // Ensure the plugin data folder exists
+            plugin.getDataFolder().mkdirs();
             file = new File(plugin.getDataFolder(), "hand-shaker.json");
         }
 
@@ -96,6 +99,9 @@ public class BlacklistConfig {
         
         integrityMode = config.has("Integrity") && config.get("Integrity").getAsString().equalsIgnoreCase("dev") 
             ? IntegrityMode.DEV : IntegrityMode.SIGNED;
+        
+        allowBedrockPlayers = config.has("Allow Bedrock Players") 
+            ? config.get("Allow Bedrock Players").getAsBoolean() : true;
         
         String behaviorStr = config.has("Behavior") ? config.get("Behavior").getAsString() : "strict";
         behavior = behaviorStr.toLowerCase(Locale.ROOT).startsWith("strict") ? Behavior.STRICT : Behavior.VANILLA;
@@ -156,6 +162,7 @@ public class BlacklistConfig {
     public Map<String, ModConfig> getModConfigMap() { return Collections.unmodifiableMap(modConfigMap); }
     public DefaultMode getDefaultMode() { return defaultMode; }
     public Set<String> getIgnoredMods() { return Collections.unmodifiableSet(ignoredMods); }
+    public boolean isAllowBedrockPlayers() { return allowBedrockPlayers; }
 
     public boolean addIgnoredMod(String modId) {
         if (ignoredMods.add(modId.toLowerCase(Locale.ROOT))) {
@@ -265,6 +272,7 @@ public class BlacklistConfig {
         freshConfig.addProperty("config", "v3");
         freshConfig.addProperty("Integrity", integrityMode == IntegrityMode.SIGNED ? "Signed" : "Dev");
         freshConfig.addProperty("Behavior", behavior == Behavior.STRICT ? "Strict" : "Vanilla");
+        freshConfig.addProperty("Allow Bedrock Players", allowBedrockPlayers);
         freshConfig.addProperty("Invalid signature kick message", invalidSignatureKickMessage);
         freshConfig.addProperty("Kick Message", kickMessage);
         freshConfig.addProperty("Missing mod message", noHandshakeKickMessage);
