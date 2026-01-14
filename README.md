@@ -19,8 +19,12 @@ It lets Paper/Fabric servers see which Fabric mods players are using, and automa
 <<<<<<< HEAD
 - **Store player mods into db**
 - **Insta-ban users for using any mod**
+<<<<<<< HEAD
 =======
 >>>>>>> origin/v4
+=======
+- **Bedrock player friendly**
+>>>>>>> 1f22a3b6977fb0c7b764010aa923939f869ebb0c
 ## [Changelogs](https://github.com/suskese/hand-shaker/releases)
 ## [Installation](https://github.com/suskese/hand-shaker/wiki/Installation)
 ## [Configuration](https://github.com/suskese/hand-shaker/wiki/Configuration)
