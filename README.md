@@ -27,20 +27,8 @@ It lets Paper/Fabric servers see which Fabric mods players are using, and automa
 - **Configurable kick & Missing mod messages**
 - **Integrity**: Prevents self-compiled hand-shaker mods from being used
 - **See other player mods**: Allows to See/Blacklist/Allow other player mods
-<<<<<<< HEAD
-<<<<<<< HEAD
 - **Store player mods into db**
 - **Insta-ban users for using any mod**
-<<<<<<< HEAD
-=======
->>>>>>> origin/v4
-=======
-- **Bedrock player friendly**
->>>>>>> 1f22a3b6977fb0c7b764010aa923939f869ebb0c
-=======
-- **Store player mods into db**
-- **Insta-ban users for using any mod**
->>>>>>> origin/v5-21.x
 ## [Changelogs](https://github.com/suskese/hand-shaker/releases)
 ## [Installation](https://github.com/suskese/hand-shaker/wiki/Installation)
 ## [Configuration](https://github.com/suskese/hand-shaker/wiki/Configuration)
@@ -48,15 +36,7 @@ It lets Paper/Fabric servers see which Fabric mods players are using, and automa
 ## [Building](https://github.com/suskese/hand-shaker/wiki/Self%E2%80%90building)
 
 ## Permissions
-<<<<<<< HEAD
-<<<<<<< HEAD
 - `handshaker.bypass` - Bypass restrictions
-=======
-
->>>>>>> origin/v4
-=======
-- `handshaker.bypass` - Bypass restrictions
->>>>>>> origin/v5-21.x
 - `handshaker.admin` — Required for all `/handshaker` commands (ops have this by default).
 
 
