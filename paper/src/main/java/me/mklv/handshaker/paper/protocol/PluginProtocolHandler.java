@@ -228,21 +228,33 @@ public class PluginProtocolHandler {
             clients.put(player.getUniqueId(), new ClientInfo(false, Collections.emptySet(), finalVerified, false, null, nonce, null, false));
         } else {
             clients.put(player.getUniqueId(), new ClientInfo(oldInfo.fabric(), oldInfo.mods(), finalVerified,
-                    oldInfo.veltonVerified(), oldInfo.modListNonce(), nonce, oldInfo.veltonNonce(), false));
+                    oldInfo.veltonVerified(), oldInfo.modListNonce(), nonce, oldInfo.veltonNonce(), oldInfo.checked()));
         }
         checkPlayer(player, clients);
     }
 
     private void handleVeltonPayloadInternal(Player player, byte[] data) {
         try {
-            String signatureHash = payloadDecoder.decodeString(data);
-            if (signatureHash == null) {
+            // Decode signature (byte array)
+            PayloadDecoder.DecodeResult sigResult = payloadDecoder.decodeByteArrayWithOffset(data, 0);
+            if (sigResult == null) {
                 logger.warning("Failed to decode Velton payload from " + player.getName() + ". Rejecting.");
                 kickPlayer(player, "Corrupted handshake data");
                 return;
             }
+            byte[] clientSignature = (byte[]) sigResult.value;
 
-            PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, calculateOffset(data, signatureHash.length()));
+            // Decode jar hash (string)
+            PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, sigResult.offset);
+            if (hashResult == null || hashResult.value == null || ((String) hashResult.value).isEmpty()) {
+                logger.warning("Received Velton payload from " + player.getName() + " with invalid/missing jar hash. Rejecting.");
+                kickPlayer(player, "Invalid handshake: missing jar hash");
+                return;
+            }
+            String jarHash = (String) hashResult.value;
+
+            // Decode nonce (string)
+            PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
             if (nonceResult == null || nonceResult.value == null || ((String) nonceResult.value).isEmpty()) {
                 logger.warning("Received Velton payload from " + player.getName() + " with invalid/missing nonce. Rejecting.");
                 kickPlayer(player, "Invalid handshake: missing nonce");
@@ -250,15 +262,34 @@ public class PluginProtocolHandler {
             }
             String nonce = (String) nonceResult.value;
 
-            handleVeltonPayload(player, signatureHash, nonce);
+            handleVeltonPayload(player, clientSignature, jarHash, nonce);
         } catch (Exception e) {
             logger.severe("Failed to decode Velton payload from " + player.getName() + ". Terminating connection: " + e.getMessage());
             kickPlayer(player, "Corrupted handshake data");
         }
     }
 
-    public void handleVeltonPayload(Player player, String signatureHash, String nonce) {
-        boolean verified = signatureHash != null && !signatureHash.isEmpty();
+    public void handleVeltonPayload(Player player, byte[] clientSignature, String jarHash, String nonce) {
+        boolean verified = false;
+
+        if (!jarHash.isEmpty() && clientSignature.length > 0) {
+            if (!signatureVerifier.isKeyLoaded()) {
+                logger.warning("Cannot verify Velton signature for " + player.getName() + ": public key not loaded");
+            } else if (clientSignature.length >= 128) {
+                verified = signatureVerifier.verifySignature(jarHash, clientSignature);
+                if (verified) {
+                    logger.info("Velton integrity check for " + player.getName() + ": JAR SIGNED with VALID SIGNATURE (hash: " + jarHash.substring(0, 8) + ")");
+                } else {
+                    logger.warning("Velton integrity check for " + player.getName() + ": signature verification FAILED");
+                }
+            } else {
+                logger.warning("Velton integrity check for " + player.getName() + ": signature too small to be valid");
+            }
+        } else if (clientSignature.length == 0) {
+            logger.warning("Velton integrity check for " + player.getName() + ": no signature data received");
+        } else if (jarHash.isEmpty()) {
+            logger.warning("Velton integrity check for " + player.getName() + ": no JAR hash received");
+        }
 
         if (HandShakerPlugin.DEBUG) {
             logger.info("Velton check for " + player.getName() + " with nonce " + nonce + ": " + (verified ? "PASSED" : "FAILED"));
@@ -276,7 +307,7 @@ public class PluginProtocolHandler {
             clients.put(player.getUniqueId(), new ClientInfo(false, Collections.emptySet(), false, verified, null, null, nonce, false));
         } else {
             clients.put(player.getUniqueId(), new ClientInfo(oldInfo.fabric(), oldInfo.mods(), oldInfo.signatureVerified(),
-                    verified, oldInfo.modListNonce(), oldInfo.integrityNonce(), nonce, false));
+                    verified, oldInfo.modListNonce(), oldInfo.integrityNonce(), nonce, oldInfo.checked()));
         }
         checkPlayer(player, clients);
     }

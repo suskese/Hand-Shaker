@@ -186,10 +186,45 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 if (!PayloadValidator.validateNonce(payload.nonce(), player, LOGGER, "Velton payload")) {
                     return;
                 }
-                String signatureHash = payload.signatureHash();
-                boolean verified = signatureHash != null && !signatureHash.isEmpty();
                 
-                LOGGER.info("Velton check for {} with nonce {}: {}", playerName, payload.nonce(), verified ? "PASSED" : "FAILED");
+                byte[] clientSignature = payload.signature();
+                String jarHash = payload.jarHash();
+                boolean verified = false;
+                
+                // Verification logic (matching integrity payload verification):
+                // Check if client sent a signature and jar hash
+                if (jarHash != null && !jarHash.isEmpty() && clientSignature != null && clientSignature.length > 0) {
+                    if (publicKey == null) {
+                        LOGGER.warn("Cannot verify Velton signature for {}: public key not loaded", playerName);
+                        verified = false;
+                    } else if (clientSignature.length >= 128) { // Minimum size for a valid signature
+                        // Verify the signature against our public key
+                        try {
+                            verified = verifySignatureWithPublicKey(jarHash, clientSignature);
+                            if (verified) {
+                                LOGGER.info("Velton integrity check for {}: JAR SIGNED with VALID SIGNATURE (hash: {})", playerName, StringUtils.truncate(jarHash, 8));
+                            } else {
+                                LOGGER.warn("Velton integrity check for {}: signature verification FAILED - signature was not created with our key", playerName);
+                            }
+                        } catch (Exception e) {
+                            LOGGER.warn("Velton integrity check for {}: error verifying signature: {}", playerName, e.getMessage());
+                            verified = false;
+                        }
+                    } else {
+                        LOGGER.warn("Velton integrity check for {}: signature too small to be valid", playerName);
+                        verified = false;
+                    }
+                } else if (clientSignature == null || clientSignature.length == 0) {
+                    LOGGER.warn("Velton integrity check for {}: no signature data received - client not signed", playerName);
+                    verified = false;
+                } else if (jarHash == null || jarHash.isEmpty()) {
+                    LOGGER.warn("Velton integrity check for {}: no JAR hash received", playerName);
+                    verified = false;
+                }
+                
+                if (HandShakerServer.DEBUG_MODE) {
+                    LOGGER.info("Velton check for {} with nonce {}: {}", playerName, payload.nonce(), verified ? "PASSED" : "FAILED");
+                }
 
                 // Kick player if Velton signature is invalid/missing
                 if (!verified) {
@@ -403,10 +438,11 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         }
     }
 
-    public record VeltonPayload(String signatureHash, String nonce) implements CustomPayload {
+    public record VeltonPayload(byte[] signature, String jarHash, String nonce) implements CustomPayload {
         public static final CustomPayload.Id<VeltonPayload> ID = new CustomPayload.Id<>(VELTON_CHANNEL);
         public static final PacketCodec<PacketByteBuf, VeltonPayload> CODEC = PacketCodec.tuple(
-                PacketCodecs.STRING, VeltonPayload::signatureHash,
+                PacketCodecs.BYTE_ARRAY, VeltonPayload::signature,
+                PacketCodecs.STRING, VeltonPayload::jarHash,
                 PacketCodecs.STRING, VeltonPayload::nonce,
                 VeltonPayload::new);
         @Override public CustomPayload.Id<? extends CustomPayload> getId() { return ID; }

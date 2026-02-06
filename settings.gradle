@@ -19,8 +19,8 @@ pluginManagement {
 	}
 }
 
-include 'paper'
-// include 'velton' // Velton addon (Source code is private)
+// include 'paper'
+include 'velton' // Velton addon (Source code is private)
 
 // // // Fabric Modules // //
 
@@ -31,19 +31,3 @@ include 'fabric:1.21.11'
 
 include 'neoforge:1.21.10'
 include 'neoforge:1.21.11'
-
-
-
-
-
-
-
-
-
-// // // Removed
-
-// include 'neoforge:server' // 1.21 - 1.21.10 (Merged into neoforge:1.21.10)
-// include 'neoforge:client' // 1.21 - 1.21.10 (Merged into neoforge:1.21.10)
-// include 'neoforge:server-21.11' // 1.21.11+ (Need to be tested)
-// include 'neoforge:client-21.11' // 1.21.11+ (Need to be tested)
-// include 'fabric:client'

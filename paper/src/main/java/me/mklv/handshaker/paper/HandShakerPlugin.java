@@ -87,9 +87,9 @@ public class HandShakerPlugin extends JavaPlugin {
         }
     }
 
-    public void handleVeltonPayload(Player player, String signatureHash, String nonce) {
+    public void handleVeltonPayload(Player player, byte[] clientSignature, String jarHash, String nonce) {
         if (protocolHandler != null) {
-            protocolHandler.handleVeltonPayload(player, signatureHash, nonce);
+            protocolHandler.handleVeltonPayload(player, clientSignature, jarHash, nonce);
         }
     }
 
