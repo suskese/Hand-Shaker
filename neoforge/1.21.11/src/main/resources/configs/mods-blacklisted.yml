@@ -1,0 +1,6 @@
+# Blacklisted mods: modname: kick/ban
+# If a player has any of these mods, they will be kicked
+
+blacklisted:
+  xray: ban
+  forge: kick

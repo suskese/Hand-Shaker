@@ -1,0 +1,153 @@
+plugins {
+    id 'net.neoforged.moddev'
+}
+
+base {
+	archivesName = "${archives_base_name}-neo-${project.mod_version}"
+}
+
+version = ''
+group = project.maven_group
+
+neoForge {
+    version = project.neo_version
+
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+
+    runs {
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            systemProperty 'forge.logging.console.level', 'debug'
+        }
+        
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            systemProperty 'forge.logging.console.level', 'debug'
+        }
+    }
+
+    mods {
+        "${project.mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+repositories {
+    mavenLocal()
+    maven {
+        name = "Fabric"
+        url = "https://maven.fabricmc.net/"
+    }
+}
+
+dependencies {
+    // H2 Database
+    jarJar('com.h2database:h2:2.2.224')
+    jarJar('com.zaxxer:HikariCP:6.2.1') {
+    exclude group: 'org.slf4j', module: 'slf4j-api'
+    }
+    
+    // YAML Configuration
+    jarJar('org.yaml:snakeyaml:2.0')
+    
+    // We also need them on compile classpath
+    implementation 'com.h2database:h2:2.2.224'
+    implementation ('com.zaxxer:HikariCP:6.2.1') {
+    exclude group: 'org.slf4j', module: 'slf4j-api'
+    }
+    implementation 'org.yaml:snakeyaml:2.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('processResources') {
+    var replaceProperties = [
+        file: [jarVersion: "${project.mod_version}-1.21.x"]
+    ]
+    inputs.properties replaceProperties
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand replaceProperties
+    }
+}
+
+tasks.register('copyCert') {
+    def certDir = rootProject.projectDir
+    doLast {
+        copy {
+            from "${certDir}/.Integrity/public.cer"
+            into "src/main/resources"
+        }
+    }
+}
+
+processResources.dependsOn copyCert
+
+tasks.named('jar') {
+    def keystoreDir = rootProject.projectDir
+    doLast {
+        println "Signing jar: ${archiveFile.get().asFile.absolutePath}"
+        
+        // Load .env file from root project directory
+        def envFile = rootProject.file('.env')
+        def keystorePassword = null
+        
+        if (envFile.exists()) {
+            envFile.eachLine { line ->
+                if (line.startsWith('KEYSTORE_PASSWORD=')) {
+                    keystorePassword = line.replace('KEYSTORE_PASSWORD=', '').trim()
+                }
+            }
+        }
+        
+        // Fall back to environment variable or system property if .env not found
+        if (!keystorePassword) {
+            keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD')
+        }
+        
+        ant.signjar(
+            jar: archiveFile.get().asFile,
+            alias: 'handshaker',
+            storepass: keystorePassword,
+            keypass: keystorePassword,
+            keystore: "${keystoreDir}/.Integrity/keystore.jks",
+            preservelastmodified: 'true',
+            verbose: 'true'
+        )
+        println "Jar signed successfully"
+    }
+}
+
+task inspectClasspath {
+    doLast {
+        configurations.compileClasspath.each { file ->
+            // if (file.name.contains("neoforge") || file.name.contains("fml")) {
+                // println "Dependency: ${file.name}"
+                if (!file.isDirectory()) {
+                    try {
+                        def jar = new java.util.jar.JarFile(file)
+                        jar.entries().each { entry ->
+                            if (file.name.contains("loader")) {
+                                println "Loader Entry: ${entry.name}"
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            // }
+        }
+    }
+}

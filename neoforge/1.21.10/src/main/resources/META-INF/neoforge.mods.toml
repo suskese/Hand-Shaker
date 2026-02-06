@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="All Rights Reserved"
+issueTrackerURL="https://github.com/mklv/hand-shaker/issues"
+logoFile="assets/icon.png"
+
+[[mods]]
+modId="hand_shaker"
+version="${file.jarVersion}"
+displayName="Hand Shaker"
+description="Handshaker verification mod"
+authors="IceVallish / Suskese"
+
+[[dependencies.hand_shaker]]
+modId="neoforge"
+type="required"
+versionRange="[21,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.hand_shaker]]
+modId="minecraft"
+type="required"
+versionRange="[1.21,1.21.10]"
+ordering="NONE"
+side="BOTH"

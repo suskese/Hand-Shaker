@@ -1,0 +1,28 @@
+config: v4
+
+# Behavior: "strict" - Force requires client-side mod or "vanilla" allow also non-mod clients
+behavior: strict
+
+# Integrity Mode: "signed" or "dev" - allow unsigned mods (if you are building own client/server fork)
+integrity-mode: signed
+
+# Whitelist mode: true = only allowed mods (inside whitelisted.yml), false = allowed by default
+whitelist: false
+
+# Allow Bedrock players
+allow-bedrock-players: false
+
+# Player Database: Store and track player mod history (requires playerdb to be enabled)
+playerdb-enabled: false
+
+# Mod List Toggles: Enable/disable each mod list without losing configuration
+mods-required-enabled: true
+mods-blacklisted-enabled: true
+mods-whitelisted-enabled: false
+
+# Kick Messages - customize as needed (use {mod} for mod name)
+messages:
+  kick: "You are using a blacklisted mod: {mod}. Please remove it to join this server."
+  no-handshake: "To connect to this server please download 'Hand-shaker' mod."
+  missing-whitelist: "You are missing required mods: {mod}. Please install them to join this server."
+  invalid-signature: "Invalid client signature. Please use the official HandShaker client mod."

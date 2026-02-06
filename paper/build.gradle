@@ -42,7 +42,9 @@ def projectVersion = project.version
 processResources {
     dependsOn rootProject.tasks.named('copyCert')
     filteringCharset = 'UTF-8'
-    filesMatching('plugin.yml') { filter { line -> line.replace('${version}', projectVersion) } }
+    filesMatching(['paper-plugin.yml']) { 
+        filter { line -> line.replace('${version}', projectVersion) } 
+    }
 }
 
 
