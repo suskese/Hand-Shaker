@@ -1,6 +1,7 @@
 # 🤝 HandShaker 6.0.0
 
-> **⚠️ This project requires setup on both client and server sides.**
+>[!WARNING]
+> **This project requires setup on both client and server sides.**
 
 [![Modrinth](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/available/modrinth_vector.svg)](https://modrinth.com/plugin/hand-shaker)
 [![CurseForge](https://raw.githubusercontent.com/intergrav/devins-badges/c7fd18efdadd1c3f12ae56b49afd834640d2d797/assets/cozy/available/curseforge_vector.svg)](https://www.curseforge.com/minecraft/mc-mods/hand-shaker)
