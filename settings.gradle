@@ -19,8 +19,8 @@ pluginManagement {
 	}
 }
 
-// include 'paper'
-include 'velton' // Velton addon (Source code is private)
+include 'paper'
+// include 'velton' // Velton addon (Source code is private)
 
 // // // Fabric Modules // //
 
