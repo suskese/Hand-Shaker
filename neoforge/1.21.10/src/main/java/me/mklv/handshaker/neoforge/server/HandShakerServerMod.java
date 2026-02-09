@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
 import me.mklv.handshaker.neoforge.NetworkSetup;
 import me.mklv.handshaker.neoforge.server.utils.CryptoUtils;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -14,6 +15,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -63,7 +65,8 @@ public class HandShakerServerMod {
         
         loadPublicCertificate();
 
-        playerHistoryDb = new PlayerHistoryDatabase();
+        // Initialize player history database with NeoForge logger adapter
+        playerHistoryDb = new PlayerHistoryDatabase(FMLPaths.CONFIGDIR.get().toFile(), new NeoForgeLoggerAdapter(LOGGER));
 
         // Register payloads once via centralized NetworkSetup
         modEventBus.addListener(NetworkSetup::registerPayloads);
@@ -418,5 +421,33 @@ public class HandShakerServerMod {
                 ByteBufCodecs.STRING_UTF8, VeltonPayload::nonce,
                 VeltonPayload::new);
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    private static class NeoForgeLoggerAdapter implements PlayerHistoryDatabase.Logger {
+        private final Logger logger;
+
+        NeoForgeLoggerAdapter(Logger logger) {
+            this.logger = logger;
+        }
+
+        @Override
+        public void info(String message, Object... args) {
+            logger.info(message, args);
+        }
+
+        @Override
+        public void warn(String message, Object... args) {
+            logger.warn(message, args);
+        }
+
+        @Override
+        public void error(String message, Throwable e) {
+            logger.error(message, e);
+        }
+
+        @Override
+        public void debug(String message) {
+            logger.debug(message);
+        }
     }
 }

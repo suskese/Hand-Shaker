@@ -1,6 +1,6 @@
 package me.mklv.handshaker.neoforge.server;
 
-import me.mklv.handshaker.neoforge.server.configs.ActionDefinition;
+import me.mklv.handshaker.common.configs.ActionDefinition;
 import net.neoforged.fml.loading.FMLPaths;
 import org.yaml.snakeyaml.Yaml;
 import java.io.*;

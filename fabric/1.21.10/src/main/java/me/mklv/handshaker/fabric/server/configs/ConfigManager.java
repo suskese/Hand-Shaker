@@ -4,6 +4,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import org.yaml.snakeyaml.Yaml;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import me.mklv.handshaker.common.configs.ActionDefinition;
 import me.mklv.handshaker.fabric.server.HandShakerServer;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 import java.io.*;

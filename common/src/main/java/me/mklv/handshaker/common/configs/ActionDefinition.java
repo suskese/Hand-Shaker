@@ -1,4 +1,4 @@
-package me.mklv.handshaker.paper.configs;
+package me.mklv.handshaker.common.configs;
 
 import java.util.ArrayList;
 import java.util.List;

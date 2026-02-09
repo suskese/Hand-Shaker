@@ -1,4 +1,4 @@
-package me.mklv.handshaker.paper.utils;
+package me.mklv.handshaker.common.utils;
 
 public class CachedValue<T> {
     private T value;

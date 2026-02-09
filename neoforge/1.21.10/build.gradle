@@ -52,7 +52,11 @@ repositories {
 }
 
 dependencies {
-    // H2 Database
+    // Common module (shared config, database pooling, logging)
+    jarJar(project(':common'))
+    implementation(project(':common'))
+    
+    // NeoForge-specific database dependency (H2)
     jarJar('com.h2database:h2:2.2.224')
     jarJar('com.zaxxer:HikariCP:6.2.1') {
     exclude group: 'org.slf4j', module: 'slf4j-api'
@@ -63,6 +67,9 @@ dependencies {
     
     // We also need them on compile classpath
     implementation 'com.h2database:h2:2.2.224'
+    compileOnly 'com.zaxxer:HikariCP:6.2.1'
+    jarJar('org.yaml:snakeyaml:2.0')
+    implementation 'org.yaml:snakeyaml:2.0'
     implementation ('com.zaxxer:HikariCP:6.2.1') {
     exclude group: 'org.slf4j', module: 'slf4j-api'
     }

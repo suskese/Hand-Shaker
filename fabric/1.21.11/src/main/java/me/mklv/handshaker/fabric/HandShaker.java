@@ -50,7 +50,7 @@ public class HandShaker implements ClientModInitializer {
 				.sorted()
 				.reduce((a,b) -> a + "," + b)
 				.orElse("");
-		String modListHash = bytesToHex(me.mklv.handshaker.fabric.server.utils.CryptoUtils.hashStringToBytes(payload));
+		String modListHash = bytesToHex(me.mklv.handshaker.common.utils.CryptoUtils.hashStringToBytes(payload));
 		String nonce = generateNonce();
 		ClientPlayNetworking.send(new ModsListPayload(payload, modListHash, nonce));
 		LOGGER.info("Sent mod list ({} chars, hash: {}) with nonce: {}", payload.length(), modListHash.substring(0, 8), nonce);

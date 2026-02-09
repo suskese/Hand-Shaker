@@ -35,11 +35,16 @@ dependencies {
 	compileOnly 'org.geysermc.geyser:api:2.9.0-SNAPSHOT'
 	compileOnly 'org.geysermc.floodgate:api:2.2.4-SNAPSHOT'
 	
+	// Common module (shared config, database pooling, logging)
+	include implementation(project(':common'))
+	
+	// Fabric-specific database dependency (H2)
 	include implementation('com.h2database:h2:2.2.224')
 	include implementation('com.zaxxer:HikariCP:6.2.1')
 	include implementation('org.slf4j:slf4j-api:2.0.16')
 	include implementation('org.yaml:snakeyaml:2.0')
-	
+	compileOnly 'com.zaxxer:HikariCP:6.2.1'
+	include implementation('org.yaml:snakeyaml:2.0')
 	compileOnly "me.lucko:fabric-permissions-api:0.3.1"
 }
 

@@ -24,14 +24,22 @@ repositories {
 }
 
 dependencies {
+
+    
+    // Common module (shared config, database pooling, logging)
+    implementation project(':common')
+    
+    // Paper-specific database dependency (JDBC)
+    implementation 'org.xerial:sqlite-jdbc:3.47.1.0'
+
     compileOnly "io.papermc.paper:paper-api:${paper_api}"
     compileOnly 'org.geysermc.geyser:api:2.9.0-SNAPSHOT'
     compileOnly 'org.geysermc.floodgate:api:2.2.4-SNAPSHOT'
+
+    compileOnly 'com.zaxxer:HikariCP:6.2.1'
+    compileOnly 'org.yaml:snakeyaml:2.0'
+    compileOnly 'org.slf4j:slf4j-api:2.0.16'
     
-    // Database dependencies
-    implementation 'org.xerial:sqlite-jdbc:3.47.1.0'
-    implementation 'com.zaxxer:HikariCP:6.2.1'
-    implementation 'org.slf4j:slf4j-api:2.0.16'
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -52,7 +60,7 @@ shadowJar {
     archiveClassifier.set('')
 
     relocate 'com.zaxxer.hikari', 'me.mklv.handshaker.libs.hikari'
-
+    
     dependencies {
         exclude(dependency('io.papermc.paper:paper-api'))
         exclude(dependency('org.xerial:sqlite-jdbc'))

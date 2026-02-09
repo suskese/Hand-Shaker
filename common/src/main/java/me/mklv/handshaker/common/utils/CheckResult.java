@@ -1,12 +1,7 @@
-package me.mklv.handshaker.fabric.server.utils;
+package me.mklv.handshaker.common.utils;
 
 import java.util.Set;
 
-/**
- * Represents the compliance status of a player's mods.
- * Contains the action to execute, message, and detected mods.
- * Fully dynamic - all values come from config/player data, not hardcoded.
- */
 public class CheckResult {
     private final String kickMessage;
     private final String actionName;

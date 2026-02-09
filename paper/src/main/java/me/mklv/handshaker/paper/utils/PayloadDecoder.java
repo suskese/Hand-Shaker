@@ -105,9 +105,6 @@ public class PayloadDecoder {
         }
     }
 
-    /**
-     * Result of a decode operation containing offset and value
-     */
     public static class DecodeResult {
         public final int offset;
         public final Object value;

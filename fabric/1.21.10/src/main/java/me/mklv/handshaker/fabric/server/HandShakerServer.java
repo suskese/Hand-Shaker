@@ -3,9 +3,9 @@ package me.mklv.handshaker.fabric.server;
 import me.mklv.handshaker.fabric.HandShaker;
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
 import me.mklv.handshaker.fabric.server.configs.ConfigMigrator;
-import me.mklv.handshaker.fabric.server.utils.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.fabric.server.utils.PayloadValidator;
-import me.mklv.handshaker.fabric.server.utils.StringUtils;
+import me.mklv.handshaker.common.utils.StringUtils;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -24,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
@@ -70,7 +71,11 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         
         loadPublicCertificate();
         
-        playerHistoryDb = new PlayerHistoryDatabase(configManager.isPlayerdbEnabled());
+        // Initialize player history database if enabled
+        if (configManager.isPlayerdbEnabled()) {
+            Path configDir = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir();
+            playerHistoryDb = new PlayerHistoryDatabase(configDir.toFile(), new FabricLoggerAdapter(LOGGER));
+        }
 
         ServerLifecycleEvents.SERVER_STARTED.register(server -> this.server = server);
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -446,5 +451,34 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 PacketCodecs.STRING, VeltonPayload::nonce,
                 VeltonPayload::new);
         @Override public CustomPayload.Id<? extends CustomPayload> getId() { return ID; }
+    }
+
+
+    private static class FabricLoggerAdapter implements PlayerHistoryDatabase.Logger {
+        private final Logger logger;
+
+        FabricLoggerAdapter(Logger logger) {
+            this.logger = logger;
+        }
+
+        @Override
+        public void info(String message, Object... args) {
+            logger.info(message, args);
+        }
+
+        @Override
+        public void warn(String message, Object... args) {
+            logger.warn(message, args);
+        }
+
+        @Override
+        public void error(String message, Throwable e) {
+            logger.error(message, e);
+        }
+
+        @Override
+        public void debug(String message) {
+            logger.debug(message);
+        }
     }
 }

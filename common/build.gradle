@@ -1,0 +1,32 @@
+plugins {
+    id 'java'
+    id 'maven-publish'
+}
+
+group = project.maven_group
+version = project.mod_version
+
+base {
+    archivesName = "${project.archives_base_name}-common"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Shared dependencies - used by all platforms
+    implementation 'com.zaxxer:HikariCP:6.2.1'
+    implementation 'org.slf4j:slf4j-api:2.0.16'
+    // implementation 'org.yaml:snakeyaml:2.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}

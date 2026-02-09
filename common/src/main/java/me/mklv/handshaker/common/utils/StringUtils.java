@@ -1,5 +1,4 @@
-package me.mklv.handshaker.neoforge.server.utils;
-
+package me.mklv.handshaker.common.utils;
 
 public class StringUtils {
 

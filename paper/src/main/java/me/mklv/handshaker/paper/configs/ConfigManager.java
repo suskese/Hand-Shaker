@@ -1,7 +1,8 @@
 package me.mklv.handshaker.paper.configs;
 
 import me.mklv.handshaker.paper.HandShakerPlugin;
-import me.mklv.handshaker.paper.utils.PlayerModStatus;
+import me.mklv.handshaker.common.utils.PlayerModStatus;
+import me.mklv.handshaker.common.configs.ActionDefinition;
 import org.bukkit.entity.Player;
 import org.yaml.snakeyaml.Yaml;
 

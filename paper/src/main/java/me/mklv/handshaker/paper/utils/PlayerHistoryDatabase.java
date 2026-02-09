@@ -1,5 +1,7 @@
 package me.mklv.handshaker.paper.utils;
 
+import me.mklv.handshaker.common.utils.CachedValue;
+
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.File;

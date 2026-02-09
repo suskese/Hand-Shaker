@@ -1,7 +1,8 @@
 package me.mklv.handshaker.paper.protocol;
 
 import me.mklv.handshaker.paper.HandShakerPlugin;
-import me.mklv.handshaker.paper.configs.ActionDefinition;
+import me.mklv.handshaker.common.configs.ActionDefinition;
+import me.mklv.handshaker.common.utils.PlayerModStatus;
 import me.mklv.handshaker.paper.configs.ConfigManager;
 import me.mklv.handshaker.paper.utils.*;
 import net.kyori.adventure.text.Component;

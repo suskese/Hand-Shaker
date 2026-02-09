@@ -9,7 +9,7 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
-import me.mklv.handshaker.fabric.server.utils.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.*;
