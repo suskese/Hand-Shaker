@@ -5,55 +5,20 @@ import org.yaml.snakeyaml.Yaml;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import me.mklv.handshaker.common.configs.ActionDefinition;
+import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
+import me.mklv.handshaker.common.configs.ConfigState.Behavior;
+import me.mklv.handshaker.common.configs.ConfigState.IntegrityMode;
+import me.mklv.handshaker.common.configs.ConfigState.ModConfig;
+import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.fabric.server.HandShakerServer;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 
 import java.io.*;
-import java.nio.file.Files;
 import java.util.*;
 
 public class ConfigManager {
     private final File configDir;
     private File configYmlFile;
-
-    public enum Behavior { STRICT, VANILLA }
-    public enum IntegrityMode { SIGNED, DEV }
-    
-    public enum Action {
-        KICK, BAN;
-        
-        public static Action fromString(String str) {
-            if (str == null) return KICK;
-            return switch (str.toUpperCase(Locale.ROOT)) {
-                case "BAN" -> BAN;
-                default -> KICK;
-            };
-        }
-    }
-
-    public static class ModConfig {
-        private String mode;
-        private String action;
-        private String warnMessage;
-
-        public ModConfig(String mode, String action, String warnMessage) {
-            this.mode = mode != null ? mode : "allowed";
-            this.action = action != null ? action : "kick";
-            this.warnMessage = warnMessage;
-        }
-
-        public String getMode() { return mode; }
-        public void setMode(String mode) { this.mode = mode; }
-        public Action getAction() { return Action.fromString(action); }
-        public String getActionName() { return action; }
-        public void setAction(String action) { this.action = action; }
-        public String getWarnMessage() { return warnMessage; }
-        public void setWarnMessage(String warnMessage) { this.warnMessage = warnMessage; }
-        
-        public boolean isRequired() { return "required".equalsIgnoreCase(mode); }
-        public boolean isBlacklisted() { return "blacklisted".equalsIgnoreCase(mode); }
-        public boolean isAllowed() { return "allowed".equalsIgnoreCase(mode); }
-    }
 
     private Behavior behavior = Behavior.STRICT;
     private IntegrityMode integrityMode = IntegrityMode.SIGNED;
@@ -97,38 +62,28 @@ public class ConfigManager {
     }
 
     private void createDefaultFilesIfNotExist() {
-        // Create config.yml if doesn't exist
-        if (!configYmlFile.exists()) {
-            try {
-                copyConfigFromJar("config.yml", configYmlFile);
-                HandShakerServer.LOGGER.info("Created default config.yml");
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.error("Could not create config.yml: {}", e.getMessage());
+        ConfigFileBootstrap.Logger bootstrapLogger = new ConfigFileBootstrap.Logger() {
+            @Override
+            public void info(String message) {
+                HandShakerServer.LOGGER.info(message);
             }
-        }
 
-        // Create mods YAML files if they don't exist
+            @Override
+            public void warn(String message) {
+                HandShakerServer.LOGGER.warn(message);
+            }
+
+            @Override
+            public void error(String message, Throwable error) {
+                HandShakerServer.LOGGER.error(message, error);
+            }
+        };
+
+        ConfigFileBootstrap.copyRequired(configDir.toPath(), "config.yml", ConfigManager.class, bootstrapLogger);
+
         String[] modsFiles = {"mods-required.yml", "mods-blacklisted.yml", "mods-whitelisted.yml", "mods-ignored.yml", "mods-actions.yml"};
         for (String filename : modsFiles) {
-            File file = new File(configDir, filename);
-            if (!file.exists()) {
-                try {
-                    copyConfigFromJar(filename, file);
-                    HandShakerServer.LOGGER.info("Created default {}", filename);
-                } catch (IOException e) {
-                    HandShakerServer.LOGGER.warn("Could not create {}: {}", filename, e.getMessage());
-                }
-            }
-        }
-    }
-
-    private void copyConfigFromJar(String filename, File targetFile) throws IOException {
-        try (InputStream is = ConfigManager.class.getResourceAsStream("/configs/" + filename)) {
-            if (is != null) {
-                Files.copy(is, targetFile.toPath());
-            } else {
-                throw new IOException("Config file " + filename + " not found in JAR resources");
-            }
+            ConfigFileBootstrap.copyOptional(configDir.toPath(), filename, ConfigManager.class, bootstrapLogger);
         }
     }
 
@@ -787,11 +742,11 @@ public class ConfigManager {
         return str.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
     }
 
-    public void checkPlayer(net.minecraft.server.network.ServerPlayerEntity player, HandShakerServer.ClientInfo info) {
+    public void checkPlayer(net.minecraft.server.network.ServerPlayerEntity player, ClientInfo info) {
         checkPlayer(player, info, true); // Execute actions by default
     }
     
-    public void checkPlayer(net.minecraft.server.network.ServerPlayerEntity player, HandShakerServer.ClientInfo info, boolean executeActions) {
+    public void checkPlayer(net.minecraft.server.network.ServerPlayerEntity player, ClientInfo info, boolean executeActions) {
         if (info == null) return;
 
         // Check for bypass permission - allows players to bypass all mod checks

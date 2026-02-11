@@ -1,11 +1,10 @@
 package me.mklv.handshaker.paper;
 
-import me.mklv.handshaker.paper.configs.ConfigManager;
-import me.mklv.handshaker.paper.configs.ConfigMigrator;
-import me.mklv.handshaker.paper.listener.HandShakerListener;
-import me.mklv.handshaker.paper.protocol.PluginProtocolHandler;
+import me.mklv.handshaker.common.configs.ConfigMigrator;
+import me.mklv.handshaker.paper.utils.HandShakerListener;
 import me.mklv.handshaker.paper.utils.PlayerHistoryDatabase;
-import me.mklv.handshaker.paper.utils.ClientInfo;
+import me.mklv.handshaker.paper.utils.PluginProtocolHandler;
+import me.mklv.handshaker.common.utils.ClientInfo;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -51,8 +50,25 @@ public class HandShakerPlugin extends JavaPlugin {
 
     private void loadConfiguration() {
         // Migrate v3 config to v4 if needed
-        ConfigMigrator migrator = new ConfigMigrator(this);
-        migrator.migrateIfNeeded();
+        ConfigMigrator.migrateIfNeeded(
+            getDataFolder().toPath(),
+            new ConfigMigrator.Logger() {
+                @Override
+                public void info(String message) {
+                    getLogger().info(message);
+                }
+
+                @Override
+                public void warn(String message) {
+                    getLogger().warning(message);
+                }
+
+                @Override
+                public void error(String message, Throwable error) {
+                    getLogger().severe(message + " (" + error.getClass().getSimpleName() + ": " + error.getMessage() + ")");
+                }
+            }
+        );
 
         configManager = new ConfigManager(this);
         configManager.load();

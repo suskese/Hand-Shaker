@@ -1,7 +1,7 @@
 package me.mklv.handshaker.paper;
 
-import me.mklv.handshaker.paper.configs.ConfigManager;
 import me.mklv.handshaker.paper.utils.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.configs.ConfigState;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -410,7 +410,7 @@ public class HandShakerCommand {
     }
 
     private void showConfiguredMods(CommandSender sender, ConfigManager config) {
-        Map<String, ConfigManager.ModConfig> mods = config.getModConfigMap();
+        Map<String, ConfigState.ModConfig> mods = config.getModConfigMap();
         if (mods.isEmpty()) {
             sender.sendMessage("§eNo mods configured. Whitelist mode: " + (config.isWhitelist() ? "ON" : "OFF"));
             return;
@@ -419,19 +419,19 @@ public class HandShakerCommand {
         sender.sendMessage("§6=== Configured Mods (Whitelist: " + (config.isWhitelist() ? "ON" : "OFF") + ") ===");
         
         if (!(sender instanceof Player player)) {
-            for (Map.Entry<String, ConfigManager.ModConfig> entry : mods.entrySet()) {
-                ConfigManager.ModConfig modCfg = entry.getValue();
-                String actionStr = modCfg.getAction() != ConfigManager.Action.KICK ? " § " + modCfg.getAction() : "";
+            for (Map.Entry<String, ConfigState.ModConfig> entry : mods.entrySet()) {
+                ConfigState.ModConfig modCfg = entry.getValue();
+                String actionStr = modCfg.getAction() != ConfigState.Action.KICK ? " § " + modCfg.getAction() : "";
                 sender.sendMessage("§e" + entry.getKey() + " §7| §f" + modCfg.getMode() + actionStr);
             }
         } else {
-            for (Map.Entry<String, ConfigManager.ModConfig> entry : mods.entrySet()) {
-                ConfigManager.ModConfig modCfg = entry.getValue();
+            for (Map.Entry<String, ConfigState.ModConfig> entry : mods.entrySet()) {
+                ConfigState.ModConfig modCfg = entry.getValue();
                 NamedTextColor statusColor = modCfg.isRequired() ? NamedTextColor.GREEN 
                     : modCfg.isBlacklisted() ? NamedTextColor.RED 
                     : NamedTextColor.YELLOW;
                 
-                String actionStr = modCfg.getAction() != ConfigManager.Action.KICK ? " " + modCfg.getAction() : "";
+                String actionStr = modCfg.getAction() != ConfigState.Action.KICK ? " " + modCfg.getAction() : "";
                 String hoverText = modCfg.getMode() + actionStr + "\n\nClick to change mode";
                 
                 Component modComponent = buildModComponentWithRemove(entry.getKey(), statusColor, hoverText);
@@ -466,7 +466,7 @@ public class HandShakerCommand {
                 
                 if (config.isIgnored(modName)) continue;
                 
-                ConfigManager.ModConfig modCfg = config.getModConfig(modName);
+                ConfigState.ModConfig modCfg = config.getModConfig(modName);
                 sender.sendMessage("§e" + modName + " §7| §f" + count + " player(s) § " + modCfg.getMode());
             }
         } else {
@@ -477,7 +477,7 @@ public class HandShakerCommand {
                 
                 if (config.isIgnored(modName)) continue;
                 
-                ConfigManager.ModConfig modCfg = config.getModConfig(modName);
+                ConfigState.ModConfig modCfg = config.getModConfig(modName);
                 NamedTextColor statusColor = modCfg.isRequired() ? NamedTextColor.GREEN 
                     : modCfg.isBlacklisted() ? NamedTextColor.RED 
                     : NamedTextColor.YELLOW;
@@ -575,7 +575,7 @@ public class HandShakerCommand {
         for (String mod : mods) {
             if (config.isIgnored(mod)) continue;
             
-            ConfigManager.ModConfig modCfg = config.getModConfig(mod);
+            ConfigState.ModConfig modCfg = config.getModConfig(mod);
             NamedTextColor statusColor = modCfg.isRequired() ? NamedTextColor.GREEN 
                 : modCfg.isBlacklisted() ? NamedTextColor.RED 
                 : NamedTextColor.YELLOW;

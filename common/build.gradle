@@ -24,6 +24,7 @@ dependencies {
     // Shared dependencies - used by all platforms
     implementation 'com.zaxxer:HikariCP:6.2.1'
     implementation 'org.slf4j:slf4j-api:2.0.16'
+    implementation 'com.google.code.gson:gson:2.10.1'
     // implementation 'org.yaml:snakeyaml:2.0'
 }
 

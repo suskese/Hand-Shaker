@@ -3,6 +3,8 @@ package me.mklv.handshaker.common.database;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
+import me.mklv.handshaker.common.utils.CachedValue;
+
 import java.io.File;
 import java.sql.*;
 import java.time.LocalDateTime;
@@ -384,36 +386,6 @@ public class PlayerHistoryDatabase {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             logger.info("Player history database closed");
-        }
-    }
-
-    /**
-     * Internal cache for time-sensitive data
-     */
-    private static class CachedValue<T> {
-        private T value;
-        private long expiresAt;
-        private final long ttlMs;
-
-        CachedValue(long ttlMs) {
-            this.ttlMs = ttlMs;
-        }
-
-        synchronized T get() {
-            if (value != null && System.currentTimeMillis() < expiresAt) {
-                return value;
-            }
-            return null;
-        }
-
-        synchronized void set(T newValue) {
-            this.value = newValue;
-            this.expiresAt = System.currentTimeMillis() + ttlMs;
-        }
-
-        synchronized void invalidate() {
-            this.value = null;
-            this.expiresAt = 0;
         }
     }
 

@@ -65,6 +65,7 @@ shadowJar {
         exclude(dependency('io.papermc.paper:paper-api'))
         exclude(dependency('org.xerial:sqlite-jdbc'))
         exclude(dependency('org.slf4j:slf4j-api'))
+        exclude(dependency('com.google.code.gson:gson'))
     }
 }
 

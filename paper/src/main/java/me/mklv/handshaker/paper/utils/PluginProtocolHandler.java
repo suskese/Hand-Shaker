@@ -1,20 +1,20 @@
-package me.mklv.handshaker.paper.protocol;
+package me.mklv.handshaker.paper.utils;
 
+import me.mklv.handshaker.paper.ConfigManager;
 import me.mklv.handshaker.paper.HandShakerPlugin;
+import me.mklv.handshaker.common.configs.ConfigState;
 import me.mklv.handshaker.common.configs.ActionDefinition;
-import me.mklv.handshaker.common.utils.PlayerModStatus;
-import me.mklv.handshaker.paper.configs.ConfigManager;
-import me.mklv.handshaker.paper.utils.*;
+import me.mklv.handshaker.common.protocols.BedrockPlayer;
+import me.mklv.handshaker.common.protocols.CertLoader;
+import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.HashUtils;
+import me.mklv.handshaker.common.utils.SignatureVerifier;
+
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
 import java.util.*;
 import java.util.logging.Logger;
 
@@ -61,23 +61,17 @@ public class PluginProtocolHandler {
 
 
     private PublicKey loadPublicCertificate() {
-        try (var certStream = plugin.getClass().getResourceAsStream("/public.cer")) {
-            if (certStream == null) {
-                logger.warning("⚠️  public.cer not found in resources. Signature verification will be disabled.");
-                logger.warning("⚠️  Mods signed with ANY certificate will be accepted.");
-                return null;
+        return CertLoader.loadPublicKey(plugin.getClass(), "/public.cer", new CertLoader.LogSink() {
+            @Override
+            public void info(String message) {
+                logger.info(message);
             }
 
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            Certificate cert = cf.generateCertificate(certStream);
-            PublicKey publicKey = cert.getPublicKey();
-            logger.info("✓ Loaded public certificate for signature verification");
-            return publicKey;
-        } catch (Exception e) {
-            logger.warning("Failed to load public.cer: " + e.getMessage());
-            logger.warning("⚠️  Signature verification will be disabled.");
-            return null;
-        }
+            @Override
+            public void warn(String message) {
+                logger.warning(message);
+            }
+        });
     }
 
     private void handleModList(Player player, byte[] data) {
@@ -116,7 +110,7 @@ public class PluginProtocolHandler {
 
     public boolean validateAndSyncModList(Player player, String payload, String modListHash, String nonce) {
         // Verify hash matches payload
-        String calculatedHash = hashString(payload);
+        String calculatedHash = HashUtils.sha256Hex(payload);
         if (!calculatedHash.equals(modListHash)) {
             if (HandShakerPlugin.DEBUG) {
                 logger.warning("Received mod list from " + player.getName() + " with mismatched hash. Expected " + calculatedHash + " but got " + modListHash);
@@ -329,13 +323,13 @@ public class PluginProtocolHandler {
         }
 
         // Handshake presence check
-        if (configManager.getBehavior() == ConfigManager.Behavior.STRICT && !info.fabric()) {
+        if (configManager.getBehavior() == ConfigState.Behavior.STRICT && !info.fabric()) {
             kickPlayer(player, configManager.getNoHandshakeKickMessage());
             return;
         }
 
         // Integrity Check (only if client has the mod or behavior is STRICT)
-        if (info.fabric() && configManager.getIntegrityMode() == ConfigManager.IntegrityMode.SIGNED) {
+        if (info.fabric() && configManager.getIntegrityMode() == ConfigState.IntegrityMode.SIGNED) {
             if (!info.signatureVerified()) {
                 kickPlayer(player, configManager.getInvalidSignatureKickMessage());
                 return;
@@ -345,7 +339,7 @@ public class PluginProtocolHandler {
         Set<String> mods = info.mods();
 
         // Check player and execute action if needed
-        PlayerModStatus status = configManager.checkPlayerWithAction(player, mods);
+        ConfigManager.PlayerModStatus status = configManager.checkPlayerWithAction(player, mods);
         
         if (HandShakerPlugin.DEBUG) {
             logger.info("[DEBUG] checkPlayerWithAction returned: " + (status != null ? "status(" + status.getActionName() + ")" : "null"));
@@ -444,62 +438,15 @@ public class PluginProtocolHandler {
     }
 
     /**
-     * Hashes a string using SHA-256
-     */
-    private String hashString(String input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (NoSuchAlgorithmException e) {
-            logger.warning("SHA-256 not available: " + e.getMessage());
-            return "";
-        }
-    }
-
-    /**
      * Checks if a player is connecting via Bedrock
      */
     private boolean isBedrockPlayer(Player player) {
-        UUID playerUuid = player.getUniqueId();
-
-        // Try Floodgate API first
-        try {
-            Class<?> floodgateApiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
-            Object api = floodgateApiClass.getMethod("getInstance").invoke(null);
-            boolean isFloodgate = (boolean) floodgateApiClass.getMethod("isFloodgatePlayer", UUID.class)
-                    .invoke(api, playerUuid);
-            if (isFloodgate) {
-                return true;
+        return BedrockPlayer.isBedrockPlayer(player.getUniqueId(), player.getName(), new BedrockPlayer.LogSink() {
+            @Override
+            public void warn(String message) {
+                logger.warning(message);
             }
-        } catch (ClassNotFoundException e) {
-            // Floodgate not installed
-        } catch (Exception e) {
-            logger.warning("Error checking Floodgate for " + player.getName() + ": " + e.getMessage());
-        }
-
-        // Try Geyser API
-        try {
-            Class<?> geyserApiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
-            Object geyserApi = geyserApiClass.getMethod("api").invoke(null);
-
-            if (geyserApi != null) {
-                Object connection = geyserApiClass.getMethod("connectionByUuid", UUID.class)
-                        .invoke(geyserApi, playerUuid);
-                return connection != null;
-            }
-        } catch (ClassNotFoundException e) {
-            // Geyser not installed
-        } catch (Exception e) {
-            logger.warning("Error checking Geyser for " + player.getName() + ": " + e.getMessage());
-        }
-
-        return false;
+        });
     }
+
 }

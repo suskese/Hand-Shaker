@@ -10,6 +10,8 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.configs.ConfigState;
+import me.mklv.handshaker.common.utils.ClientInfo;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.*;
@@ -280,7 +282,7 @@ public class HandShakerCommand {
                 return 0;
             }
             
-            HandShakerServer.ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
+            ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
             if (info == null || info.mods().isEmpty()) {
                 ctx.getSource().sendError(Text.literal("No mods found on your client"));
                 return 0;
@@ -340,7 +342,7 @@ public class HandShakerCommand {
                 return 0;
             }
             
-            HandShakerServer.ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
+            ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
             if (info == null || info.mods().isEmpty()) {
                 ctx.getSource().sendError(Text.literal("No mods found on your client"));
                 return 0;
@@ -379,7 +381,7 @@ public class HandShakerCommand {
             return 0;
         }
         
-        ConfigManager.ModConfig oldConfig = config.getModConfig(modId);
+        ConfigState.ModConfig oldConfig = config.getModConfig(modId);
         config.setModConfig(modId, mode, oldConfig.getAction().toString().toLowerCase(), oldConfig.getWarnMessage());
         ctx.getSource().sendFeedback(() -> Text.literal("✓ Changed " + modId + " to " + mode).formatted(Formatting.GREEN), true);
         HandShakerServer.getInstance().checkAllPlayers();
@@ -459,7 +461,7 @@ public class HandShakerCommand {
 
     private static int showConfiguredMods(CommandContext<ServerCommandSource> ctx) {
         ConfigManager config = HandShakerServer.getInstance().getConfigManager();
-        Map<String, ConfigManager.ModConfig> mods = config.getModConfigMap();
+        Map<String, ConfigState.ModConfig> mods = config.getModConfigMap();
         
         ctx.getSource().sendMessage(Text.literal("═══════════════════════════════").formatted(Formatting.GOLD));
         ctx.getSource().sendMessage(Text.literal("Configured Mods (Whitelist: " + (config.isWhitelist() ? "ON" : "OFF") + ")").formatted(Formatting.GOLD, Formatting.BOLD));
@@ -470,8 +472,8 @@ public class HandShakerCommand {
             return Command.SINGLE_SUCCESS;
         }
         
-        for (Map.Entry<String, ConfigManager.ModConfig> entry : mods.entrySet()) {
-            ConfigManager.ModConfig modCfg = entry.getValue();
+        for (Map.Entry<String, ConfigState.ModConfig> entry : mods.entrySet()) {
+            ConfigState.ModConfig modCfg = entry.getValue();
             String actionStr = !modCfg.getAction().toString().toLowerCase().equals("kick") ? " | " + modCfg.getAction() : "";
             
             Formatting statusColor = switch (modCfg.getMode()) {
@@ -526,7 +528,7 @@ public class HandShakerCommand {
         
         for (int i = startIdx; i < endIdx; i++) {
             Map.Entry<String, Integer> entry = sortedMods.get(i);
-            ConfigManager.ModConfig modCfg = config.getModConfig(entry.getKey());
+            ConfigState.ModConfig modCfg = config.getModConfig(entry.getKey());
             
             // Format with color based on mode (color the mod name, not a status tag)
             Formatting modeColor = Formatting.GRAY; // default if not configured
@@ -690,7 +692,7 @@ public class HandShakerCommand {
             builder.suggest("*");
         }
         
-        HandShakerServer.ClientInfo clientInfo = HandShakerServer.getInstance().getClients().get(player.getUuid());
+        ClientInfo clientInfo = HandShakerServer.getInstance().getClients().get(player.getUuid());
         if (clientInfo != null) {
             for (String mod : clientInfo.mods()) {
                 if (mod.toLowerCase().startsWith(remaining)) {
@@ -775,7 +777,7 @@ public class HandShakerCommand {
             return Suggestions.empty();
         }
         
-        HandShakerServer.ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
+        ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
         if (info == null || info.mods().isEmpty()) {
             return Suggestions.empty();
         }
@@ -797,7 +799,7 @@ public class HandShakerCommand {
             return 0;
         }
         
-        HandShakerServer.ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
+        ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
         if (info == null || info.mods().isEmpty()) {
             ctx.getSource().sendMessage(Text.literal("No mod list found for " + playerName).formatted(Formatting.YELLOW));
             return Command.SINGLE_SUCCESS;
@@ -825,7 +827,7 @@ public class HandShakerCommand {
             return 0;
         }
         
-        HandShakerServer.ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
+        ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
         if (info == null || info.mods().isEmpty()) {
             ctx.getSource().sendError(Text.literal("Player has no mods"));
             return 0;
@@ -881,7 +883,7 @@ public class HandShakerCommand {
                 return 0;
             }
             
-            HandShakerServer.ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
+            ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
             if (info == null || info.mods().isEmpty()) {
                 ctx.getSource().sendError(Text.literal("No mods found on your client"));
                 return 0;

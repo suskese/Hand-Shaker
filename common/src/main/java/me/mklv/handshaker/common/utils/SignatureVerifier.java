@@ -1,4 +1,4 @@
-package me.mklv.handshaker.paper.utils;
+package me.mklv.handshaker.common.utils;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -9,10 +9,29 @@ import java.util.Collection;
 import java.util.logging.Logger;
 
 public class SignatureVerifier {
+    public interface LogSink {
+        void info(String message);
+        void warn(String message);
+    }
+
     private final PublicKey publicKey;
-    private final Logger logger;
+    private final LogSink logger;
 
     public SignatureVerifier(PublicKey publicKey, Logger logger) {
+        this(publicKey, new LogSink() {
+            @Override
+            public void info(String message) {
+                logger.info(message);
+            }
+
+            @Override
+            public void warn(String message) {
+                logger.warning(message);
+            }
+        });
+    }
+
+    public SignatureVerifier(PublicKey publicKey, LogSink logger) {
         this.publicKey = publicKey;
         this.logger = logger;
     }
@@ -30,7 +49,7 @@ public class SignatureVerifier {
                 if (certValidation != null && certValidation.length > 0) {
                     return true; // Certificate chain validated successfully
                 }
-                logger.warning("Certificate chain validation failed, attempting raw signature verification as fallback...");
+                logger.warn("Certificate chain validation failed, attempting raw signature verification as fallback...");
             }
 
             // Handle raw signature verification
@@ -40,14 +59,11 @@ public class SignatureVerifier {
 
             return false;
         } catch (Exception e) {
-            logger.warning("Signature verification failed: " + e.getMessage());
+            logger.warn("Signature verification failed: " + e.getMessage());
             return false;
         }
     }
-
-    /**
-     * Verifies a raw signature against the jar hash
-     */
+    
     private boolean verifyRawSignature(String jarHash, byte[] signatureBytes) throws Exception {
         Signature sig = Signature.getInstance("SHA256withRSA");
         sig.initVerify(publicKey);
@@ -55,7 +71,7 @@ public class SignatureVerifier {
         
         boolean isValid = sig.verify(signatureBytes);
         if (!isValid) {
-            logger.warning("Signature verification failed: signature does not match jar hash");
+            logger.warn("Signature verification failed: signature does not match jar hash");
         }
         return isValid;
     }
@@ -68,7 +84,7 @@ public class SignatureVerifier {
             Collection<? extends Certificate> certs = cf.generateCertificates(bais);
             
             if (certs.isEmpty()) {
-                logger.warning("Certificate chain is empty");
+                logger.warn("Certificate chain is empty");
                 return null;
             }
 
@@ -85,13 +101,13 @@ public class SignatureVerifier {
                 }
             }
             
-            logger.warning("No certificate in chain matched our trusted public key");
+            logger.warn("No certificate in chain matched our trusted public key");
             return null;
         } catch (java.security.cert.CertificateException e) {
-            logger.warning("Failed to parse certificate chain: " + e.getMessage());
+            logger.warn("Failed to parse certificate chain: " + e.getMessage());
             return null;
         } catch (Exception e) {
-            logger.warning("Error processing certificate chain: " + e.getMessage());
+            logger.warn("Error processing certificate chain: " + e.getMessage());
             return null;
         }
     }

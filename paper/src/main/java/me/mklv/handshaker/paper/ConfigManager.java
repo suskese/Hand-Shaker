@@ -1,32 +1,31 @@
-package me.mklv.handshaker.paper.configs;
+package me.mklv.handshaker.paper;
 
-import me.mklv.handshaker.paper.HandShakerPlugin;
-import me.mklv.handshaker.common.utils.PlayerModStatus;
 import me.mklv.handshaker.common.configs.ActionDefinition;
+import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
+import me.mklv.handshaker.common.configs.ConfigState;
+import me.mklv.handshaker.common.configs.ConfigState.Behavior;
+import me.mklv.handshaker.common.configs.ConfigState.IntegrityMode;
+import me.mklv.handshaker.common.configs.ConfigState.ModConfig;
 import org.bukkit.entity.Player;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.*;
-import java.nio.file.Files;
 import java.util.*;
 
 public class ConfigManager {
-    public static final String MODE_REQUIRED = "required";
-    public static final String MODE_BLACKLISTED = "blacklisted";
-    public static final String MODE_ALLOWED = "allowed";
-    public static final String MODE_WHITELISTED = "whitelisted";
+    public static final String MODE_REQUIRED = ConfigState.MODE_REQUIRED;
+    public static final String MODE_BLACKLISTED = ConfigState.MODE_BLACKLISTED;
+    public static final String MODE_ALLOWED = ConfigState.MODE_ALLOWED;
+    public static final String MODE_WHITELISTED = ConfigState.MODE_WHITELISTED;
     
     private final HandShakerPlugin plugin;
     private File configYmlFile;
 
-    public enum Behavior { STRICT, VANILLA }
-    public enum IntegrityMode { SIGNED, DEV }
-    
     public enum ModType {
-        REQUIRED(MODE_REQUIRED),
-        BLACKLISTED(MODE_BLACKLISTED),
-        ALLOWED(MODE_ALLOWED),
-        WHITELISTED(MODE_WHITELISTED);
+        REQUIRED(ConfigState.MODE_REQUIRED),
+        BLACKLISTED(ConfigState.MODE_BLACKLISTED),
+        ALLOWED(ConfigState.MODE_ALLOWED),
+        WHITELISTED(ConfigState.MODE_WHITELISTED);
         
         private final String modeName;
         
@@ -45,47 +44,6 @@ public class ConfigManager {
                 default -> ALLOWED;
             };
         }
-    }
-    
-    public enum Action {
-        KICK, BAN;
-        
-        public static Action fromString(String str) {
-            if (str == null) return KICK;
-            return switch (str.toUpperCase(Locale.ROOT)) {
-                case "BAN" -> BAN;
-                default -> KICK;
-            };
-        }
-    }
-
-    public static class ModConfig {
-        private String mode;
-        private String action;
-        private String warnMessage;
-
-        public ModConfig(String mode, String action, String warnMessage) {
-            this.mode = mode != null ? mode : MODE_ALLOWED;
-            if (action != null) {
-                this.action = action;
-            } else {
-                String modeLower = this.mode.toLowerCase(Locale.ROOT);
-                this.action = MODE_ALLOWED.equals(modeLower) ? "none" : "kick";
-            }
-            this.warnMessage = warnMessage;
-        }
-
-        public String getMode() { return mode; }
-        public void setMode(String mode) { this.mode = mode; }
-        public String getActionName() { return action; }
-        public Action getAction() { return Action.fromString(action); }
-        public void setAction(String action) { this.action = action; }
-        public String getWarnMessage() { return warnMessage; }
-        public void setWarnMessage(String warnMessage) { this.warnMessage = warnMessage; }
-        
-        public boolean isRequired() { return MODE_REQUIRED.equalsIgnoreCase(mode); }
-        public boolean isBlacklisted() { return MODE_BLACKLISTED.equalsIgnoreCase(mode); }
-        public boolean isAllowed() { return MODE_ALLOWED.equalsIgnoreCase(mode); }
     }
 
     private Behavior behavior = Behavior.STRICT;
@@ -129,35 +87,28 @@ public class ConfigManager {
     }
 
     private void createDefaultFilesIfNotExist(File dataFolder) {
-        if (!configYmlFile.exists()) {
-            try {
-                Files.copy(
-                    Objects.requireNonNull(plugin.getClass().getResourceAsStream("/configs/config.yml")),
-                    configYmlFile.toPath()
-                );
-                plugin.getLogger().info("Created default config.yml from plugin resources");
-            } catch (IOException | NullPointerException e) {
-                plugin.getLogger().severe("Could not create config.yml from plugin resources: " + e.getMessage());
-                plugin.getLogger().severe("Make sure config.yml is included in the plugin JAR");
-                throw new RuntimeException("Failed to load config.yml", e);
+        ConfigFileBootstrap.Logger bootstrapLogger = new ConfigFileBootstrap.Logger() {
+            @Override
+            public void info(String message) {
+                plugin.getLogger().info(message);
             }
-        }
+
+            @Override
+            public void warn(String message) {
+                plugin.getLogger().warning(message);
+            }
+
+            @Override
+            public void error(String message, Throwable error) {
+                plugin.getLogger().severe(message + ": " + error.getMessage());
+            }
+        };
+
+        ConfigFileBootstrap.copyRequired(dataFolder.toPath(), "config.yml", plugin.getClass(), bootstrapLogger);
 
         String[] modsFiles = {"mods-required.yml", "mods-blacklisted.yml", "mods-whitelisted.yml", "mods-ignored.yml", "mods-actions.yml"};
         for (String filename : modsFiles) {
-            File file = new File(dataFolder, filename);
-            if (!file.exists()) {
-                try {
-                    Files.copy(
-                        Objects.requireNonNull(plugin.getClass().getResourceAsStream("/configs/" + filename)),
-                        file.toPath()
-                    );
-                    plugin.getLogger().info("Created default " + filename + " from plugin resources");
-                } catch (IOException | NullPointerException e) {
-                    plugin.getLogger().warning("Could not create " + filename + " from plugin resources: " + e.getMessage());
-                    plugin.getLogger().warning("This file will be created with defaults on next save");
-                }
-            }
+            ConfigFileBootstrap.copyOptional(dataFolder.toPath(), filename, plugin.getClass(), bootstrapLogger);
         }
     }
 
@@ -513,7 +464,8 @@ public class ConfigManager {
             if (action != null) existing.setAction(action);
             if (warnMessage != null) existing.setWarnMessage(warnMessage);
         } else {
-            modConfigMap.put(modId, new ModConfig(mode, action, warnMessage));
+            String resolvedAction = resolveActionDefault(mode, action);
+            modConfigMap.put(modId, new ModConfig(mode, resolvedAction, warnMessage));
         }
         
         if (mode != null) {
@@ -557,9 +509,10 @@ public class ConfigManager {
 
     public void addAllMods(Set<String> mods, String mode, String action, String warnMessage) {
         String modeLower = mode.toLowerCase();
+        String resolvedAction = resolveActionDefault(mode, action);
         for (String mod : mods) {
             String modId = mod.toLowerCase(Locale.ROOT);
-            modConfigMap.put(modId, new ModConfig(mode, action, warnMessage));
+            modConfigMap.put(modId, new ModConfig(mode, resolvedAction, warnMessage));
             
             requiredModsActive.remove(modId);
             blacklistedModsActive.remove(modId);
@@ -738,6 +691,14 @@ public class ConfigManager {
         return result;
     }
 
+    private String resolveActionDefault(String mode, String action) {
+        if (action != null) {
+            return action;
+        }
+        String modeLower = mode != null ? mode.toLowerCase(Locale.ROOT) : MODE_ALLOWED;
+        return MODE_ALLOWED.equals(modeLower) ? "none" : "kick";
+    }
+
     public void save() {
         String defaultConfig = loadDefaultConfigFromJar();
         
@@ -847,6 +808,46 @@ public class ConfigManager {
             } catch (IOException e) {
                 plugin.getLogger().severe("Could not save mods-whitelisted.yml!");
             }
+        }
+    }
+    
+    public class PlayerModStatus {
+        private final String kickMessage;
+        private final String actionName;
+        private final Set<String> detectedMods;
+        private final boolean isRequiredViolation;
+        private final boolean isBlacklistedViolation;
+
+        public PlayerModStatus(String kickMessage, String actionName, Set<String> detectedMods, boolean isRequiredViolation, boolean isBlacklistedViolation) {
+            this.kickMessage = kickMessage;
+            this.actionName = actionName;
+            this.detectedMods = detectedMods;
+            this.isRequiredViolation = isRequiredViolation;
+            this.isBlacklistedViolation = isBlacklistedViolation;
+        }
+
+        public String getKickMessage() {
+            return kickMessage;
+        }
+
+        public String getActionName() {
+            return actionName;
+        }
+
+        public Set<String> getDetectedMods() {
+            return detectedMods;
+        }
+
+        public boolean isRequiredViolation() {
+            return isRequiredViolation;
+        }
+
+        public boolean isBlacklistedViolation() {
+            return isBlacklistedViolation;
+        }
+
+        public boolean hasViolation() {
+            return kickMessage != null;
         }
     }
 }

@@ -1,55 +1,23 @@
 package me.mklv.handshaker.neoforge.server;
 
 import me.mklv.handshaker.common.configs.ActionDefinition;
+import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
+import me.mklv.handshaker.common.configs.ConfigState.Action;
+import me.mklv.handshaker.common.configs.ConfigState.Behavior;
+import me.mklv.handshaker.common.configs.ConfigState.IntegrityMode;
+import me.mklv.handshaker.common.configs.ConfigState.ModConfig;
+import me.mklv.handshaker.common.utils.ClientInfo;
 import net.neoforged.fml.loading.FMLPaths;
 import org.yaml.snakeyaml.Yaml;
 import java.io.*;
-import java.nio.file.Files;
 import java.util.*;
 
-@SuppressWarnings("unchecked")
-public class BlacklistConfig {
+@SuppressWarnings({"null", "unchecked"})
+public class ConfigManager {
     private final File configDir;
     private File configYmlFile;
 
-    public enum Behavior { STRICT, VANILLA }
-    public enum IntegrityMode { SIGNED, DEV }
     public enum ModStatus { REQUIRED, ALLOWED, BLACKLISTED }
-    
-    public enum Action {
-        KICK, BAN;
-        
-        public static Action fromString(String str) {
-            if (str == null) return KICK;
-            return switch (str.toUpperCase(Locale.ROOT)) {
-                case "BAN" -> BAN;
-                default -> KICK;
-            };
-        }
-    }
-
-    public static class ModConfig {
-        private String mode;
-        private String action;
-        private String warnMessage;
-
-        public ModConfig(String mode, String action, String warnMessage) {
-            this.mode = mode != null ? mode : "allowed";
-            this.action = action != null ? action : "kick";
-            this.warnMessage = warnMessage;
-        }
-
-        public String getMode() { return mode; }
-        public void setMode(String mode) { this.mode = mode; }
-        public Action getAction() { return Action.fromString(action); }
-        public void setAction(String action) { this.action = action; }
-        public String getWarnMessage() { return warnMessage; }
-        public void setWarnMessage(String warnMessage) { this.warnMessage = warnMessage; }
-        
-        public boolean isRequired() { return "required".equalsIgnoreCase(mode); }
-        public boolean isBlacklisted() { return "blacklisted".equalsIgnoreCase(mode); }
-        public boolean isAllowed() { return "allowed".equalsIgnoreCase(mode); }
-    }
 
     private Behavior behavior = Behavior.STRICT;
     private IntegrityMode integrityMode = IntegrityMode.SIGNED;
@@ -73,7 +41,7 @@ public class BlacklistConfig {
     private final Set<String> requiredModsActive = new HashSet<>();
     private final Map<String, ActionDefinition> actionsMap = new LinkedHashMap<>();
 
-    public BlacklistConfig() {
+    public ConfigManager() {
         File configRootDir = FMLPaths.CONFIGDIR.get().toFile();
         this.configDir = new File(configRootDir, "HandShaker");
     }
@@ -91,38 +59,28 @@ public class BlacklistConfig {
     }
 
     private void createDefaultFilesIfNotExist() {
-        // Create config.yml if doesn't exist
-        if (!configYmlFile.exists()) {
-            try {
-                copyConfigFromJar("config.yml", configYmlFile);
-                HandShakerServerMod.LOGGER.info("Created default config.yml");
-            } catch (IOException e) {
-                HandShakerServerMod.LOGGER.error("Could not create config.yml: {}", e.getMessage());
+        ConfigFileBootstrap.Logger bootstrapLogger = new ConfigFileBootstrap.Logger() {
+            @Override
+            public void info(String message) {
+                HandShakerServerMod.LOGGER.info(message);
             }
-        }
 
-        // Create mods YAML files if they don't exist
+            @Override
+            public void warn(String message) {
+                HandShakerServerMod.LOGGER.warn(message);
+            }
+
+            @Override
+            public void error(String message, Throwable error) {
+                HandShakerServerMod.LOGGER.error(message, error);
+            }
+        };
+
+        ConfigFileBootstrap.copyRequired(configDir.toPath(), "config.yml", ConfigManager.class, bootstrapLogger);
+
         String[] modsFiles = {"mods-required.yml", "mods-blacklisted.yml", "mods-whitelisted.yml", "mods-ignored.yml", "mods-actions.yml"};
         for (String filename : modsFiles) {
-            File file = new File(configDir, filename);
-            if (!file.exists()) {
-                try {
-                    copyConfigFromJar(filename, file);
-                    HandShakerServerMod.LOGGER.info("Created default {}", filename);
-                } catch (IOException e) {
-                    HandShakerServerMod.LOGGER.warn("Could not create {}: {}", filename, e.getMessage());
-                }
-            }
-        }
-    }
-
-    private void copyConfigFromJar(String filename, File targetFile) throws IOException {
-        try (InputStream is = BlacklistConfig.class.getResourceAsStream("/configs/" + filename)) {
-            if (is != null) {
-                Files.copy(is, targetFile.toPath());
-            } else {
-                throw new IOException("Config file " + filename + " not found in JAR resources");
-            }
+            ConfigFileBootstrap.copyOptional(configDir.toPath(), filename, ConfigManager.class, bootstrapLogger);
         }
     }
 
@@ -232,8 +190,19 @@ public class BlacklistConfig {
             try (FileReader reader = new FileReader(requiredFile)) {
                 Map<String, Object> data = yaml.load(reader);
                 if (data != null && data.containsKey("required")) {
-                    try {
-                        List<String> requiredList = (List<String>) data.get("required");
+                    Object requiredObj = data.get("required");
+                    if (requiredObj instanceof Map) {
+                        Map<String, Object> requiredMap = (Map<String, Object>) requiredObj;
+                        if (requiredMap != null) {
+                            for (Map.Entry<String, Object> entry : requiredMap.entrySet()) {
+                                String modId = entry.getKey().toLowerCase(Locale.ROOT);
+                                String action = entry.getValue() != null ? entry.getValue().toString() : "kick";
+                                requiredModsActive.add(modId);
+                                modConfigMap.put(modId, new ModConfig("required", action, null));
+                            }
+                        }
+                    } else if (requiredObj instanceof List) {
+                        List<String> requiredList = (List<String>) requiredObj;
                         if (requiredList != null) {
                             for (String mod : requiredList) {
                                 String modId = mod.toLowerCase(Locale.ROOT);
@@ -241,8 +210,8 @@ public class BlacklistConfig {
                                 modConfigMap.put(modId, new ModConfig("required", "kick", null));
                             }
                         }
-                    } catch (ClassCastException e) {
-                        HandShakerServerMod.LOGGER.warn("Invalid format in mods-required.yml, expected list format");
+                    } else {
+                        HandShakerServerMod.LOGGER.warn("Invalid format in mods-required.yml, expected map or list format");
                     }
                 }
             } catch (IOException e) {
@@ -277,8 +246,17 @@ public class BlacklistConfig {
             try (FileReader reader = new FileReader(whitelistedFile)) {
                 Map<String, Object> data = yaml.load(reader);
                 if (data != null && data.containsKey("whitelisted")) {
-                    try {
-                        List<String> whitelistedList = (List<String>) data.get("whitelisted");
+                    Object whitelistedObj = data.get("whitelisted");
+                    if (whitelistedObj instanceof Map) {
+                        Map<String, Object> whitelistedMap = (Map<String, Object>) whitelistedObj;
+                        for (Map.Entry<String, Object> entry : whitelistedMap.entrySet()) {
+                            String modId = entry.getKey().toLowerCase(Locale.ROOT);
+                            String action = entry.getValue() != null ? entry.getValue().toString() : "kick";
+                            whitelistedModsActive.add(modId);
+                            modConfigMap.put(modId, new ModConfig("allowed", action, null));
+                        }
+                    } else if (whitelistedObj instanceof List) {
+                        List<String> whitelistedList = (List<String>) whitelistedObj;
                         if (whitelistedList != null) {
                             for (String mod : whitelistedList) {
                                 String modId = mod.toLowerCase(Locale.ROOT);
@@ -286,8 +264,8 @@ public class BlacklistConfig {
                                 modConfigMap.put(modId, new ModConfig("allowed", "kick", null));
                             }
                         }
-                    } catch (ClassCastException e) {
-                        HandShakerServerMod.LOGGER.warn("Invalid format in mods-whitelisted.yml, expected list format");
+                    } else {
+                        HandShakerServerMod.LOGGER.warn("Invalid format in mods-whitelisted.yml, expected map or list format");
                     }
                 }
             } catch (IOException e) {
@@ -682,7 +660,7 @@ public class BlacklistConfig {
         return str.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
     }
 
-    public void checkPlayer(net.minecraft.server.level.ServerPlayer player, HandShakerServerMod.ClientInfo info) {
+    public void checkPlayer(net.minecraft.server.level.ServerPlayer player, ClientInfo info) {
         if (info == null) return;
 
         boolean hasMod = !info.mods().isEmpty();

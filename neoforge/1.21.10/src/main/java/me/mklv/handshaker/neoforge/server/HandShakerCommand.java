@@ -7,6 +7,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.configs.ConfigState;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -148,7 +149,7 @@ public class HandShakerCommand {
     }
 
     private static int showInfo(CommandContext<CommandSourceStack> ctx) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         ctx.getSource().sendSystemMessage(Component.literal("═══════════════════════════════════").withColor(0xFFAA00));
         ctx.getSource().sendSystemMessage(Component.literal("  HandShaker Statistics").withColor(0xFFAA00).withStyle(ChatFormatting.BOLD));
         ctx.getSource().sendSystemMessage(Component.literal("═══════════════════════════════════").withColor(0xFFAA00));
@@ -166,8 +167,8 @@ public class HandShakerCommand {
     }
 
     private static int showConfiguredMods(CommandContext<CommandSourceStack> ctx) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
-        Map<String, BlacklistConfig.ModConfig> mods = config.getModConfigMap();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        Map<String, ConfigState.ModConfig> mods = config.getModConfigMap();
         
         ctx.getSource().sendSystemMessage(Component.literal("═══════════════════════════════").withColor(0xFFAA00));
         ctx.getSource().sendSystemMessage(Component.literal("Configured Mods (Whitelist: " + (config.isWhitelist() ? "ON" : "OFF") + ")").withColor(0xFFAA00).withStyle(ChatFormatting.BOLD));
@@ -178,8 +179,8 @@ public class HandShakerCommand {
             return Command.SINGLE_SUCCESS;
         }
         
-        for (Map.Entry<String, BlacklistConfig.ModConfig> entry : mods.entrySet()) {
-            BlacklistConfig.ModConfig modCfg = entry.getValue();
+        for (Map.Entry<String, ConfigState.ModConfig> entry : mods.entrySet()) {
+            ConfigState.ModConfig modCfg = entry.getValue();
             String actionStr = !modCfg.getAction().toString().toLowerCase().equals("kick") ? " | " + modCfg.getAction() : "";
             
             ChatFormatting statusColor = switch (modCfg.getMode()) {
@@ -200,7 +201,7 @@ public class HandShakerCommand {
     }
 
     private static int showAllModsWithPageNumber(CommandContext<CommandSourceStack> ctx, int pageNum) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         
         // Collect all mods from connected players
         Map<String, Integer> popularity = new HashMap<>();
@@ -233,7 +234,7 @@ public class HandShakerCommand {
         
         for (int i = startIdx; i < endIdx; i++) {
             Map.Entry<String, Integer> entry = sortedMods.get(i);
-            BlacklistConfig.ModConfig modCfg = config.getModConfig(entry.getKey());
+            ConfigState.ModConfig modCfg = config.getModConfig(entry.getKey());
             
             ChatFormatting modeColor = ChatFormatting.GRAY;
             if (modCfg != null) {
@@ -295,7 +296,7 @@ public class HandShakerCommand {
     }
 
     private static int reload(CommandContext<CommandSourceStack> ctx) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.load();
         Component message = Component.literal("✓ HandShaker config reloaded.");
         ctx.getSource().sendSuccess(() -> message, true);
@@ -304,7 +305,7 @@ public class HandShakerCommand {
     }
 
     private static int showConfig(CommandContext<CommandSourceStack> ctx) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         ctx.getSource().sendSystemMessage(Component.literal("═══════════════════════════════════").withColor(0xFFAA00));
         ctx.getSource().sendSystemMessage(Component.literal("  HandShaker Configuration").withColor(0xFFAA00).withStyle(ChatFormatting.BOLD));
         ctx.getSource().sendSystemMessage(Component.literal("═══════════════════════════════════").withColor(0xFFAA00));
@@ -318,7 +319,7 @@ public class HandShakerCommand {
 
     private static int setConfigValue(CommandContext<CommandSourceStack> ctx, String param) {
         String value = StringArgumentType.getString(ctx, "value");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         
         switch (param) {
             case "behavior" -> {
@@ -364,7 +365,7 @@ public class HandShakerCommand {
     private static int setMode(CommandContext<CommandSourceStack> ctx) {
         String list = StringArgumentType.getString(ctx, "list");
         String action = StringArgumentType.getString(ctx, "action");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         
         boolean enable = action.equalsIgnoreCase("on") || action.equalsIgnoreCase("true");
         
@@ -391,7 +392,7 @@ public class HandShakerCommand {
     private static int addMod(CommandContext<CommandSourceStack> ctx) {
         String mod = StringArgumentType.getString(ctx, "mod");
         String mode = StringArgumentType.getString(ctx, "mode");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.setModConfigByString(mod, mode, "kick", null);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Added mod '" + mod + "' as " + mode), true);
         HandShakerServerMod.getInstance().checkAllPlayers();
@@ -402,7 +403,7 @@ public class HandShakerCommand {
         String mod = StringArgumentType.getString(ctx, "mod");
         String mode = StringArgumentType.getString(ctx, "mode");
         String action = StringArgumentType.getString(ctx, "action");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.setModConfigByString(mod, mode, action, null);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Added mod '" + mod + "' as " + mode + " with action " + action), true);
         HandShakerServerMod.getInstance().checkAllPlayers();
@@ -412,7 +413,7 @@ public class HandShakerCommand {
     private static int changeMod(CommandContext<CommandSourceStack> ctx) {
         String mod = StringArgumentType.getString(ctx, "mod");
         String mode = StringArgumentType.getString(ctx, "mode");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.setModConfigByString(mod, mode, "kick", null);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Changed mod '" + mod + "' to " + mode), true);
         HandShakerServerMod.getInstance().checkAllPlayers();
@@ -421,7 +422,7 @@ public class HandShakerCommand {
 
     private static int addAllMods(CommandContext<CommandSourceStack> ctx) {
         String mode = StringArgumentType.getString(ctx, "mode");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         
         // Collect all mods from all connected players
         Set<String> allMods = new HashSet<>();
@@ -453,7 +454,7 @@ public class HandShakerCommand {
     private static int addAllModsWithAction(CommandContext<CommandSourceStack> ctx) {
         String mode = StringArgumentType.getString(ctx, "mode");
         String action = StringArgumentType.getString(ctx, "action");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         
         // Collect all mods from all connected players
         Set<String> allMods = new HashSet<>();
@@ -486,7 +487,7 @@ public class HandShakerCommand {
         String mod = StringArgumentType.getString(ctx, "mod");
         String mode = StringArgumentType.getString(ctx, "mode");
         String action = StringArgumentType.getString(ctx, "action");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.setModConfigByString(mod, mode, action, null);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Changed mod '" + mod + "' to " + mode + " with action " + action), true);
         HandShakerServerMod.getInstance().checkAllPlayers();
@@ -495,7 +496,7 @@ public class HandShakerCommand {
 
     private static int removeMod(CommandContext<CommandSourceStack> ctx) {
         String mod = StringArgumentType.getString(ctx, "mod");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.removeModConfig(mod);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Removed mod '" + mod + "'"), true);
         HandShakerServerMod.getInstance().checkAllPlayers();
@@ -504,14 +505,14 @@ public class HandShakerCommand {
 
     private static int ignoreMod(CommandContext<CommandSourceStack> ctx) {
         String mod = StringArgumentType.getString(ctx, "mod");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.addIgnoredMod(mod);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Now ignoring mod '" + mod + "'"), true);
         return Command.SINGLE_SUCCESS;
     }
 
     private static int ignoreAllMods(CommandContext<CommandSourceStack> ctx) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         
         // Collect all mods from all connected players
         Set<String> allMods = new HashSet<>();
@@ -537,14 +538,14 @@ public class HandShakerCommand {
 
     private static int unignoreMod(CommandContext<CommandSourceStack> ctx) {
         String mod = StringArgumentType.getString(ctx, "mod");
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.removeIgnoredMod(mod);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ No longer ignoring mod '" + mod + "'"), true);
         return Command.SINGLE_SUCCESS;
     }
 
     private static int listIgnoredMods(CommandContext<CommandSourceStack> ctx) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         ctx.getSource().sendSystemMessage(Component.literal("═══════════════════════════════════").withColor(0xFFAA00));
         ctx.getSource().sendSystemMessage(Component.literal("  Ignored Mods (" + config.getIgnoredMods().size() + ")").withColor(0xFFAA00).withStyle(ChatFormatting.BOLD));
         ctx.getSource().sendSystemMessage(Component.literal("═══════════════════════════════════").withColor(0xFFAA00));
@@ -590,12 +591,12 @@ public class HandShakerCommand {
     }
 
     private static CompletableFuture<Suggestions> suggestConfiguredMods(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         return SharedSuggestionProvider.suggest(config.getModConfigMap().keySet(), builder);
     }
 
     private static CompletableFuture<Suggestions> suggestIgnoredMods(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        BlacklistConfig config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         return SharedSuggestionProvider.suggest(config.getIgnoredMods(), builder);
     }
 

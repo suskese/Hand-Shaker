@@ -1,7 +1,7 @@
-package me.mklv.handshaker.paper.listener;
+package me.mklv.handshaker.paper.utils;
 
 import me.mklv.handshaker.paper.HandShakerPlugin;
-import me.mklv.handshaker.paper.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.ClientInfo;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;

@@ -13,6 +13,7 @@ import net.minecraft.network.codec.PacketCodecs;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import me.mklv.handshaker.common.utils.HashUtils;
 import java.io.IOException;
 import java.util.Optional;
 
@@ -50,7 +51,7 @@ public class HandShaker implements ClientModInitializer {
 				.sorted()
 				.reduce((a,b) -> a + "," + b)
 				.orElse("");
-		String modListHash = bytesToHex(me.mklv.handshaker.common.utils.CryptoUtils.hashStringToBytes(payload));
+		String modListHash = HashUtils.sha256Hex(payload);
 		String nonce = generateNonce();
 		ClientPlayNetworking.send(new ModsListPayload(payload, modListHash, nonce));
 		LOGGER.info("Sent mod list ({} chars, hash: {}) with nonce: {}", payload.length(), modListHash.substring(0, 8), nonce);
@@ -197,7 +198,7 @@ public class HandShaker implements ClientModInitializer {
 				}
 
 				byte[] hash = digest.digest();
-				String hexHash = bytesToHex(hash);
+				String hexHash = HashUtils.toHex(hash);
 				LOGGER.info("Computed JAR content hash ({} files): {}", entries.size(), hexHash.substring(0, 8));
 				return Optional.of(hexHash);
 			}
@@ -248,16 +249,6 @@ public class HandShaker implements ClientModInitializer {
 		}
 	}
 
-	private String bytesToHex(byte[] bytes) {
-		StringBuilder hexString = new StringBuilder();
-		for (byte b : bytes) {
-			String hex = Integer.toHexString(0xff & b);
-			if (hex.length() == 1) hexString.append('0');
-			hexString.append(hex);
-		}
-		return hexString.toString();
-	}
-
 	public record ModsListPayload(String mods, String modListHash, String nonce) implements CustomPayload {
 		public static final CustomPayload.Id<ModsListPayload> ID = new CustomPayload.Id<>(MODS_CHANNEL);
 		public static final PacketCodec<PacketByteBuf, ModsListPayload> CODEC = PacketCodec.tuple(
@@ -277,5 +268,4 @@ public class HandShaker implements ClientModInitializer {
 				IntegrityPayload::new);
 		@Override public Id<? extends CustomPayload> getId() { return ID; }
 	}
-
 }

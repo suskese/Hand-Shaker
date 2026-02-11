@@ -3,8 +3,13 @@ package me.mklv.handshaker.neoforge.server;
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
 import me.mklv.handshaker.neoforge.NetworkSetup;
-import me.mklv.handshaker.neoforge.server.utils.CryptoUtils;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.protocols.BedrockPlayer;
+import me.mklv.handshaker.common.protocols.CertLoader;
+import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.HashUtils;
+import me.mklv.handshaker.common.utils.SignatureVerifier;
+import me.mklv.handshaker.common.configs.ConfigMigrator;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -24,10 +29,7 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.slf4j.Logger;
 
-import java.nio.charset.StandardCharsets;
-import java.security.*;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
+import java.security.PublicKey;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -43,24 +45,39 @@ public class HandShakerServerMod {
 
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
     private final Set<String> usedNonces = ConcurrentHashMap.newKeySet(); // Track used nonces for replay prevention
-    private BlacklistConfig blacklistConfig;
+    private ConfigManager blacklistConfig;
     private PlayerHistoryDatabase playerHistoryDb;
     private MinecraftServer server;
     private PublicKey publicKey;
+    private SignatureVerifier signatureVerifier;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-
-    public record ClientInfo(Set<String> mods, boolean signatureVerified, boolean veltonVerified, String modListNonce, String integrityNonce, String veltonNonce) {}
 
     public HandShakerServerMod(IEventBus modEventBus) {
         instance = this;
         LOGGER.info("HandShaker server initializing");
 
         // Run migration if needed (v3 -> v4)
-        ConfigMigrator migrator = new ConfigMigrator(
-            net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get(), LOGGER);
-        migrator.migrateIfNeeded();
+        ConfigMigrator.migrateIfNeeded(
+            net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get(),
+            new ConfigMigrator.Logger() {
+                @Override
+                public void info(String message) {
+                    LOGGER.info(message);
+                }
 
-        blacklistConfig = new BlacklistConfig();
+                @Override
+                public void warn(String message) {
+                    LOGGER.warn(message);
+                }
+
+                @Override
+                public void error(String message, Throwable error) {
+                    LOGGER.error(message, error);
+                }
+            }
+        );
+
+        blacklistConfig = new ConfigManager();
         blacklistConfig.load();
         
         loadPublicCertificate();
@@ -75,17 +92,6 @@ public class HandShakerServerMod {
 
     public static HandShakerServerMod getInstance() {
         return instance;
-    }
-
-    private String hashString(String input) {
-        byte[] hash = CryptoUtils.hashStringToBytes(input);
-        StringBuilder hexString = new StringBuilder();
-        for (byte b : hash) {
-            String hex = Integer.toHexString(0xff & b);
-            if (hex.length() == 1) hexString.append('0');
-            hexString.append(hex);
-        }
-        return hexString.toString();
     }
 
     public void handleModsList(final ModsListPayload payload, final IPayloadContext context) {
@@ -106,7 +112,7 @@ public class HandShakerServerMod {
                 }
                 
                 // Verify hash matches payload
-                String calculatedHash = hashString(payload.mods());
+                String calculatedHash = HashUtils.sha256Hex(payload.mods());
                 if (!calculatedHash.equals(payload.modListHash())) {
                     LOGGER.warn("Received mod list from {} with mismatched hash. Expected {} but got {}", 
                         player.getName().getString(), calculatedHash, payload.modListHash());
@@ -288,7 +294,7 @@ public class HandShakerServerMod {
         HandShakerCommand.register(event.getDispatcher());
     }
 
-    public BlacklistConfig getBlacklistConfig() {
+    public ConfigManager getBlacklistConfig() {
         return blacklistConfig;
     }
 
@@ -318,36 +324,12 @@ public class HandShakerServerMod {
     }
 
     public boolean isBedrockPlayer(ServerPlayer player) {
-        UUID playerUuid = player.getUUID();
-        try {
-            Class<?> floodgateApiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
-            Object api = floodgateApiClass.getMethod("getInstance").invoke(null);
-            boolean isFloodgate = (boolean) floodgateApiClass.getMethod("isFloodgatePlayer", UUID.class)
-                    .invoke(api, playerUuid);
-            if (isFloodgate) {
-                return true;
+        return BedrockPlayer.isBedrockPlayer(player.getUUID(), player.getName().getString(), new BedrockPlayer.LogSink() {
+            @Override
+            public void warn(String message) {
+                LOGGER.warn(message);
             }
-        } catch (ClassNotFoundException e) {
-            // Floodgate not installed
-        } catch (Exception e) {
-            LOGGER.warn("Error checking Floodgate for {}: {}", player.getName().getString(), e.getMessage());
-        }
-
-        try {
-            Class<?> geyserApiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
-            Object geyserApi = geyserApiClass.getMethod("api").invoke(null);
-            if (geyserApi != null) {
-                Object connection = geyserApiClass.getMethod("connectionByUuid", UUID.class)
-                        .invoke(geyserApi, playerUuid);
-                return connection != null;
-            }
-        } catch (ClassNotFoundException e) {
-            // Geyser not installed
-        } catch (Exception e) {
-            LOGGER.warn("Error checking Geyser for {}: {}", player.getName().getString(), e.getMessage());
-        }
-
-        return false;
+        });
     }
 
     public record ModsListPayload(String mods, String modListHash, String nonce) implements CustomPacketPayload {
@@ -361,47 +343,41 @@ public class HandShakerServerMod {
     }
 
     private void loadPublicCertificate() {
-        try (var certStream = HandShakerServerMod.class.getClassLoader().getResourceAsStream("public.cer")) {
-            if (certStream == null) {
-                LOGGER.warn("⚠️  public.cer not found in resources. Signature verification will be disabled.");
-                LOGGER.warn("⚠️  Mods signed with ANY certificate will be accepted.");
-                publicKey = null;
-                return;
+        publicKey = CertLoader.loadPublicKey(HandShakerServerMod.class.getClassLoader(), "public.cer", new CertLoader.LogSink() {
+            @Override
+            public void info(String message) {
+                LOGGER.info(message);
             }
-            
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            Certificate cert = cf.generateCertificate(certStream);
-            publicKey = cert.getPublicKey();
-            LOGGER.info("✓ Loaded public certificate for signature verification");
-        } catch (Exception e) {
-            LOGGER.warn("Failed to load public.cer: {}", e.getMessage());
-            LOGGER.warn("⚠️  Signature verification will be disabled.");
-            publicKey = null;
+
+            @Override
+            public void warn(String message) {
+                LOGGER.warn(message);
+            }
+        });
+
+        if (publicKey != null) {
+            signatureVerifier = new SignatureVerifier(publicKey, new SignatureVerifier.LogSink() {
+                @Override
+                public void info(String message) {
+                    LOGGER.info(message);
+                }
+
+                @Override
+                public void warn(String message) {
+                    LOGGER.warn(message);
+                }
+            });
+        } else {
+            signatureVerifier = null;
         }
     }
 
     private boolean verifySignatureWithPublicKey(String jarHash, byte[] signatureBytes) throws Exception {
-        if (publicKey == null) {
+        if (signatureVerifier == null || !signatureVerifier.isKeyLoaded()) {
             return false;
         }
-        
-        try {
-            // Create a Signature instance for verification
-            Signature sig = Signature.getInstance("SHA256withRSA");
-            sig.initVerify(publicKey);
-            
-            // Verify the signature against the jar hash
-            sig.update(jarHash.getBytes(StandardCharsets.UTF_8));
-            boolean isValid = sig.verify(signatureBytes);
-            
-            if (!isValid) {
-                LOGGER.warn("Signature verification failed: signature does not match jar hash");
-            }
-            return isValid;
-        } catch (SignatureException e) {
-            LOGGER.warn("Signature verification failed: {}", e.getMessage());
-            return false;
-        }
+
+        return signatureVerifier.verifySignature(jarHash, signatureBytes);
     }
 
     public record IntegrityPayload(byte[] signature, String jarHash, String nonce) implements CustomPacketPayload {

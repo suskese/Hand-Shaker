@@ -2,10 +2,12 @@ package me.mklv.handshaker.fabric.server;
 
 import me.mklv.handshaker.fabric.HandShaker;
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
-import me.mklv.handshaker.fabric.server.configs.ConfigMigrator;
+import me.mklv.handshaker.common.configs.ConfigMigrator;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
-import me.mklv.handshaker.fabric.server.utils.PayloadValidator;
-import me.mklv.handshaker.common.utils.StringUtils;
+import me.mklv.handshaker.common.protocols.BedrockPlayer;
+import me.mklv.handshaker.common.protocols.CertLoader;
+import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.SignatureVerifier;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -23,11 +25,8 @@ import net.minecraft.network.codec.PacketCodecs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.security.*;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
+import java.security.PublicKey;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -50,9 +49,8 @@ public class HandShakerServer implements DedicatedServerModInitializer {
     private PlayerHistoryDatabase playerHistoryDb;
     private MinecraftServer server;
     private PublicKey publicKey;
+    private SignatureVerifier signatureVerifier;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-
-    public record ClientInfo(Set<String> mods, boolean signatureVerified, boolean veltonVerified, String modListNonce, String integrityNonce, String veltonNonce) {}
 
     public static HandShakerServer getInstance() {
         return instance;
@@ -65,7 +63,25 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         LOGGER.info("HandShaker server initializing");
         
         // Migrate config if needed (v3 -> v4)
-        ConfigMigrator.migrateIfNeeded();
+        ConfigMigrator.migrateIfNeeded(
+            net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir(),
+            new ConfigMigrator.Logger() {
+                @Override
+                public void info(String message) {
+                    LOGGER.info(message);
+                }
+
+                @Override
+                public void warn(String message) {
+                    LOGGER.warn(message);
+                }
+
+                @Override
+                public void error(String message, Throwable error) {
+                    LOGGER.error(message, error);
+                }
+            }
+        );
         
         configManager = new ConfigManager();
         configManager.load();
@@ -96,7 +112,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
             ServerPlayerEntity player = context.player();
             String playerName = player.getName().getString();
             try {
-                if (!PayloadValidator.validateNonce(payload.nonce(), player, LOGGER, "mod list")) {
+                if (!validateNonce(payload.nonce(), player, LOGGER, "mod list")) {
                     return;
                 }
                 Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
@@ -128,7 +144,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
             ServerPlayerEntity player = context.player();
             String playerName = player.getName().getString();
             try {
-                if (!PayloadValidator.validateNonce(payload.nonce(), player, LOGGER, "integrity payload")) {
+                if (!validateNonce(payload.nonce(), player, LOGGER, "integrity payload")) {
                     return;
                 }
                 
@@ -188,7 +204,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
             ServerPlayerEntity player = context.player();
             String playerName = player.getName().getString();
             try {
-                if (!PayloadValidator.validateNonce(payload.nonce(), player, LOGGER, "Velton payload")) {
+                if (!validateNonce(payload.nonce(), player, LOGGER, "Velton payload")) {
                     return;
                 }
                 
@@ -300,148 +316,49 @@ public class HandShakerServer implements DedicatedServerModInitializer {
     }
     
     public boolean isBedrockPlayer(ServerPlayerEntity player) {
-        UUID playerUuid = player.getUuid();
-        
-        // Try Floodgate API first (if available)
-        try {
-            Class<?> floodgateApiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
-            Object api = floodgateApiClass.getMethod("getInstance").invoke(null);
-            boolean isFloodgate = (boolean) floodgateApiClass.getMethod("isFloodgatePlayer", UUID.class)
-                    .invoke(api, playerUuid);
-            if (isFloodgate) {
-                return true;
+        return BedrockPlayer.isBedrockPlayer(player.getUuid(), player.getName().getString(), new BedrockPlayer.LogSink() {
+            @Override
+            public void warn(String message) {
+                LOGGER.warn(message);
             }
-        } catch (ClassNotFoundException e) {
-            // Floodgate not installed, continue to Geyser check
-        } catch (Exception e) {
-            LOGGER.warn("Error checking Floodgate for {}: {}", player.getName().getString(), e.getMessage());
-        }
-        
-        // Try Geyser API (if available) - works for Geyser-only setups
-        try {
-            Class<?> geyserApiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
-            Object geyserApi = geyserApiClass.getMethod("api").invoke(null);
-            
-            if (geyserApi != null) {
-                Object connection = geyserApiClass.getMethod("connectionByUuid", UUID.class)
-                        .invoke(geyserApi, playerUuid);
-                // If connection exists, player is connected through Geyser
-                return connection != null;
-            }
-        } catch (ClassNotFoundException e) {
-            // Geyser not installed
-        } catch (Exception e) {
-            LOGGER.warn("Error checking Geyser for {}: {}", player.getName().getString(), e.getMessage());
-        }
-        
-        return false;
+        });
     }
 
     private void loadPublicCertificate() {
-        try (var certStream = HandShakerServer.class.getClassLoader().getResourceAsStream("public.cer")) {
-            if (certStream == null) {
-                LOGGER.warn("⚠️  public.cer not found in resources. Signature verification will be disabled.");
-                LOGGER.warn("⚠️  Mods signed with ANY certificate will be accepted.");
-                publicKey = null;
-                return;
+        publicKey = CertLoader.loadPublicKey(HandShakerServer.class.getClassLoader(), "public.cer", new CertLoader.LogSink() {
+            @Override
+            public void info(String message) {
+                LOGGER.info(message);
             }
-            
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            Certificate cert = cf.generateCertificate(certStream);
-            publicKey = cert.getPublicKey();
-            LOGGER.info("✓ Loaded public certificate for signature verification");
-        } catch (Exception e) {
-            LOGGER.warn("Failed to load public.cer: {}", e.getMessage());
-            LOGGER.warn("⚠️  Signature verification will be disabled.");
-            publicKey = null;
+
+            @Override
+            public void warn(String message) {
+                LOGGER.warn(message);
+            }
+        });
+
+        if (publicKey != null) {
+            signatureVerifier = new SignatureVerifier(publicKey, new SignatureVerifier.LogSink() {
+                @Override
+                public void info(String message) {
+                    LOGGER.info(message);
+                }
+
+                @Override
+                public void warn(String message) {
+                    LOGGER.warn(message);
+                }
+            });
+        } else {
+            signatureVerifier = null;
         }
     }
 
     private boolean verifySignatureWithPublicKey(String jarHash, byte[] signatureBytes) throws Exception {
-        if (publicKey == null) {
+        if (signatureVerifier == null || !signatureVerifier.isKeyLoaded()) {
             return false;
         }
-        
-        try {
-            // Handle case where signature is actually a certificate chain (1445 bytes)
-            if (signatureBytes.length > 512) {
-                LOGGER.info("Signature data is {} bytes, parsing as certificate chain...", signatureBytes.length);
-                byte[] certValidation = extractSignatureFromCertificate(signatureBytes);
-                if (certValidation != null && certValidation.length > 0) {
-                    // Certificate chain validated successfully
-                    return true;
-                }
-                // If certificate validation fails, fall through to raw signature verification
-                LOGGER.warn("Certificate chain validation failed, attempting raw signature verification as fallback...");
-            }
-            
-            // Handle raw signature verification
-            if (signatureBytes.length <= 512) {
-                // Create a Signature instance for verification
-                Signature sig = Signature.getInstance("SHA256withRSA");
-                sig.initVerify(publicKey);
-                
-                // Verify the signature against the jar hash
-                sig.update(jarHash.getBytes(StandardCharsets.UTF_8));
-                boolean isValid = sig.verify(signatureBytes);
-                
-                if (!isValid) {
-                    LOGGER.warn("Signature verification failed: signature does not match jar hash");
-                }
-                return isValid;
-            }
-            
-            return false;
-        } catch (SignatureException e) {
-            LOGGER.warn("Signature verification failed: {}", e.getMessage());
-            return false;
-        }
-    }
-    
-    private byte[] extractSignatureFromCertificate(byte[] certificateData) {
-        try {
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(certificateData);
-            
-            // Parse as a certificate collection (chain)
-            java.util.Collection<? extends Certificate> certs = cf.generateCertificates(bais);
-            
-            if (certs.isEmpty()) {
-                LOGGER.warn("Certificate chain is empty");
-                return null;
-            }
-            
-            LOGGER.info("Parsed certificate chain with {} certificate(s)", certs.size());
-            
-            // Check each certificate in the chain
-            for (Certificate cert : certs) {
-                @SuppressWarnings("null")
-                PublicKey certPublicKey = cert.getPublicKey();
-                
-                // Log the public key info for debugging
-                if (publicKey != null) {
-                    LOGGER.info("Certificate public key algorithm: {}, size: {}", certPublicKey.getAlgorithm(), 
-                               (certPublicKey instanceof java.security.interfaces.RSAPublicKey ? 
-                               ((java.security.interfaces.RSAPublicKey)certPublicKey).getModulus().bitLength() : "unknown"));
-                }
-                
-                // Check if this certificate's public key matches our trusted key
-                if (certPublicKey.equals(publicKey)) {
-                    LOGGER.info("✓ Certificate public key matches our trusted key - signature VALID");
-                    // Return a non-null marker indicating the certificate is valid
-                    return new byte[]{1}; // Marker indicating validation passed
-                }
-            }
-            
-            LOGGER.warn("No certificate in chain matched our trusted public key");
-            return null;
-        } catch (java.security.cert.CertificateException e) {
-            LOGGER.warn("Failed to parse certificate chain: {}", e.getMessage());
-            return null;
-        } catch (Exception e) {
-            LOGGER.warn("Error processing certificate chain: {}", e.getMessage());
-            return null;
-        }
+        return signatureVerifier.verifySignature(jarHash, signatureBytes);
     }
 
     public record VeltonPayload(byte[] signature, String jarHash, String nonce) implements CustomPayload {
@@ -480,5 +397,28 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         public void debug(String message) {
             logger.debug(message);
         }
+    }
+    public class StringUtils {
+
+        public static String truncate(String str, int maxLength) {
+            if (str == null) return "";
+            return str.substring(0, Math.min(maxLength, str.length()));
+        }
+
+        public static String safePlayerName(String playerName) {
+            return playerName == null || playerName.isEmpty() ? "Unknown" : playerName;
+        }
+
+        public static boolean isNullOrEmpty(String str) {
+            return str == null || str.isEmpty();
+        }
+    }
+    public static boolean validateNonce(String nonce, ServerPlayerEntity player, Logger logger, String payloadType) {
+        if (nonce == null || nonce.isEmpty()) {
+            logger.warn("Received {} from {} with invalid/missing nonce. Rejecting.", payloadType, player.getName().getString());
+            player.networkHandler.disconnect(Text.of("Invalid handshake: missing nonce"));
+            return false;
+        }
+        return true;
     }
 }

@@ -12,10 +12,9 @@ import net.neoforged.neoforge.common.NeoForge;
 import me.mklv.handshaker.neoforge.server.HandShakerServerMod;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import me.mklv.handshaker.common.utils.HashUtils;
 
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.jar.JarFile;
@@ -44,7 +43,7 @@ public class HandShakerClientMod {
                 .reduce((a, b) -> a + "," + b)
                 .orElse("");
 
-        String modListHash = hashString(payload);
+        String modListHash = HashUtils.sha256Hex(payload);
         String nonce = generateNonce();
         sendPacket(event, new HandShakerServerMod.ModsListPayload(payload, modListHash, nonce));
         LOGGER.info("Sent mod list ({} chars, hash: {}) with nonce: {}", payload.length(), modListHash.substring(0, 8), nonce);
@@ -117,7 +116,7 @@ public class HandShakerClientMod {
                     }
                 }
 
-                String hexHash = bytesToHex(digest.digest());
+                String hexHash = HashUtils.toHex(digest.digest());
                 LOGGER.info("Computed JAR content hash ({} files): {}", entries.size(), hexHash.substring(0, 8));
                 return Optional.of(hexHash);
             }
@@ -166,30 +165,4 @@ public class HandShakerClientMod {
         return UUID.randomUUID().toString();
     }
 
-    private String hashString(String input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (NoSuchAlgorithmException e) {
-            LOGGER.error("SHA-256 not available", e);
-            return "";
-        }
-    }
-
-    private String bytesToHex(byte[] bytes) {
-        StringBuilder hexString = new StringBuilder();
-        for (byte b : bytes) {
-            String hex = Integer.toHexString(0xff & b);
-            if (hex.length() == 1) hexString.append('0');
-            hexString.append(hex);
-        }
-        return hexString.toString();
-    }
 }
