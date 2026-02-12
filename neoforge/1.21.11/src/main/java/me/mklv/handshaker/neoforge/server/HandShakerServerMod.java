@@ -8,6 +8,7 @@ import me.mklv.handshaker.common.protocols.CertLoader;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
+import me.mklv.handshaker.common.configs.StandardMessages;
 import me.mklv.handshaker.neoforge.NetworkSetup;
 import me.mklv.handshaker.common.configs.ConfigMigrator;
 import net.minecraft.network.chat.Component;
@@ -99,14 +100,18 @@ public class HandShakerServerMod {
             try {
                 if (payload.nonce() == null || payload.nonce().isEmpty()) {
                     LOGGER.warn("Received mod list from {} with invalid/missing nonce. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal("Invalid handshake: missing nonce"));
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
+                        StandardMessages.HANDSHAKE_MISSING_NONCE)));
                     return;
                 }
                 
                 // Check for replay attack (nonce already used)
                 if (usedNonces.contains(payload.nonce())) {
                     LOGGER.warn("Received mod list from {} with replay nonce. Kicking.", player.getName().getString());
-                    player.connection.disconnect(Component.literal("Replay attack detected"));
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_REPLAY,
+                        StandardMessages.HANDSHAKE_REPLAY)));
                     return;
                 }
                 
@@ -115,16 +120,22 @@ public class HandShakerServerMod {
                 if (!calculatedHash.equals(payload.modListHash())) {
                     LOGGER.warn("Received mod list from {} with mismatched hash. Expected {} but got {}", 
                         player.getName().getString(), calculatedHash, payload.modListHash());
-                    player.connection.disconnect(Component.literal("Invalid handshake: hash mismatch"));
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_HASH_MISMATCH,
+                        StandardMessages.HANDSHAKE_HASH_MISMATCH)));
                     return;
                 }
                 
                 usedNonces.add(payload.nonce());
                 
-                Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
-                if (payload.mods().isEmpty()) {
-                    mods.clear();
+                if (payload.mods() == null || payload.mods().isEmpty()) {
+                    LOGGER.warn("Received empty mod list from {}. Rejecting.", player.getName().getString());
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_EMPTY_MOD_LIST,
+                        StandardMessages.HANDSHAKE_EMPTY_MOD_LIST)));
+                    return;
                 }
+                Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
                 LOGGER.info("Received mod list from {} with nonce: {}", player.getName().getString(), payload.nonce());
 
                 if (playerHistoryDb != null) {
@@ -140,7 +151,9 @@ public class HandShakerServerMod {
                                 oldInfo != null ? oldInfo.veltonNonce() : null));
             } catch (Exception e) {
                 LOGGER.error("Failed to decode mod list from {}. Terminating connection.", player.getName().getString(), e);
-                player.connection.disconnect(Component.literal("Corrupted handshake data"));
+                player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                    StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED)));
             }
         });
     }
@@ -151,12 +164,45 @@ public class HandShakerServerMod {
             try {
                 if (payload.nonce() == null || payload.nonce().isEmpty()) {
                     LOGGER.warn("Received integrity payload from {} with invalid/missing nonce. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal("Invalid handshake: missing nonce"));
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
+                        StandardMessages.HANDSHAKE_MISSING_NONCE)));
                     return;
                 }
                 
                 byte[] clientSignature = payload.signature();
                 String jarHash = payload.jarHash();
+                if (clientSignature == null || clientSignature.length == 0) {
+                    LOGGER.warn("Received integrity payload from {} with invalid/missing signature. Rejecting.", player.getName().getString());
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
+                        StandardMessages.HANDSHAKE_MISSING_SIGNATURE)));
+                    return;
+                }
+                if (clientSignature.length == 1) {
+                    LOGGER.warn("Received legacy integrity payload from {}. Rejecting.", player.getName().getString());
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_OUTDATED_CLIENT,
+                        StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE)));
+                    return;
+                }
+                if (jarHash == null || jarHash.isEmpty()) {
+                    LOGGER.warn("Received integrity payload from {} with invalid/missing jar hash. Rejecting.", player.getName().getString());
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
+                        StandardMessages.HANDSHAKE_MISSING_JAR_HASH)));
+                    return;
+                }
+                if (clientSignature == null || clientSignature.length == 0) {
+                    LOGGER.warn("Received integrity payload from {} with invalid/missing signature. Rejecting.", player.getName().getString());
+                    player.connection.disconnect(Component.literal(StandardMessages.HANDSHAKE_MISSING_SIGNATURE));
+                    return;
+                }
+                if (jarHash == null || jarHash.isEmpty()) {
+                    LOGGER.warn("Received integrity payload from {} with invalid/missing jar hash. Rejecting.", player.getName().getString());
+                    player.connection.disconnect(Component.literal(StandardMessages.HANDSHAKE_MISSING_JAR_HASH));
+                    return;
+                }
                 boolean verified = false;
                 
                 // Verification logic (matching Fabric/Paper):
@@ -215,7 +261,9 @@ public class HandShakerServerMod {
                 blacklistConfig.checkPlayer(player, clients.get(player.getUUID()));
             } catch (Exception e) {
                 LOGGER.error("Failed to decode integrity payload from {}. Terminating connection.", player.getName().getString(), e);
-                player.connection.disconnect(Component.literal("Corrupted handshake data"));
+                player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                    StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED)));
             }
         });
     }
@@ -226,7 +274,9 @@ public class HandShakerServerMod {
             try {
                 if (payload.nonce() == null || payload.nonce().isEmpty()) {
                     LOGGER.warn("Received Velton payload from {} with invalid/missing nonce. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal("Invalid handshake: missing nonce"));
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
+                        StandardMessages.HANDSHAKE_MISSING_NONCE)));
                     return;
                 }
                 String signatureHash = payload.signatureHash();
@@ -236,7 +286,9 @@ public class HandShakerServerMod {
 
                 if (!verified) {
                     LOGGER.warn("Kicking {} - Velton signature verification failed", player.getName().getString());
-                    player.connection.disconnect(Component.literal("Anti-cheat verification failed"));
+                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                        StandardMessages.KEY_VELTON_FAILED,
+                        StandardMessages.VELTON_VERIFICATION_FAILED)));
                     return;
                 }
 
@@ -251,7 +303,9 @@ public class HandShakerServerMod {
                 blacklistConfig.checkPlayer(player, clients.get(player.getUUID()));
             } catch (Exception e) {
                 LOGGER.error("Failed to decode Velton payload from {}. Terminating connection.", player.getName().getString(), e);
-                player.connection.disconnect(Component.literal("Corrupted handshake data"));
+                player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                    StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED)));
             }
         });
     }
@@ -280,7 +334,7 @@ public class HandShakerServerMod {
                 ClientInfo info = clients.computeIfAbsent(player.getUUID(), uuid -> new ClientInfo(Collections.emptySet(), false, false, null, null, null));
                 blacklistConfig.checkPlayer(player, info);
             });
-        }, 5, TimeUnit.SECONDS);
+        }, blacklistConfig.getHandshakeTimeoutSeconds(), TimeUnit.SECONDS);
     }
 
     @SubscribeEvent

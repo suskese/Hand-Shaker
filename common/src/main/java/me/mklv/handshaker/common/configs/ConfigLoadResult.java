@@ -8,16 +8,17 @@ import java.util.Set;
 public final class ConfigLoadResult {
     private ConfigState.Behavior behavior = ConfigState.Behavior.STRICT;
     private ConfigState.IntegrityMode integrityMode = ConfigState.IntegrityMode.SIGNED;
-    private String kickMessage = "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
-    private String noHandshakeKickMessage = "To connect to this server please download 'Hand-shaker' mod.";
-    private String missingWhitelistModMessage = "You are missing required mods: {mod}. Please install them to join this server.";
-    private String invalidSignatureKickMessage = "Invalid client signature. Please use the official client.";
+    private String kickMessage = StandardMessages.DEFAULT_KICK_MESSAGE;
+    private String noHandshakeKickMessage = StandardMessages.DEFAULT_NO_HANDSHAKE_MESSAGE;
+    private String missingWhitelistModMessage = StandardMessages.DEFAULT_MISSING_WHITELIST_MESSAGE;
+    private String invalidSignatureKickMessage = StandardMessages.DEFAULT_INVALID_SIGNATURE_MESSAGE;
     private boolean allowBedrockPlayers = false;
     private boolean playerdbEnabled = false;
     private boolean modsRequiredEnabled = true;
     private boolean modsBlacklistedEnabled = true;
     private boolean modsWhitelistedEnabled = true;
     private boolean whitelist = false;
+    private int handshakeTimeoutSeconds = 5;
 
     private final Map<String, String> messages = new LinkedHashMap<>();
     private final Map<String, ConfigState.ModConfig> modConfigMap = new LinkedHashMap<>();
@@ -25,6 +26,7 @@ public final class ConfigLoadResult {
     private final Set<String> whitelistedModsActive = new LinkedHashSet<>();
     private final Set<String> blacklistedModsActive = new LinkedHashSet<>();
     private final Set<String> requiredModsActive = new LinkedHashSet<>();
+    private final Set<String> optionalModsActive = new LinkedHashSet<>();
     private final Map<String, ActionDefinition> actionsMap = new LinkedHashMap<>();
 
     public ConfigState.Behavior getBehavior() {
@@ -123,6 +125,14 @@ public final class ConfigLoadResult {
         this.whitelist = whitelist;
     }
 
+    public int getHandshakeTimeoutSeconds() {
+        return handshakeTimeoutSeconds;
+    }
+
+    public void setHandshakeTimeoutSeconds(int handshakeTimeoutSeconds) {
+        this.handshakeTimeoutSeconds = handshakeTimeoutSeconds;
+    }
+
     public Map<String, String> getMessages() {
         return messages;
     }
@@ -145,6 +155,10 @@ public final class ConfigLoadResult {
 
     public Set<String> getRequiredModsActive() {
         return requiredModsActive;
+    }
+
+    public Set<String> getOptionalModsActive() {
+        return optionalModsActive;
     }
 
     public Map<String, ActionDefinition> getActionsMap() {

@@ -10,6 +10,7 @@ import me.mklv.handshaker.common.protocols.CertLoader;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
+import me.mklv.handshaker.common.configs.StandardMessages;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -80,7 +81,14 @@ public class PluginProtocolHandler {
             String payload = payloadDecoder.decodeString(data);
             if (payload == null) {
                 logger.warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
-                kickPlayer(player, "Corrupted handshake data");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
+                return;
+            }
+            if (payload.isBlank()) {
+                logger.warning("Received empty mod list from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_EMPTY_MOD_LIST,
+                    StandardMessages.HANDSHAKE_EMPTY_MOD_LIST));
                 return;
             }
 
@@ -88,7 +96,8 @@ public class PluginProtocolHandler {
             PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, calculateOffset(data, payload.length()));
             if (hashResult == null || hashResult.value == null || ((String) hashResult.value).isEmpty()) {
                 logger.warning("Received mod list from " + player.getName() + " with invalid/missing hash. Rejecting.");
-                kickPlayer(player, "Invalid handshake: missing hash");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_HASH,
+                    StandardMessages.HANDSHAKE_MISSING_HASH));
                 return;
             }
             String modListHash = (String) hashResult.value;
@@ -97,7 +106,8 @@ public class PluginProtocolHandler {
             PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
             if (nonceResult == null || nonceResult.value == null || ((String) nonceResult.value).isEmpty()) {
                 logger.warning("Received mod list from " + player.getName() + " with invalid/missing nonce. Rejecting.");
-                kickPlayer(player, "Invalid handshake: missing nonce");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
+                    StandardMessages.HANDSHAKE_MISSING_NONCE));
                 return;
             }
             String nonce = (String) nonceResult.value;
@@ -105,7 +115,8 @@ public class PluginProtocolHandler {
             validateAndSyncModList(player, payload, modListHash, nonce);
         } catch (Exception e) {
             logger.severe("Failed to decode mod list from " + player.getName() + ". Terminating connection: " + e.getMessage());
-            kickPlayer(player, "Corrupted handshake data");
+            kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                StandardMessages.HANDSHAKE_CORRUPTED));
         }
     }
 
@@ -116,7 +127,8 @@ public class PluginProtocolHandler {
             if (HandShakerPlugin.DEBUG) {
                 logger.warning("Received mod list from " + player.getName() + " with mismatched hash. Expected " + calculatedHash + " but got " + modListHash);
             }
-            kickPlayer(player, "Invalid handshake: hash mismatch");
+            kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_HASH_MISMATCH,
+                StandardMessages.HANDSHAKE_HASH_MISMATCH));
             return false;
         }
 
@@ -161,16 +173,30 @@ public class PluginProtocolHandler {
             PayloadDecoder.DecodeResult sigResult = payloadDecoder.decodeByteArrayWithOffset(data, 0);
             if (sigResult == null) {
                 logger.warning("Failed to decode integrity payload from " + player.getName() + ". Rejecting.");
-                kickPlayer(player, "Corrupted handshake data");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
             byte[] clientSignature = (byte[]) sigResult.value;
+            if (clientSignature == null || clientSignature.length == 0) {
+                logger.warning("Received integrity payload from " + player.getName() + " with invalid/missing signature. Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
+                    StandardMessages.HANDSHAKE_MISSING_SIGNATURE));
+                return;
+            }
+            if (clientSignature.length == 1) {
+                logger.warning("Received legacy integrity payload from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_OUTDATED_CLIENT,
+                    StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE));
+                return;
+            }
 
             // Decode jar hash (string)
             PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, sigResult.offset);
             if (hashResult == null || hashResult.value == null || ((String) hashResult.value).isEmpty()) {
                 logger.warning("Received integrity payload from " + player.getName() + " with invalid/missing jar hash. Rejecting.");
-                kickPlayer(player, "Invalid handshake: missing jar hash");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
+                    StandardMessages.HANDSHAKE_MISSING_JAR_HASH));
                 return;
             }
             String jarHash = (String) hashResult.value;
@@ -179,7 +205,8 @@ public class PluginProtocolHandler {
             PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
             if (nonceResult == null || nonceResult.value == null || ((String) nonceResult.value).isEmpty()) {
                 logger.warning("Received integrity payload from " + player.getName() + " with invalid/missing nonce. Rejecting.");
-                kickPlayer(player, "Invalid handshake: missing nonce");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
+                    StandardMessages.HANDSHAKE_MISSING_NONCE));
                 return;
             }
             String nonce = (String) nonceResult.value;
@@ -187,7 +214,8 @@ public class PluginProtocolHandler {
             handleIntegrityCheck(player, clientSignature, jarHash, nonce);
         } catch (Exception e) {
             logger.severe("Failed to decode integrity payload from " + player.getName() + ". Terminating connection: " + e.getMessage());
-            kickPlayer(player, "Corrupted handshake data");
+            kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                StandardMessages.HANDSHAKE_CORRUPTED));
         }
     }
 
@@ -235,16 +263,30 @@ public class PluginProtocolHandler {
             PayloadDecoder.DecodeResult sigResult = payloadDecoder.decodeByteArrayWithOffset(data, 0);
             if (sigResult == null) {
                 logger.warning("Failed to decode Velton payload from " + player.getName() + ". Rejecting.");
-                kickPlayer(player, "Corrupted handshake data");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
             byte[] clientSignature = (byte[]) sigResult.value;
+            if (clientSignature == null || clientSignature.length == 0) {
+                logger.warning("Received Velton payload from " + player.getName() + " with invalid/missing signature. Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
+                    StandardMessages.HANDSHAKE_MISSING_SIGNATURE));
+                return;
+            }
+            if (clientSignature.length == 1) {
+                logger.warning("Received legacy Velton payload from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_OUTDATED_CLIENT,
+                    StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE));
+                return;
+            }
 
             // Decode jar hash (string)
             PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, sigResult.offset);
             if (hashResult == null || hashResult.value == null || ((String) hashResult.value).isEmpty()) {
                 logger.warning("Received Velton payload from " + player.getName() + " with invalid/missing jar hash. Rejecting.");
-                kickPlayer(player, "Invalid handshake: missing jar hash");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
+                    StandardMessages.HANDSHAKE_MISSING_JAR_HASH));
                 return;
             }
             String jarHash = (String) hashResult.value;
@@ -253,7 +295,8 @@ public class PluginProtocolHandler {
             PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
             if (nonceResult == null || nonceResult.value == null || ((String) nonceResult.value).isEmpty()) {
                 logger.warning("Received Velton payload from " + player.getName() + " with invalid/missing nonce. Rejecting.");
-                kickPlayer(player, "Invalid handshake: missing nonce");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
+                    StandardMessages.HANDSHAKE_MISSING_NONCE));
                 return;
             }
             String nonce = (String) nonceResult.value;
@@ -261,7 +304,8 @@ public class PluginProtocolHandler {
             handleVeltonPayload(player, clientSignature, jarHash, nonce);
         } catch (Exception e) {
             logger.severe("Failed to decode Velton payload from " + player.getName() + ". Terminating connection: " + e.getMessage());
-            kickPlayer(player, "Corrupted handshake data");
+            kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                StandardMessages.HANDSHAKE_CORRUPTED));
         }
     }
 
@@ -293,7 +337,8 @@ public class PluginProtocolHandler {
 
         if (!verified) {
             logger.warning("Kicking " + player.getName() + " - Velton signature verification failed");
-            kickPlayer(player, "Anti-cheat verification failed");
+            kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_VELTON_FAILED,
+                StandardMessages.VELTON_VERIFICATION_FAILED));
             return;
         }
 

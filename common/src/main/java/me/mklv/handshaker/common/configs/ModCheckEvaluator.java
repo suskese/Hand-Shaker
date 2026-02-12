@@ -53,12 +53,16 @@ public final class ModCheckEvaluator {
         }
 
         if (input.isWhitelist()) {
+            Set<String> allowedWhitelist = new LinkedHashSet<>(input.getWhitelistedModsActive());
+            if (input.getOptionalModsActive() != null) {
+                allowedWhitelist.addAll(input.getOptionalModsActive());
+            }
             Set<String> nonWhitelisted = new LinkedHashSet<>();
             for (String modId : normalizedMods) {
                 if (input.getIgnoredMods().contains(modId)) {
                     continue;
                 }
-                if (!input.getWhitelistedModsActive().contains(modId)) {
+                if (!allowedWhitelist.contains(modId)) {
                     nonWhitelisted.add(modId);
                 }
             }

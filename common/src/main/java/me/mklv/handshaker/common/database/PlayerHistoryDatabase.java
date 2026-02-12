@@ -361,6 +361,24 @@ public class PlayerHistoryDatabase {
         return names;
     }
 
+    public Optional<UUID> getPlayerUuidByName(String playerName) {
+        if (playerName == null || playerName.isEmpty()) {
+            return Optional.empty();
+        }
+        String sql = "SELECT uuid FROM player_names WHERE LOWER(current_name) = LOWER(?)";
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerName);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return Optional.of(UUID.fromString(rs.getString("uuid")));
+            }
+        } catch (SQLException e) {
+            logger.warn("Failed to get player uuid by name: {}", e.getMessage());
+        }
+        return Optional.empty();
+    }
+
     /**
      * Get count of unique players with active mods
      */

@@ -3,6 +3,7 @@ package me.mklv.handshaker.fabric.server;
 import me.mklv.handshaker.fabric.HandShaker;
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
 import me.mklv.handshaker.common.configs.ConfigMigrator;
+import me.mklv.handshaker.common.configs.StandardMessages;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;
@@ -114,10 +115,14 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 if (!validateNonce(payload.nonce(), player, LOGGER, "mod list")) {
                     return;
                 }
-                Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
-                if (payload.mods().isEmpty()) {
-                    mods.clear();
+                if (payload.mods() == null || payload.mods().isEmpty()) {
+                    LOGGER.warn("Received empty mod list from {}. Rejecting.", playerName);
+                    player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_EMPTY_MOD_LIST,
+                        StandardMessages.HANDSHAKE_EMPTY_MOD_LIST)));
+                    return;
                 }
+                Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
                 if (HandShakerServer.DEBUG_MODE) {
                     LOGGER.info("Received mod list from {} with nonce: {}", playerName, payload.nonce());
                 }
@@ -136,7 +141,9 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                                 oldInfo != null ? oldInfo.veltonNonce() : null));
             } catch (Exception e) {
                 LOGGER.error("Failed to decode mod list from {}. Terminating connection.", playerName, e);
-                player.networkHandler.disconnect(Text.of("Corrupted handshake data"));
+                player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                    StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED)));
             }
         });
 
@@ -150,6 +157,27 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 
                 byte[] clientSignature = payload.signature();
                 String jarHash = payload.jarHash();
+                if (clientSignature == null || clientSignature.length == 0) {
+                    LOGGER.warn("Received integrity payload from {} with invalid/missing signature. Rejecting.", playerName);
+                    player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
+                        StandardMessages.HANDSHAKE_MISSING_SIGNATURE)));
+                    return;
+                }
+                if (clientSignature.length == 1) {
+                    LOGGER.warn("Received legacy integrity payload from {}. Rejecting.", playerName);
+                    player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                        StandardMessages.KEY_OUTDATED_CLIENT,
+                        StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE)));
+                    return;
+                }
+                if (jarHash == null || jarHash.isEmpty()) {
+                    LOGGER.warn("Received integrity payload from {} with invalid/missing jar hash. Rejecting.", playerName);
+                    player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
+                        StandardMessages.HANDSHAKE_MISSING_JAR_HASH)));
+                    return;
+                }
                 boolean verified = false;
                 
                 // Verification logic (matching Paper):
@@ -196,7 +224,9 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 configManager.checkPlayer(player, clients.get(player.getUuid()));
             } catch (Exception e) {
                 LOGGER.error("Failed to decode integrity payload from {}. Terminating connection.", playerName, e);
-                player.networkHandler.disconnect(Text.of("Corrupted handshake data"));
+                player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                    StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED)));
             }
         });
 
@@ -210,6 +240,27 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 
                 byte[] clientSignature = payload.signature();
                 String jarHash = payload.jarHash();
+                if (clientSignature == null || clientSignature.length == 0) {
+                    LOGGER.warn("Received Velton payload from {} with invalid/missing signature. Rejecting.", playerName);
+                    player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
+                        StandardMessages.HANDSHAKE_MISSING_SIGNATURE)));
+                    return;
+                }
+                if (clientSignature.length == 1) {
+                    LOGGER.warn("Received legacy Velton payload from {}. Rejecting.", playerName);
+                    player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                        StandardMessages.KEY_OUTDATED_CLIENT,
+                        StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE)));
+                    return;
+                }
+                if (jarHash == null || jarHash.isEmpty()) {
+                    LOGGER.warn("Received Velton payload from {} with invalid/missing jar hash. Rejecting.", playerName);
+                    player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                        StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
+                        StandardMessages.HANDSHAKE_MISSING_JAR_HASH)));
+                    return;
+                }
                 boolean verified = false;
                 
                 // Verification logic (matching integrity payload verification):
@@ -250,7 +301,9 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 // Kick player if Velton signature is invalid/missing
                 if (!verified) {
                     LOGGER.warn("Kicking {} - Velton signature verification failed", playerName);
-                    player.networkHandler.disconnect(Text.of("Anti-cheat verification failed"));
+                    player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                        StandardMessages.KEY_VELTON_FAILED,
+                        StandardMessages.VELTON_VERIFICATION_FAILED)));
                     return;
                 }
 
@@ -265,7 +318,9 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 configManager.checkPlayer(player, clients.get(player.getUuid()));
             } catch (Exception e) {
                 LOGGER.error("Failed to decode Velton payload from {}. Terminating connection.", playerName, e);
-                player.networkHandler.disconnect(Text.of("Corrupted handshake data"));
+                player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                    StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED)));
             }
         });
 
@@ -278,7 +333,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
 
                     configManager.checkPlayer(handler.player, info, false); // Don't execute actions here, just check
                 });
-            }, 5, TimeUnit.SECONDS);
+            }, configManager.getHandshakeTimeoutSeconds(), TimeUnit.SECONDS);
         });
 
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
@@ -414,10 +469,12 @@ public class HandShakerServer implements DedicatedServerModInitializer {
             return str == null || str.isEmpty();
         }
     }
-    public static boolean validateNonce(String nonce, ServerPlayerEntity player, Logger logger, String payloadType) {
+    private boolean validateNonce(String nonce, ServerPlayerEntity player, Logger logger, String payloadType) {
         if (nonce == null || nonce.isEmpty()) {
             logger.warn("Received {} from {} with invalid/missing nonce. Rejecting.", payloadType, player.getName().getString());
-            player.networkHandler.disconnect(Text.of("Invalid handshake: missing nonce"));
+            player.networkHandler.disconnect(Text.of(configManager.getMessageOrDefault(
+                StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
+                StandardMessages.HANDSHAKE_MISSING_NONCE)));
             return false;
         }
         return true;

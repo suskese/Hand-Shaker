@@ -63,6 +63,7 @@ public final class ConfigWriter {
         yaml.append("integrity-mode: ").append(data.getIntegrityMode().toString().toLowerCase(Locale.ROOT)).append("\n");
         yaml.append("whitelist: ").append(data.isWhitelist()).append("\n");
         yaml.append("allow-bedrock-players: ").append(data.isAllowBedrockPlayers()).append("\n");
+        yaml.append("handshake-timeout-seconds: ").append(data.getHandshakeTimeoutSeconds()).append("\n");
         yaml.append("playerdb-enabled: ").append(data.isPlayerdbEnabled()).append("\n\n");
         yaml.append("mods-required-enabled: ").append(data.areModsRequiredEnabled()).append("\n");
         yaml.append("mods-blacklisted-enabled: ").append(data.areModsBlacklistedEnabled()).append("\n");
@@ -100,6 +101,30 @@ public final class ConfigWriter {
             "# Whitelisted mods which are allowed but not required,\n" +
             "# but if in config.yml whitelist: true, only these mods are allowed\n" +
             "# Format: modname: action (where action is from mods-actions.yml or default 'none')\n\n");
+        writeOptionalMods(configDir.resolve("mods-whitelisted.yml").toFile(), logger,
+            data.getOptionalModsActive());
+    }
+
+    private static void writeOptionalMods(File file,
+                                          ConfigFileBootstrap.Logger logger,
+                                          Set<String> optionalMods) {
+        if (optionalMods.isEmpty()) {
+            return;
+        }
+
+        try (FileWriter writer = new FileWriter(file, true)) {
+            StringBuilder yaml = new StringBuilder();
+            yaml.append("\n# Optional mods which are allowed but not required\n");
+            yaml.append("optional:\n");
+            for (String mod : optionalMods) {
+                yaml.append("  - ").append(mod).append("\n");
+            }
+            writer.write(yaml.toString());
+        } catch (IOException e) {
+            if (logger != null) {
+                logger.error("Could not save " + file.getName(), e);
+            }
+        }
     }
 
     private static void writeIgnoredMods(File file,

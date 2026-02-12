@@ -37,6 +37,7 @@ public class ConfigManager {
     private String invalidSignatureKickMessage = "Invalid client signature. Please use the official client.";
     private boolean allowBedrockPlayers = false;
     private boolean playerdbEnabled = false; // Default: disabled for security
+    private int handshakeTimeoutSeconds = 5;
     
     // Mod list toggle states - persisted in config
     private boolean modsRequiredEnabled = true;
@@ -47,6 +48,7 @@ public class ConfigManager {
     private boolean whitelist = false;
     private final Set<String> ignoredMods = new HashSet<>();
     private final Set<String> whitelistedModsActive = new HashSet<>();
+    private final Set<String> optionalModsActive = new HashSet<>();
     private final Set<String> blacklistedModsActive = new HashSet<>();
     private final Set<String> requiredModsActive = new HashSet<>();
     private final Map<String, ActionDefinition> actionsMap = new LinkedHashMap<>();
@@ -91,6 +93,7 @@ public class ConfigManager {
         invalidSignatureKickMessage = result.getInvalidSignatureKickMessage();
         allowBedrockPlayers = result.isAllowBedrockPlayers();
         playerdbEnabled = result.isPlayerdbEnabled();
+        handshakeTimeoutSeconds = result.getHandshakeTimeoutSeconds();
         modsRequiredEnabled = result.areModsRequiredEnabled();
         modsBlacklistedEnabled = result.areModsBlacklistedEnabled();
         modsWhitelistedEnabled = result.areModsWhitelistedEnabled();
@@ -105,6 +108,8 @@ public class ConfigManager {
         ignoredMods.addAll(result.getIgnoredMods());
         whitelistedModsActive.clear();
         whitelistedModsActive.addAll(result.getWhitelistedModsActive());
+        optionalModsActive.clear();
+        optionalModsActive.addAll(result.getOptionalModsActive());
         blacklistedModsActive.clear();
         blacklistedModsActive.addAll(result.getBlacklistedModsActive());
         requiredModsActive.clear();
@@ -126,15 +131,24 @@ public class ConfigManager {
     public Set<String> getIgnoredMods() { return Collections.unmodifiableSet(ignoredMods); }
     public boolean isAllowBedrockPlayers() { return allowBedrockPlayers; }
     public Set<String> getWhitelistedMods() { return Collections.unmodifiableSet(whitelistedModsActive); }
+    public Set<String> getOptionalMods() { return Collections.unmodifiableSet(optionalModsActive); }
     public Set<String> getBlacklistedMods() { return Collections.unmodifiableSet(blacklistedModsActive); }
     public Set<String> getRequiredMods() { return Collections.unmodifiableSet(requiredModsActive); }
     public boolean isPlayerdbEnabled() { return playerdbEnabled; }
     public boolean areModsRequiredEnabled() { return modsRequiredEnabled; }
     public boolean areModsBlacklistedEnabled() { return modsBlacklistedEnabled; }
     public boolean areModsWhitelistedEnabled() { return modsWhitelistedEnabled; }
+    public int getHandshakeTimeoutSeconds() { return handshakeTimeoutSeconds; }
     public ActionDefinition getAction(String actionName) { 
         if (actionName == null) return null;
         return actionsMap.get(actionName.toLowerCase(Locale.ROOT));
+    }
+    public String getMessageOrDefault(String key, String fallback) {
+        if (key == null) {
+            return fallback;
+        }
+        String message = messagesMap.get(key);
+        return message != null ? message : fallback;
     }
     public Set<String> getAvailableActions() {
         return Collections.unmodifiableSet(actionsMap.keySet());
@@ -301,6 +315,11 @@ public class ConfigManager {
         save();
     }
 
+    public void setHandshakeTimeoutSeconds(int seconds) {
+        this.handshakeTimeoutSeconds = Math.max(1, seconds);
+        save();
+    }
+
     public boolean addIgnoredMod(String modId) {
         if (ignoredMods.add(modId.toLowerCase(Locale.ROOT))) {
             save();
@@ -392,12 +411,14 @@ public class ConfigManager {
             modsBlacklistedEnabled,
             modsWhitelistedEnabled,
             whitelist,
+            handshakeTimeoutSeconds,
             messagesMap,
             modConfigMap,
             ignoredMods,
             whitelistedModsActive,
             blacklistedModsActive,
             requiredModsActive,
+            optionalModsActive,
             actionsMap
         );
 
@@ -473,6 +494,7 @@ public class ConfigManager {
             modsWhitelistedEnabled,
             ignoredMods,
             whitelistedModsActive,
+            optionalModsActive,
             blacklistedModsActive,
             requiredModsActive,
             modConfigMap,

@@ -10,6 +10,7 @@ public final class ModCheckInput {
     private final boolean modsWhitelistedEnabled;
     private final Set<String> ignoredMods;
     private final Set<String> whitelistedModsActive;
+    private final Set<String> optionalModsActive;
     private final Set<String> blacklistedModsActive;
     private final Set<String> requiredModsActive;
     private final Map<String, ConfigState.ModConfig> modConfigMap;
@@ -22,6 +23,7 @@ public final class ModCheckInput {
                          boolean modsWhitelistedEnabled,
                          Set<String> ignoredMods,
                          Set<String> whitelistedModsActive,
+                         Set<String> optionalModsActive,
                          Set<String> blacklistedModsActive,
                          Set<String> requiredModsActive,
                          Map<String, ConfigState.ModConfig> modConfigMap,
@@ -33,6 +35,7 @@ public final class ModCheckInput {
         this.modsWhitelistedEnabled = modsWhitelistedEnabled;
         this.ignoredMods = ignoredMods;
         this.whitelistedModsActive = whitelistedModsActive;
+        this.optionalModsActive = optionalModsActive;
         this.blacklistedModsActive = blacklistedModsActive;
         this.requiredModsActive = requiredModsActive;
         this.modConfigMap = modConfigMap;
@@ -62,6 +65,10 @@ public final class ModCheckInput {
 
     public Set<String> getWhitelistedModsActive() {
         return whitelistedModsActive;
+    }
+
+    public Set<String> getOptionalModsActive() {
+        return optionalModsActive;
     }
 
     public Set<String> getBlacklistedModsActive() {

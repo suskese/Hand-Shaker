@@ -23,10 +23,11 @@ public class HandShakerListener implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        
-        // Schedule check with delay (5 seconds = 100 ticks)
-        // This allows time for plugin channel messages to arrive
-        plugin.schedulePlayerCheck(player, 100L);
+
+        int timeoutSeconds = plugin.getConfigManager().getHandshakeTimeoutSeconds();
+        long delayTicks = Math.max(1, timeoutSeconds) * 20L;
+        // Schedule check with configurable delay to allow plugin channel messages to arrive
+        plugin.schedulePlayerCheck(player, delayTicks);
     }
 
     @EventHandler

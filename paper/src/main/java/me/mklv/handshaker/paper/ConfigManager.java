@@ -9,6 +9,7 @@ import me.mklv.handshaker.common.configs.ConfigLoader;
 import me.mklv.handshaker.common.configs.ConfigSnapshotBuilder;
 import me.mklv.handshaker.common.configs.ConfigWriter;
 import me.mklv.handshaker.common.configs.MessagePlaceholderExpander;
+import me.mklv.handshaker.common.configs.StandardMessages;
 import me.mklv.handshaker.common.configs.ModConfigStore;
 import me.mklv.handshaker.common.configs.ModCheckEvaluator;
 import me.mklv.handshaker.common.configs.ModCheckInput;
@@ -57,12 +58,13 @@ public class ConfigManager {
 
     private Behavior behavior = Behavior.STRICT;
     private IntegrityMode integrityMode = IntegrityMode.SIGNED;
-    private String kickMessage = "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
-    private String noHandshakeKickMessage = "To connect to this server please download 'Hand-shaker' mod.";
-    private String missingWhitelistModMessage = "You are missing required mods: {mod}. Please install them to join this server.";
-    private String invalidSignatureKickMessage = "Invalid client signature. Please use the official HandShaker client mod.";
+    private String kickMessage = StandardMessages.DEFAULT_KICK_MESSAGE;
+    private String noHandshakeKickMessage = StandardMessages.DEFAULT_NO_HANDSHAKE_MESSAGE;
+    private String missingWhitelistModMessage = StandardMessages.DEFAULT_MISSING_WHITELIST_MESSAGE;
+    private String invalidSignatureKickMessage = StandardMessages.DEFAULT_INVALID_SIGNATURE_MESSAGE;
     private boolean allowBedrockPlayers = false;
     private boolean playerdbEnabled = false;
+    private int handshakeTimeoutSeconds = 5;
     
     private final Map<String, String> customMessages = new LinkedHashMap<>();
     
@@ -74,6 +76,7 @@ public class ConfigManager {
     private boolean whitelist = false;
     private final Set<String> ignoredMods = new HashSet<>();
     private final Set<String> whitelistedModsActive = new HashSet<>();
+    private final Set<String> optionalModsActive = new HashSet<>();
     private final Set<String> blacklistedModsActive = new HashSet<>();
     private final Set<String> requiredModsActive = new HashSet<>();
     private final Map<String, ActionDefinition> actionsMap = new LinkedHashMap<>();
@@ -117,6 +120,7 @@ public class ConfigManager {
         invalidSignatureKickMessage = result.getInvalidSignatureKickMessage();
         allowBedrockPlayers = result.isAllowBedrockPlayers();
         playerdbEnabled = result.isPlayerdbEnabled();
+        handshakeTimeoutSeconds = result.getHandshakeTimeoutSeconds();
         modsRequiredEnabled = result.areModsRequiredEnabled();
         modsBlacklistedEnabled = result.areModsBlacklistedEnabled();
         modsWhitelistedEnabled = result.areModsWhitelistedEnabled();
@@ -131,6 +135,8 @@ public class ConfigManager {
         ignoredMods.addAll(result.getIgnoredMods());
         whitelistedModsActive.clear();
         whitelistedModsActive.addAll(result.getWhitelistedModsActive());
+        optionalModsActive.clear();
+        optionalModsActive.addAll(result.getOptionalModsActive());
         blacklistedModsActive.clear();
         blacklistedModsActive.addAll(result.getBlacklistedModsActive());
         requiredModsActive.clear();
@@ -264,7 +270,9 @@ public class ConfigManager {
     public boolean isWhitelist() { return whitelist; }
     public Set<String> getIgnoredMods() { return Collections.unmodifiableSet(ignoredMods); }
     public boolean isAllowBedrockPlayers() { return allowBedrockPlayers; }
+    public int getHandshakeTimeoutSeconds() { return handshakeTimeoutSeconds; }
     public Set<String> getWhitelistedMods() { return Collections.unmodifiableSet(whitelistedModsActive); }
+    public Set<String> getOptionalMods() { return Collections.unmodifiableSet(optionalModsActive); }
     public Set<String> getBlacklistedMods() { return Collections.unmodifiableSet(blacklistedModsActive); }
     public Set<String> getRequiredMods() { return Collections.unmodifiableSet(requiredModsActive); }
     public boolean areModsRequiredEnabled() { return modsRequiredEnabled; }
@@ -279,6 +287,13 @@ public class ConfigManager {
         if (actionName == null) return defaultAction;
         ActionDefinition action = actionsMap.get(actionName.toLowerCase(Locale.ROOT));
         return action != null ? action : defaultAction;
+    }
+    public String getMessageOrDefault(String key, String fallback) {
+        if (key == null) {
+            return fallback;
+        }
+        String message = customMessages.get(key);
+        return message != null ? message : fallback;
     }
     public Set<String> getAvailableActions() {
         return Collections.unmodifiableSet(actionsMap.keySet());
@@ -326,6 +341,10 @@ public class ConfigManager {
     public void setMissingWhitelistModMessage(String message) { this.missingWhitelistModMessage = message; }
     public void setInvalidSignatureKickMessage(String message) { this.invalidSignatureKickMessage = message; }
     public void setAllowBedrockPlayers(boolean allow) { this.allowBedrockPlayers = allow; }
+
+    public void setHandshakeTimeoutSeconds(int seconds) {
+        this.handshakeTimeoutSeconds = Math.max(1, seconds);
+    }
 
     public void setPlayerdbEnabled(boolean enabled) {
         this.playerdbEnabled = enabled;
@@ -469,6 +488,7 @@ public class ConfigManager {
             modsWhitelistedEnabled,
             ignoredMods,
             whitelistedModsActive,
+            optionalModsActive,
             blacklistedModsActive,
             requiredModsActive,
             modConfigMap,
@@ -507,12 +527,14 @@ public class ConfigManager {
             modsBlacklistedEnabled,
             modsWhitelistedEnabled,
             whitelist,
+            handshakeTimeoutSeconds,
             customMessages,
             modConfigMap,
             ignoredMods,
             whitelistedModsActive,
             blacklistedModsActive,
             requiredModsActive,
+            optionalModsActive,
             actionsMap
         );
 

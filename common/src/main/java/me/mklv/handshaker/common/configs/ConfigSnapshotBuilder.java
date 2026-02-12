@@ -20,12 +20,14 @@ public final class ConfigSnapshotBuilder {
                                          boolean modsBlacklistedEnabled,
                                          boolean modsWhitelistedEnabled,
                                          boolean whitelist,
+                                         int handshakeTimeoutSeconds,
                                          Map<String, String> messages,
                                          Map<String, ConfigState.ModConfig> modConfigMap,
                                          Set<String> ignoredMods,
                                          Set<String> whitelistedModsActive,
                                          Set<String> blacklistedModsActive,
                                          Set<String> requiredModsActive,
+                                         Set<String> optionalModsActive,
                                          Map<String, ActionDefinition> actionsMap) {
         ConfigLoadResult snapshot = new ConfigLoadResult();
         snapshot.setBehavior(behavior);
@@ -40,6 +42,7 @@ public final class ConfigSnapshotBuilder {
         snapshot.setModsBlacklistedEnabled(modsBlacklistedEnabled);
         snapshot.setModsWhitelistedEnabled(modsWhitelistedEnabled);
         snapshot.setWhitelist(whitelist);
+        snapshot.setHandshakeTimeoutSeconds(handshakeTimeoutSeconds);
 
         Map<String, String> messageSnapshot = messages != null ? messages : Collections.emptyMap();
         snapshot.getMessages().putAll(messageSnapshot);
@@ -48,6 +51,7 @@ public final class ConfigSnapshotBuilder {
         snapshot.getWhitelistedModsActive().addAll(whitelistedModsActive);
         snapshot.getBlacklistedModsActive().addAll(blacklistedModsActive);
         snapshot.getRequiredModsActive().addAll(requiredModsActive);
+        snapshot.getOptionalModsActive().addAll(optionalModsActive);
         snapshot.getActionsMap().putAll(actionsMap);
         return snapshot;
     }

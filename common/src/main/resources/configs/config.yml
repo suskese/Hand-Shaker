@@ -12,6 +12,9 @@ whitelist: false
 # Allow Bedrock players
 allow-bedrock-players: false
 
+# Handshake timeout in seconds (how long to wait for client payloads)
+handshake-timeout-seconds: 5
+
 # Player Database: Store and track player mod history (requires playerdb to be enabled)
 playerdb-enabled: false
 
@@ -24,10 +27,20 @@ mods-whitelisted-enabled: true
 messages:
   kick: "You are using a blacklisted mod: {mod}. Please remove it to join this server."
   no-handshake: "To connect to this server please download 'Hand-shaker' mod."
+  ban: "You have been banned for using a blacklisted mod: {mod}."
+  bedrock: "Bedrock players are not allowed on this server."  
   missing-whitelist: "You are missing required mods: {mod}. Please install them to join this server."
   invalid-signature: "Invalid client signature. Please use the official HandShaker client mod."
+  handshake-corrupted: "Corrupted handshake data"
+  handshake-empty-mod-list: "Invalid handshake: empty mod list"
+  handshake-hash-mismatch: "Invalid handshake: hash mismatch"
+  handshake-missing-hash: "Invalid handshake: missing hash"
+  handshake-missing-jar-hash: "Invalid handshake: missing jar hash"
+  handshake-missing-nonce: "Invalid handshake: missing nonce"
+  handshake-missing-signature: "Invalid handshake: missing signature"
+  handshake-replay: "Replay attack detected"
+  velton-verification-failed: "Anti-cheat verification failed"
 
-  ban: "You have been banned for using a blacklisted mod: {mod}."
-  bedrock: "Bedrock players are not allowed on this server."
+
   # custom messages for actions can be added here
   test_action: "Hi, {player}! You are using {mod}! Thanks for using it!"

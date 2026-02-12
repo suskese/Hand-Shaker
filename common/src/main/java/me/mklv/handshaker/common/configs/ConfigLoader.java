@@ -14,18 +14,14 @@ import java.util.Map;
 import java.util.Set;
 
 public final class ConfigLoader {
-    private static final String DEFAULT_KICK_MESSAGE =
-        "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
-    private static final String DEFAULT_NO_HANDSHAKE_MESSAGE =
-        "To connect to this server please download 'Hand-shaker' mod.";
-    private static final String DEFAULT_MISSING_WHITELIST_MESSAGE =
-        "You are missing required mods: {mod}. Please install them to join this server.";
-    private static final String DEFAULT_INVALID_SIGNATURE_MESSAGE =
-        "Invalid client signature. Please use the official client.";
+    private static final String DEFAULT_KICK_MESSAGE = StandardMessages.DEFAULT_KICK_MESSAGE;
+    private static final String DEFAULT_NO_HANDSHAKE_MESSAGE = StandardMessages.DEFAULT_NO_HANDSHAKE_MESSAGE;
+    private static final String DEFAULT_MISSING_WHITELIST_MESSAGE = StandardMessages.DEFAULT_MISSING_WHITELIST_MESSAGE;
+    private static final String DEFAULT_INVALID_SIGNATURE_MESSAGE = StandardMessages.DEFAULT_INVALID_SIGNATURE_MESSAGE;
+    private static final String DEFAULT_OUTDATED_CLIENT_MESSAGE = StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE;
 
     private ConfigLoader() {
     }
-
     public static ConfigLoadResult load(Path configDir,
                                         Class<?> resourceBase,
                                         ConfigFileBootstrap.Logger logger,
@@ -133,6 +129,16 @@ public final class ConfigLoader {
         messages.putIfAbsent("no-handshake", DEFAULT_NO_HANDSHAKE_MESSAGE);
         messages.putIfAbsent("missing-whitelist", DEFAULT_MISSING_WHITELIST_MESSAGE);
         messages.putIfAbsent("invalid-signature", DEFAULT_INVALID_SIGNATURE_MESSAGE);
+        messages.putIfAbsent(StandardMessages.KEY_OUTDATED_CLIENT, DEFAULT_OUTDATED_CLIENT_MESSAGE);
+        messages.putIfAbsent(StandardMessages.KEY_HANDSHAKE_CORRUPTED, StandardMessages.HANDSHAKE_CORRUPTED);
+        messages.putIfAbsent(StandardMessages.KEY_HANDSHAKE_EMPTY_MOD_LIST, StandardMessages.HANDSHAKE_EMPTY_MOD_LIST);
+        messages.putIfAbsent(StandardMessages.KEY_HANDSHAKE_HASH_MISMATCH, StandardMessages.HANDSHAKE_HASH_MISMATCH);
+        messages.putIfAbsent(StandardMessages.KEY_HANDSHAKE_MISSING_HASH, StandardMessages.HANDSHAKE_MISSING_HASH);
+        messages.putIfAbsent(StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH, StandardMessages.HANDSHAKE_MISSING_JAR_HASH);
+        messages.putIfAbsent(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE, StandardMessages.HANDSHAKE_MISSING_NONCE);
+        messages.putIfAbsent(StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE, StandardMessages.HANDSHAKE_MISSING_SIGNATURE);
+        messages.putIfAbsent(StandardMessages.KEY_HANDSHAKE_REPLAY, StandardMessages.HANDSHAKE_REPLAY);
+        messages.putIfAbsent(StandardMessages.KEY_VELTON_FAILED, StandardMessages.VELTON_VERIFICATION_FAILED);
         result.setKickMessage(messages.get("kick"));
         result.setNoHandshakeKickMessage(messages.get("no-handshake"));
         result.setMissingWhitelistModMessage(messages.get("missing-whitelist"));
@@ -201,6 +207,12 @@ public final class ConfigLoader {
                 defaultWhitelistedAction,
                 result.getModConfigMap(),
                 result.getWhitelistedModsActive(),
+                logger);
+            loadOptionalMods(whitelistedFile,
+                result.getModConfigMap(),
+                result.getWhitelistedModsActive(),
+                result.getOptionalModsActive(),
+                defaultWhitelistedAction,
                 logger);
         }
 
@@ -312,12 +324,61 @@ public final class ConfigLoader {
         }
     }
 
+    private static void loadOptionalMods(File file,
+                                         Map<String, ConfigState.ModConfig> modConfigMap,
+                                         Set<String> whitelistedActive,
+                                         Set<String> optionalActive,
+                                         String defaultAction,
+                                         ConfigFileBootstrap.Logger logger) {
+        Map<String, Object> data = readYaml(file, logger);
+        if (data == null || !data.containsKey("optional")) {
+            return;
+        }
+
+        Object obj = data.get("optional");
+        if (obj instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) obj;
+            for (Map.Entry<String, Object> entry : map.entrySet()) {
+                String modId = entry.getKey().toLowerCase(Locale.ROOT);
+                String action = entry.getValue() != null ? entry.getValue().toString() : defaultAction;
+                optionalActive.add(modId);
+                if (!modConfigMap.containsKey(modId) && !whitelistedActive.contains(modId)) {
+                    modConfigMap.put(modId, new ConfigState.ModConfig(ConfigState.MODE_ALLOWED, action, null));
+                }
+            }
+            return;
+        }
+
+        if (obj instanceof List) {
+            @SuppressWarnings("unchecked")
+            List<String> list = (List<String>) obj;
+            for (String mod : list) {
+                if (mod == null) {
+                    continue;
+                }
+                String modId = mod.toLowerCase(Locale.ROOT);
+                optionalActive.add(modId);
+                if (!modConfigMap.containsKey(modId) && !whitelistedActive.contains(modId)) {
+                    modConfigMap.put(modId, new ConfigState.ModConfig(ConfigState.MODE_ALLOWED, defaultAction, null));
+                }
+            }
+            return;
+        }
+
+        if (logger != null) {
+            logger.warn("Invalid format in " + file.getName() + ": expected map or list for optional mods");
+        }
+    }
+
     private static void createWhitelistedTemplate(File file, ConfigFileBootstrap.Logger logger) {
         try (FileWriter writer = new FileWriter(file)) {
             writer.write("# Whitelisted mods which are allowed but not required,\n");
             writer.write("# but if in config.yml whitelist: true, only these mods are allowed\n");
             writer.write("# Format: modname: action (where action is from mods-actions.yml or default 'none')\n\n");
             writer.write("whitelisted:\n");
+            writer.write("\n# Optional mods are allowed when whitelist is enabled but not required\n");
+            writer.write("optional:\n");
             if (logger != null) {
                 logger.info("Created mods-whitelisted.yml file (whitelisted mode enabled)");
             }

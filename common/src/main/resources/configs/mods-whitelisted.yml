@@ -4,3 +4,7 @@
 
 whitelisted:
   sodium: none
+
+# Optional mods which are allowed but not required
+optional:
+  jade: none
