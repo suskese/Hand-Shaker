@@ -7,43 +7,10 @@ group = maven_group
 
 tasks.register('copyCert') {
     doLast {
-
-        if (findProject(':paper') != null) {
+        if (findProject(':common') != null) {
             copy {
                 from '.Integrity/public.cer'
-                into 'paper/src/main/resources'
-            }
-        }
-
-        if (findProject(':neoforge:1.21.10') != null) {
-            copy {
-                from '.Integrity/public.cer'
-                into 'neoforge/1.21.10/src/main/resources'
-            }
-        }
-        if (findProject(':neoforge:1.21.11') != null) {
-            copy {
-                from '.Integrity/public.cer'
-                into 'neoforge/1.21.11/src/main/resources'
-            }
-        }
-
-        if (findProject(':velton') != null) {
-            copy {
-                from '.Integrity/public.cer'
-                into 'velton/src/main/resources'
-            }
-        }
-        if (findProject(':fabric:1.21.10') != null) {
-            copy {
-                from '.Integrity/public.cer'
-                into 'fabric/1.21.10/src/main/resources'
-            }
-        }
-        if (findProject(':fabric:1.21.11') != null) {
-            copy {
-                from '.Integrity/public.cer'
-                into 'fabric/1.21.11/src/main/resources'
+                into 'common/src/main/resources'
             }
         }
     }

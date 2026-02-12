@@ -1,6 +1,0 @@
-# Mods which will be hidden from commands to show up
-# These mods won't appear in /handshaker info or other listings
-
-ignored:
-  - fabric-api
-  - fabric-loader

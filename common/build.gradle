@@ -31,3 +31,7 @@ dependencies {
 tasks.withType(JavaCompile).configureEach {
     options.release = 21
 }
+
+tasks.named('processResources') {
+    dependsOn rootProject.tasks.named('copyCert')
+}

@@ -56,6 +56,7 @@ tasks.withType(ProcessResources).configureEach {
 processResources {
 	def version = rootProject.version
 	def supportedVersions = supported_mc_versions
+	from(project(':common').sourceSets.main.resources)
 	filesMatching("fabric.mod.json") {
 		filter { line ->
 			line.replace('${version}', "${version}-1.21.11")

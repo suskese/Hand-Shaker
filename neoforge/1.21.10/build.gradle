@@ -86,22 +86,13 @@ tasks.named('processResources') {
         file: [jarVersion: "${project.mod_version}-1.21.x"]
     ]
     inputs.properties replaceProperties
+    from(project(':common').sourceSets.main.resources)
     filesMatching('META-INF/neoforge.mods.toml') {
         expand replaceProperties
     }
 }
 
-tasks.register('copyCert') {
-    def certDir = rootProject.projectDir
-    doLast {
-        copy {
-            from "${certDir}/.Integrity/public.cer"
-            into "src/main/resources"
-        }
-    }
-}
-
-processResources.dependsOn copyCert
+processResources.dependsOn rootProject.tasks.named('copyCert')
 
 tasks.named('jar') {
     def keystoreDir = rootProject.projectDir

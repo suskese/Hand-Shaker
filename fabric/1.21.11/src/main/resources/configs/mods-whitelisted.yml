@@ -1,6 +1,0 @@
-# Whitelisted mods which are allowed but not required
-# Only used when whitelist mode is enabled in config.yml
-# Format: modname: action (action is from mods-actions.yml or default 'kick')
-
-whitelisted:
-  sodium: none
