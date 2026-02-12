@@ -9,6 +9,7 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
+import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigState;
 import me.mklv.handshaker.common.utils.ClientInfo;
@@ -58,14 +59,14 @@ public class HandShakerCommand {
                     .then(argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
                         .executes(ctx -> setConfigValue(ctx, "whitelist"))))
-                .then(literal("bedrock")
+                .then(literal("allow_bedrock")
                     .then(argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "bedrock"))))
-                .then(literal("playerdb")
+                    .executes(ctx -> setConfigValue(ctx, "allow_bedrock"))))
+                .then(literal("playerdb_enabled")
                     .then(argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "playerdb")))))
+                    .executes(ctx -> setConfigValue(ctx, "playerdb_enabled")))))
             .then(literal("mode")
                 .then(argument("list", StringArgumentType.word())
                     .suggests(HandShakerCommand::suggestModeLists)
@@ -228,7 +229,7 @@ public class HandShakerCommand {
                 ctx.getSource().sendFeedback(() -> Text.literal("✓ Whitelist mode " + (enable ? "ON" : "OFF")).formatted(Formatting.GREEN), true);
                 HandShakerServer.getInstance().checkAllPlayers();
             }
-            case "bedrock" -> {
+            case "allow_bedrock" -> {
                 if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
                     ctx.getSource().sendError(Text.literal("Bedrock must be true or false"));
                     return 0;
@@ -238,7 +239,7 @@ public class HandShakerCommand {
                 ctx.getSource().sendFeedback(() -> Text.literal("✓ Bedrock players " + (allow ? "allowed" : "blocked")).formatted(Formatting.GREEN), true);
                 HandShakerServer.getInstance().checkAllPlayers();
             }
-            case "playerdb" -> {
+            case "playerdb_enabled" -> {
                 if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
                     ctx.getSource().sendError(Text.literal("Player database must be true or false"));
                     return 0;
@@ -638,7 +639,7 @@ public class HandShakerCommand {
     }
 
     private static boolean isValidMode(String mode) {
-        return mode.equals("required") || mode.equals("blacklisted") || mode.equals("allowed");
+        return CommandSuggestionData.MOD_MODES.contains(mode);
     }
 
     private static boolean isValidAction(String action) {
@@ -655,10 +656,13 @@ public class HandShakerCommand {
 
     // Suggestion methods
     private static CompletableFuture<Suggestions> suggestModes(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
-        return builder.suggest("required")
-            .suggest("blacklisted")
-            .suggest("allowed")
-            .buildFuture();
+        String remaining = builder.getRemaining().toLowerCase();
+        for (String mode : CommandSuggestionData.MOD_MODES) {
+            if (mode.startsWith(remaining)) {
+                builder.suggest(mode);
+            }
+        }
+        return builder.buildFuture();
     }
 
     private static CompletableFuture<Suggestions> suggestActions(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
@@ -667,9 +671,10 @@ public class HandShakerCommand {
         
         if (availableActions.isEmpty()) {
             // Fall back to default actions if none are configured
-            return builder.suggest("kick")
-                .suggest("ban")
-                .buildFuture();
+            for (String action : CommandSuggestionData.DEFAULT_ACTIONS) {
+                builder.suggest(action);
+            }
+            return builder.buildFuture();
         }
         
         String remaining = builder.getRemaining().toLowerCase();
@@ -730,10 +735,13 @@ public class HandShakerCommand {
     }
 
     private static CompletableFuture<Suggestions> suggestModeLists(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
-        return builder.suggest("mods_required")
-            .suggest("mods_blacklisted")
-            .suggest("mods_whitelisted")
-            .buildFuture();
+        String remaining = builder.getRemaining().toLowerCase();
+        for (String list : CommandSuggestionData.MODE_LISTS) {
+            if (list.startsWith(remaining)) {
+                builder.suggest(list);
+            }
+        }
+        return builder.buildFuture();
     }
 
     private static CompletableFuture<Suggestions> suggestCurrentModeState(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {

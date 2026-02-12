@@ -6,6 +6,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigState;
 import net.minecraft.commands.CommandSourceStack;
@@ -52,14 +53,14 @@ public class HandShakerCommand {
                     .then(Commands.argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
                         .executes(ctx -> setConfigValue(ctx, "whitelist"))))
-                .then(Commands.literal("bedrock")
+                .then(Commands.literal("allow_bedrock")
                     .then(Commands.argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "bedrock"))))
-                .then(Commands.literal("playerdb")
+                        .executes(ctx -> setConfigValue(ctx, "allow_bedrock"))))
+                .then(Commands.literal("playerdb_enabled")
                     .then(Commands.argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "playerdb")))))
+                        .executes(ctx -> setConfigValue(ctx, "playerdb_enabled")))))
             .then(Commands.literal("mode")
                 .then(Commands.argument("list", StringArgumentType.word())
                     .suggests(HandShakerCommand::suggestModeLists)
@@ -342,13 +343,13 @@ public class HandShakerCommand {
                 ctx.getSource().sendSuccess(() -> Component.literal("✓ Whitelist mode " + (whitelist ? "enabled" : "disabled")), true);
                 HandShakerServerMod.getInstance().checkAllPlayers();
             }
-            case "bedrock" -> {
+            case "allow_bedrock" -> {
                 boolean bedrock = value.equalsIgnoreCase("true") || value.equalsIgnoreCase("on");
                 config.setAllowBedrockPlayers(bedrock);
                 ctx.getSource().sendSuccess(() -> Component.literal("✓ Bedrock players " + (bedrock ? "allowed" : "disallowed")), true);
                 HandShakerServerMod.getInstance().checkAllPlayers();
             }
-            case "playerdb" -> {
+            case "playerdb_enabled" -> {
                 boolean playerdb = value.equalsIgnoreCase("true") || value.equalsIgnoreCase("on");
                 config.setPlayerdbEnabled(playerdb);
                 ctx.getSource().sendSuccess(() -> Component.literal("✓ Player database " + (playerdb ? "enabled" : "disabled")), true);
@@ -567,15 +568,30 @@ public class HandShakerCommand {
     // ===== Suggestion Providers =====
 
     private static CompletableFuture<Suggestions> suggestModes(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        return builder.suggest("required").suggest("allowed").suggest("blacklisted").buildFuture();
+        String remaining = builder.getRemaining().toLowerCase();
+        for (String mode : CommandSuggestionData.MOD_MODES) {
+            if (mode.startsWith(remaining)) {
+                builder.suggest(mode);
+            }
+        }
+        return builder.buildFuture();
     }
 
     private static CompletableFuture<Suggestions> suggestActions(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        return builder.suggest("kick").suggest("ban").buildFuture();
+        for (String action : CommandSuggestionData.DEFAULT_ACTIONS) {
+            builder.suggest(action);
+        }
+        return builder.buildFuture();
     }
 
     private static CompletableFuture<Suggestions> suggestModeLists(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        return builder.suggest("mods_required").suggest("mods_blacklisted").suggest("mods_whitelisted").buildFuture();
+        String remaining = builder.getRemaining().toLowerCase();
+        for (String list : CommandSuggestionData.MODE_LISTS) {
+            if (list.startsWith(remaining)) {
+                builder.suggest(list);
+            }
+        }
+        return builder.buildFuture();
     }
 
     private static CompletableFuture<Suggestions> suggestConfiguredMods(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {

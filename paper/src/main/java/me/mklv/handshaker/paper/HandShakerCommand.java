@@ -1,6 +1,7 @@
 package me.mklv.handshaker.paper;
 
 import me.mklv.handshaker.paper.utils.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.configs.ConfigState;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -19,16 +20,16 @@ import java.util.stream.Collectors;
 public class HandShakerCommand {
     private final HandShakerPlugin plugin;
     
-    private static final List<String> ROOT_COMMANDS = Arrays.asList("reload", "info", "config", "mode", "manage");
-    private static final List<String> INFO_SUBCOMMANDS = Arrays.asList("configured_mods", "all_mods", "mod");
-    private static final List<String> CONFIG_PARAMS = Arrays.asList("behavior", "integrity", "whitelist", "allow_bedrock", "playerdb_enabled");
-    private static final List<String> MODE_LISTS = Arrays.asList("mods_required", "mods_blacklisted", "mods_whitelisted");
-    private static final List<String> MANAGE_SUBCOMMANDS = Arrays.asList("add", "change", "remove", "ignore", "player");
-    private static final List<String> MOD_MODES = Arrays.asList("allowed", "required", "blacklisted");
-    private static final List<String> BOOLEAN_VALUES = Arrays.asList("true", "false");
-    private static final List<String> INTEGRITY_MODES = Arrays.asList("SIGNED", "DEV");
-    private static final List<String> BEHAVIOR_MODES = Arrays.asList("STRICT", "VANILLA");
-    private static final List<String> IGNORE_SUBCOMMANDS = Arrays.asList("add", "remove", "list");
+    private static final List<String> ROOT_COMMANDS = CommandSuggestionData.ROOT_COMMANDS;
+    private static final List<String> INFO_SUBCOMMANDS = CommandSuggestionData.INFO_SUBCOMMANDS;
+    private static final List<String> CONFIG_PARAMS = CommandSuggestionData.CONFIG_PARAMS;
+    private static final List<String> MODE_LISTS = CommandSuggestionData.MODE_LISTS;
+    private static final List<String> MANAGE_SUBCOMMANDS = CommandSuggestionData.MANAGE_SUBCOMMANDS;
+    private static final List<String> MOD_MODES = CommandSuggestionData.MOD_MODES;
+    private static final List<String> BOOLEAN_VALUES = CommandSuggestionData.BOOLEAN_VALUES;
+    private static final List<String> INTEGRITY_MODES = CommandSuggestionData.INTEGRITY_MODES;
+    private static final List<String> BEHAVIOR_MODES = CommandSuggestionData.BEHAVIOR_MODES;
+    private static final List<String> IGNORE_SUBCOMMANDS = CommandSuggestionData.IGNORE_SUBCOMMANDS;
 
     public HandShakerCommand(HandShakerPlugin plugin) {
         this.plugin = plugin;
@@ -206,7 +207,7 @@ public class HandShakerCommand {
             case "playerdb_enabled" -> {
                 boolean enabled = value.equalsIgnoreCase("true");
                 config.setPlayerdbEnabled(enabled);
-                sender.sendMessage("§aSet playerdb_enabled to " + (enabled ? "enabled" : "disabled"));
+                sender.sendMessage("§aSet playerdb to " + (enabled ? "enabled" : "disabled"));
             }
             case "kick-message" -> {
                 config.setKickMessage(value);
