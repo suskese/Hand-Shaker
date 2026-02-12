@@ -6,18 +6,28 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import me.mklv.handshaker.common.configs.ActionDefinition;
 import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
+import me.mklv.handshaker.common.configs.ConfigSnapshotBuilder;
+import me.mklv.handshaker.common.configs.ConfigWriter;
+import me.mklv.handshaker.common.configs.MessagePlaceholderExpander;
+import me.mklv.handshaker.common.configs.ModConfigStore;
+import me.mklv.handshaker.common.configs.ModCheckEvaluator;
+import me.mklv.handshaker.common.configs.ModCheckInput;
+import me.mklv.handshaker.common.configs.ModCheckResult;
+import me.mklv.handshaker.common.configs.ConfigLoadOptions;
+import me.mklv.handshaker.common.configs.ConfigLoadResult;
+import me.mklv.handshaker.common.configs.ConfigLoader;
 import me.mklv.handshaker.common.configs.ConfigState.Behavior;
 import me.mklv.handshaker.common.configs.ConfigState.IntegrityMode;
 import me.mklv.handshaker.common.configs.ConfigState.ModConfig;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.fabric.server.HandShakerServer;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
+
 import java.io.*;
 import java.util.*;
 
 public class ConfigManager {
     private final File configDir;
-    private File configYmlFile;
 
     private Behavior behavior = Behavior.STRICT;
     private IntegrityMode integrityMode = IntegrityMode.SIGNED;
@@ -31,7 +41,7 @@ public class ConfigManager {
     // Mod list toggle states - persisted in config
     private boolean modsRequiredEnabled = true;
     private boolean modsBlacklistedEnabled = true;
-    private boolean modsWhitelistedEnabled = false;
+    private boolean modsWhitelistedEnabled = true;
     
     private final Map<String, ModConfig> modConfigMap = new LinkedHashMap<>();
     private boolean whitelist = false;
@@ -50,17 +60,6 @@ public class ConfigManager {
     public void load() {
         configDir.mkdirs();
 
-        configYmlFile = new File(configDir, "config.yml");
-
-        // Check if v4 files exist, if not create them from defaults
-        createDefaultFilesIfNotExist();
-
-        loadConfigYml();
-        loadModsYamlFiles();
-        loadActionsYamlFile();
-    }
-
-    private void createDefaultFilesIfNotExist() {
         ConfigFileBootstrap.Logger bootstrapLogger = new ConfigFileBootstrap.Logger() {
             @Override
             public void info(String message) {
@@ -78,255 +77,42 @@ public class ConfigManager {
             }
         };
 
-        ConfigFileBootstrap.copyRequired(configDir.toPath(), "config.yml", ConfigManager.class, bootstrapLogger);
-
-        String[] modsFiles = {"mods-required.yml", "mods-blacklisted.yml", "mods-whitelisted.yml", "mods-ignored.yml", "mods-actions.yml"};
-        for (String filename : modsFiles) {
-            ConfigFileBootstrap.copyOptional(configDir.toPath(), filename, ConfigManager.class, bootstrapLogger);
-        }
+        ConfigLoadOptions options = new ConfigLoadOptions(true, true, true, "kick", true);
+        ConfigLoadResult result = ConfigLoader.load(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
+        applyLoadResult(result);
     }
 
-    private void loadConfigYml() {
-        try (FileReader reader = new FileReader(configYmlFile)) {
-            Yaml yaml = new Yaml();
-            Map<String, Object> data = yaml.load(reader);
+    private void applyLoadResult(ConfigLoadResult result) {
+        behavior = result.getBehavior();
+        integrityMode = result.getIntegrityMode();
+        kickMessage = result.getKickMessage();
+        noHandshakeKickMessage = result.getNoHandshakeKickMessage();
+        missingWhitelistModMessage = result.getMissingWhitelistModMessage();
+        invalidSignatureKickMessage = result.getInvalidSignatureKickMessage();
+        allowBedrockPlayers = result.isAllowBedrockPlayers();
+        playerdbEnabled = result.isPlayerdbEnabled();
+        modsRequiredEnabled = result.areModsRequiredEnabled();
+        modsBlacklistedEnabled = result.areModsBlacklistedEnabled();
+        modsWhitelistedEnabled = result.areModsWhitelistedEnabled();
+        whitelist = result.isWhitelist();
 
-            if (data != null) {
-                // Load behavior
-                if (data.containsKey("behavior")) {
-                    String behaviorStr = data.get("behavior").toString().toLowerCase();
-                    behavior = behaviorStr.startsWith("strict") ? Behavior.STRICT : Behavior.VANILLA;
-                }
+        messagesMap.clear();
+        messagesMap.putAll(result.getMessages());
 
-                // Load integrity mode
-                if (data.containsKey("integrity-mode")) {
-                    String integrityStr = data.get("integrity-mode").toString().toLowerCase();
-                    integrityMode = integrityStr.equals("dev") ? IntegrityMode.DEV : IntegrityMode.SIGNED;
-                    HandShakerServer.LOGGER.info("Loaded integrity-mode from config: {} (raw: {})", integrityMode, integrityStr);
-                } else {
-                    HandShakerServer.LOGGER.warn("No integrity-mode in config, defaulting to SIGNED");
-                }
-
-                // Load whitelist mode
-                if (data.containsKey("whitelist")) {
-                    whitelist = Boolean.parseBoolean(data.get("whitelist").toString());
-                }
-
-                // Load bedrock setting
-                if (data.containsKey("allow-bedrock-players")) {
-                    allowBedrockPlayers = Boolean.parseBoolean(data.get("allow-bedrock-players").toString());
-                }
-
-                // Load playerdb enabled setting
-                if (data.containsKey("playerdb-enabled")) {
-                    playerdbEnabled = Boolean.parseBoolean(data.get("playerdb-enabled").toString());
-                }
-
-                // Load mod list toggle states
-                if (data.containsKey("mods-required-enabled")) {
-                    modsRequiredEnabled = Boolean.parseBoolean(data.get("mods-required-enabled").toString());
-                }
-                if (data.containsKey("mods-blacklisted-enabled")) {
-                    modsBlacklistedEnabled = Boolean.parseBoolean(data.get("mods-blacklisted-enabled").toString());
-                }
-                if (data.containsKey("mods-whitelisted-enabled")) {
-                    modsWhitelistedEnabled = Boolean.parseBoolean(data.get("mods-whitelisted-enabled").toString());
-                }
-
-                // Load messages
-                if (data.containsKey("messages")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> messages = (Map<String, Object>) data.get("messages");
-                    if (messages != null) {
-                        messagesMap.clear();
-                        messagesMap.putAll(messages.entrySet().stream().collect(
-                            java.util.stream.Collectors.toMap(
-                                Map.Entry::getKey,
-                                e -> e.getValue() != null ? e.getValue().toString() : ""
-                            )
-                        ));
-                        
-                        if (messages.containsKey("kick")) {
-                            kickMessage = messages.get("kick").toString();
-                        }
-                        if (messages.containsKey("no-handshake")) {
-                            noHandshakeKickMessage = messages.get("no-handshake").toString();
-                        }
-                        if (messages.containsKey("missing-whitelist")) {
-                            missingWhitelistModMessage = messages.get("missing-whitelist").toString();
-                        }
-                        if (messages.containsKey("invalid-signature")) {
-                            invalidSignatureKickMessage = messages.get("invalid-signature").toString();
-                        }
-                    }
-                }
-            }
-        } catch (IOException e) {
-            HandShakerServer.LOGGER.warn("Failed to load config.yml: {}", e.getMessage());
-        }
-    }
-
-    private void loadModsYamlFiles() {
         modConfigMap.clear();
+        modConfigMap.putAll(result.getModConfigMap());
         ignoredMods.clear();
+        ignoredMods.addAll(result.getIgnoredMods());
         whitelistedModsActive.clear();
+        whitelistedModsActive.addAll(result.getWhitelistedModsActive());
         blacklistedModsActive.clear();
+        blacklistedModsActive.addAll(result.getBlacklistedModsActive());
         requiredModsActive.clear();
-
-        Yaml yaml = new Yaml();
-
-        // Load ignored mods
-        File ignoredFile = new File(configDir, "mods-ignored.yml");
-        if (ignoredFile.exists()) {
-            try (FileReader reader = new FileReader(ignoredFile)) {
-                Map<String, Object> data = yaml.load(reader);
-                if (data != null && data.containsKey("ignored")) {
-                    try {
-                        @SuppressWarnings("unchecked")
-                        List<String> ignoredList = (List<String>) data.get("ignored");
-                        if (ignoredList != null) {
-                            for (String mod : ignoredList) {
-                                ignoredMods.add(mod.toLowerCase(Locale.ROOT));
-                            }
-                        }
-                    } catch (ClassCastException e) {
-                        HandShakerServer.LOGGER.warn("Invalid format in mods-ignored.yml, expected list format");
-                    }
-                }
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.warn("Failed to load mods-ignored.yml: {}", e.getMessage());
-            }
-        }
-
-        // Load required mods
-        File requiredFile = new File(configDir, "mods-required.yml");
-        if (requiredFile.exists()) {
-            try (FileReader reader = new FileReader(requiredFile)) {
-                Map<String, Object> data = yaml.load(reader);
-                if (data != null && data.containsKey("required")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> requiredMap = (Map<String, Object>) data.get("required");
-                    if (requiredMap != null) {
-                        for (Map.Entry<String, Object> entry : requiredMap.entrySet()) {
-                            String modId = entry.getKey().toLowerCase(Locale.ROOT);
-                            String action = entry.getValue() != null ? entry.getValue().toString() : "kick";
-                            requiredModsActive.add(modId);
-                            modConfigMap.put(modId, new ModConfig("required", action, null));
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.warn("Failed to load mods-required.yml: {}", e.getMessage());
-            }
-        }
-
-        // Load blacklisted mods
-        File blacklistedFile = new File(configDir, "mods-blacklisted.yml");
-        if (blacklistedFile.exists()) {
-            try (FileReader reader = new FileReader(blacklistedFile)) {
-                Map<String, Object> data = yaml.load(reader);
-                if (data != null && data.containsKey("blacklisted")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> blacklistedMap = (Map<String, Object>) data.get("blacklisted");
-                    if (blacklistedMap != null) {
-                        for (Map.Entry<String, Object> entry : blacklistedMap.entrySet()) {
-                            String modId = entry.getKey().toLowerCase(Locale.ROOT);
-                            String action = entry.getValue() != null ? entry.getValue().toString() : "kick";
-                            blacklistedModsActive.add(modId);
-                            modConfigMap.put(modId, new ModConfig("blacklisted", action, null));
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.warn("Failed to load mods-blacklisted.yml: {}", e.getMessage());
-            }
-        }
-
-        // Load whitelisted mods
-        File whitelistedFile = new File(configDir, "mods-whitelisted.yml");
-        if (whitelistedFile.exists()) {
-            try (FileReader reader = new FileReader(whitelistedFile)) {
-                Map<String, Object> data = yaml.load(reader);
-                if (data != null && data.containsKey("whitelisted")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> whitelistedMap = (Map<String, Object>) data.get("whitelisted");
-                    if (whitelistedMap != null) {
-                        for (Map.Entry<String, Object> entry : whitelistedMap.entrySet()) {
-                            String modId = entry.getKey().toLowerCase(Locale.ROOT);
-                            String action = entry.getValue() != null ? entry.getValue().toString() : "kick";
-                            whitelistedModsActive.add(modId);
-                            modConfigMap.put(modId, new ModConfig("allowed", action, null));
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.warn("Failed to load mods-whitelisted.yml: {}", e.getMessage());
-            }
-        }
-    }
-
-    private void loadActionsYamlFile() {
-        File actionsFile = new File(configDir, "mods-actions.yml");
+        requiredModsActive.addAll(result.getRequiredModsActive());
         actionsMap.clear();
-
-        if (actionsFile.exists()) {
-            try (FileReader reader = new FileReader(actionsFile)) {
-                Yaml yaml = new Yaml();
-                Map<String, Object> data = yaml.load(reader);
-                
-                if (data != null && data.containsKey("actions")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> actionsObj = (Map<String, Object>) data.get("actions");
-                    
-                    if (actionsObj != null) {
-                        for (Map.Entry<String, Object> entry : actionsObj.entrySet()) {
-                            String actionName = entry.getKey().toLowerCase(Locale.ROOT);
-                            Object actionValue = entry.getValue();
-                            
-                            if (actionValue instanceof Map) {
-                                @SuppressWarnings("unchecked")
-                                Map<String, Object> actionMap = (Map<String, Object>) actionValue;
-                                ActionDefinition action;
-                                
-                                // Check for log flag
-                                boolean shouldLog = false;
-                                if (actionMap.containsKey("log")) {
-                                    Object logObj = actionMap.get("log");
-                                    shouldLog = logObj instanceof Boolean ? (Boolean) logObj : Boolean.parseBoolean(logObj.toString());
-                                }
-                                
-                                // Load commands
-                                List<String> commands = new ArrayList<>();
-                                if (actionMap.containsKey("commands")) {
-                                    Object commandsObj = actionMap.get("commands");
-                                    if (commandsObj instanceof List) {
-                                        @SuppressWarnings("unchecked")
-                                        List<String> cmdList = (List<String>) commandsObj;
-                                        commands.addAll(cmdList);
-                                    }
-                                }
-                                
-                                // Create action with log flag
-                                action = new ActionDefinition(actionName, commands, shouldLog);
-                                
-                                // Always store the action, even if empty (for reference)
-                                actionsMap.put(actionName, action);
-                                HandShakerServer.LOGGER.info("Loaded action '{}': {} commands, log={}", actionName, commands.size(), shouldLog);
-                            }
-                        }
-                    }
-                }
-                
-                if (!actionsMap.isEmpty()) {
-                    HandShakerServer.LOGGER.info("Loaded {} action(s) from mods-actions.yml: {}", actionsMap.size(), actionsMap.keySet());
-                } else {
-                    HandShakerServer.LOGGER.warn("No actions found in mods-actions.yml or file is empty");
-                }
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.warn("Failed to load mods-actions.yml: {}", e.getMessage());
-            }
-        }
+        actionsMap.putAll(result.getActionsMap());
     }
+
 
     // Getters
     public Behavior getBehavior() { return behavior; }
@@ -407,11 +193,20 @@ public class ConfigManager {
                 Yaml yaml = new Yaml();
                 Map<String, Object> data = yaml.load(reader);
                 if (data != null && data.containsKey("whitelisted")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> whitelistedMap = (Map<String, Object>) data.get("whitelisted");
-                    if (whitelistedMap != null) {
+                    Object whitelistedObj = data.get("whitelisted");
+                    if (whitelistedObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> whitelistedMap = (Map<String, Object>) whitelistedObj;
                         for (String mod : whitelistedMap.keySet()) {
                             whitelistedModsActive.add(mod.toLowerCase(Locale.ROOT));
+                        }
+                    } else if (whitelistedObj instanceof List) {
+                        @SuppressWarnings("unchecked")
+                        List<String> whitelistedList = (List<String>) whitelistedObj;
+                        if (whitelistedList != null) {
+                            for (String mod : whitelistedList) {
+                                whitelistedModsActive.add(mod.toLowerCase(Locale.ROOT));
+                            }
                         }
                     }
                 }
@@ -428,11 +223,20 @@ public class ConfigManager {
                 Yaml yaml = new Yaml();
                 Map<String, Object> data = yaml.load(reader);
                 if (data != null && data.containsKey("blacklisted")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> blacklistedMap = (Map<String, Object>) data.get("blacklisted");
-                    if (blacklistedMap != null) {
+                    Object blacklistedObj = data.get("blacklisted");
+                    if (blacklistedObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> blacklistedMap = (Map<String, Object>) blacklistedObj;
                         for (String mod : blacklistedMap.keySet()) {
                             blacklistedModsActive.add(mod.toLowerCase(Locale.ROOT));
+                        }
+                    } else if (blacklistedObj instanceof List) {
+                        @SuppressWarnings("unchecked")
+                        List<String> blacklistedList = (List<String>) blacklistedObj;
+                        if (blacklistedList != null) {
+                            for (String mod : blacklistedList) {
+                                blacklistedModsActive.add(mod.toLowerCase(Locale.ROOT));
+                            }
                         }
                     }
                 }
@@ -449,11 +253,20 @@ public class ConfigManager {
                 Yaml yaml = new Yaml();
                 Map<String, Object> data = yaml.load(reader);
                 if (data != null && data.containsKey("required")) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> requiredMap = (Map<String, Object>) data.get("required");
-                    if (requiredMap != null) {
+                    Object requiredObj = data.get("required");
+                    if (requiredObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> requiredMap = (Map<String, Object>) requiredObj;
                         for (String mod : requiredMap.keySet()) {
                             requiredModsActive.add(mod.toLowerCase(Locale.ROOT));
+                        }
+                    } else if (requiredObj instanceof List) {
+                        @SuppressWarnings("unchecked")
+                        List<String> requiredList = (List<String>) requiredObj;
+                        if (requiredList != null) {
+                            for (String mod : requiredList) {
+                                requiredModsActive.add(mod.toLowerCase(Locale.ROOT));
+                            }
                         }
                     }
                 }
@@ -509,47 +322,31 @@ public class ConfigManager {
     }
 
     public boolean setModConfig(String modId, String mode, String action, String warnMessage) {
-        modId = modId.toLowerCase(Locale.ROOT);
-        ModConfig existing = modConfigMap.get(modId);
-        
-        if (existing != null) {
-            if (mode != null) existing.setMode(mode);
-            if (action != null) existing.setAction(action);
-            if (warnMessage != null) existing.setWarnMessage(warnMessage);
-        } else {
-            modConfigMap.put(modId, new ModConfig(mode, action, warnMessage));
-        }
-        
-        // Update active sets based on the new mode
-        if (mode != null) {
-            // Remove from all active sets first
-            requiredModsActive.remove(modId);
-            blacklistedModsActive.remove(modId);
-            whitelistedModsActive.remove(modId);
-            
-            // Add to appropriate set based on mode
-            String modeLower = mode.toLowerCase();
-            if ("required".equals(modeLower)) {
-                requiredModsActive.add(modId);
-            } else if ("blacklisted".equals(modeLower)) {
-                blacklistedModsActive.add(modId);
-            } else if ("allowed".equals(modeLower) || "whitelisted".equals(modeLower)) {
-                whitelistedModsActive.add(modId);
-            }
-        }
-        
+        ModConfigStore.upsertModConfig(
+            modConfigMap,
+            requiredModsActive,
+            blacklistedModsActive,
+            whitelistedModsActive,
+            modId,
+            mode,
+            action,
+            warnMessage,
+            null,
+            null
+        );
         save();
         return true;
     }
 
     public boolean removeModConfig(String modId) {
-        modId = modId.toLowerCase(Locale.ROOT);
-        boolean removed = modConfigMap.remove(modId) != null;
+        boolean removed = ModConfigStore.removeModConfig(
+            modConfigMap,
+            requiredModsActive,
+            blacklistedModsActive,
+            whitelistedModsActive,
+            modId
+        );
         if (removed) {
-            // Also remove from active sets
-            requiredModsActive.remove(modId);
-            blacklistedModsActive.remove(modId);
-            whitelistedModsActive.remove(modId);
             save();
         }
         return removed;
@@ -565,153 +362,63 @@ public class ConfigManager {
     }
 
     public void addAllMods(Set<String> mods, String mode, String action, String warnMessage) {
-        String modeLower = mode.toLowerCase();
-        for (String mod : mods) {
-            String modId = mod.toLowerCase(Locale.ROOT);
-            modConfigMap.put(modId, new ModConfig(mode, action, warnMessage));
-            
-            // Also add to appropriate active set
-            // Remove from all first
-            requiredModsActive.remove(modId);
-            blacklistedModsActive.remove(modId);
-            whitelistedModsActive.remove(modId);
-            
-            // Add to appropriate set
-            if ("required".equals(modeLower)) {
-                requiredModsActive.add(modId);
-            } else if ("blacklisted".equals(modeLower)) {
-                blacklistedModsActive.add(modId);
-            } else if ("allowed".equals(modeLower) || "whitelisted".equals(modeLower)) {
-                whitelistedModsActive.add(modId);
-            }
-        }
+        ModConfigStore.addAllMods(
+            mods,
+            mode,
+            action,
+            warnMessage,
+            modConfigMap,
+            requiredModsActive,
+            blacklistedModsActive,
+            whitelistedModsActive,
+            null,
+            null
+        );
         save();
     }
 
-    @SuppressWarnings("unchecked")
+
     public void save() {
-        // Save config.yml - preserve messages section from file if it exists
-        Map<String, Object> existingMessages = new LinkedHashMap<>();
-        try (FileReader reader = new FileReader(configYmlFile)) {
-            Yaml yaml = new Yaml();
-            Map<String, Object> data = yaml.load(reader);
-            if (data != null && data.containsKey("messages")) {
-                Object messagesObj = data.get("messages");
-                if (messagesObj instanceof Map) {
-                    existingMessages.putAll((Map<String, Object>) messagesObj);
-                }
-            }
-        } catch (IOException e) {
-            // File doesn't exist yet, that's fine
-        }
-        
-        // Update with current default messages
-        existingMessages.put("kick", kickMessage);
-        existingMessages.put("no-handshake", noHandshakeKickMessage);
-        existingMessages.put("missing-whitelist", missingWhitelistModMessage);
-        existingMessages.put("invalid-signature", invalidSignatureKickMessage);
+        ConfigLoadResult snapshot = ConfigSnapshotBuilder.build(
+            behavior,
+            integrityMode,
+            kickMessage,
+            noHandshakeKickMessage,
+            missingWhitelistModMessage,
+            invalidSignatureKickMessage,
+            allowBedrockPlayers,
+            playerdbEnabled,
+            modsRequiredEnabled,
+            modsBlacklistedEnabled,
+            modsWhitelistedEnabled,
+            whitelist,
+            messagesMap,
+            modConfigMap,
+            ignoredMods,
+            whitelistedModsActive,
+            blacklistedModsActive,
+            requiredModsActive,
+            actionsMap
+        );
 
-        try (FileWriter writer = new FileWriter(configYmlFile)) {
-            StringBuilder yaml = new StringBuilder();
-            yaml.append("# HandShaker v4 Configuration\n");
-            yaml.append("# Main plugin settings (mod-specific settings are in YAML files)\n\n");
-            yaml.append("config: v4\n\n");
-            yaml.append("behavior: ").append(behavior.toString().toLowerCase()).append("\n");
-            yaml.append("integrity-mode: ").append(integrityMode.toString().toLowerCase()).append("\n");
-            yaml.append("whitelist: ").append(whitelist).append("\n");
-            yaml.append("allow-bedrock-players: ").append(allowBedrockPlayers).append("\n");
-            yaml.append("playerdb-enabled: ").append(playerdbEnabled).append("\n\n");
-            yaml.append("mods-required-enabled: ").append(modsRequiredEnabled).append("\n");
-            yaml.append("mods-blacklisted-enabled: ").append(modsBlacklistedEnabled).append("\n");
-            yaml.append("mods-whitelisted-enabled: ").append(modsWhitelistedEnabled).append("\n\n");
-            yaml.append("messages:\n");
-            for (Map.Entry<String, Object> entry : existingMessages.entrySet()) {
-                yaml.append("  ").append(entry.getKey()).append(": \"").append(escapeYamlString(entry.getValue().toString())).append("\"\n");
+        ConfigFileBootstrap.Logger saveLogger = new ConfigFileBootstrap.Logger() {
+            @Override
+            public void info(String message) {
+                HandShakerServer.LOGGER.info(message);
             }
-            writer.write(yaml.toString());
-        } catch (IOException e) {
-            HandShakerServer.LOGGER.error("Could not save config.yml!");
-        }
-        
-        // Save mod YAML files
-        saveModsYamlFiles();
-    }
 
-    private void saveModsYamlFiles() {
-        // Save ignored mods
-        if (!ignoredMods.isEmpty()) {
-            File ignoredFile = new File(configDir, "mods-ignored.yml");
-            try (FileWriter writer = new FileWriter(ignoredFile)) {
-                StringBuilder yaml = new StringBuilder();
-                yaml.append("# Mods which will be hidden from commands to show up\n\n");
-                yaml.append("ignored:\n");
-                for (String mod : ignoredMods) {
-                    yaml.append("  - ").append(mod).append("\n");
-                }
-                writer.write(yaml.toString());
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.error("Could not save mods-ignored.yml!");
+            @Override
+            public void warn(String message) {
+                HandShakerServer.LOGGER.warn(message);
             }
-        }
 
-        // Save required mods
-        if (!requiredModsActive.isEmpty()) {
-            File requiredFile = new File(configDir, "mods-required.yml");
-            try (FileWriter writer = new FileWriter(requiredFile)) {
-                StringBuilder yaml = new StringBuilder();
-                yaml.append("# Required mods to join the server\n\n");
-                yaml.append("required:\n");
-                for (String mod : requiredModsActive) {
-                    ModConfig cfg = modConfigMap.get(mod);
-                    String action = cfg != null ? cfg.getActionName() : "kick";
-                    yaml.append("  ").append(mod).append(": ").append(action).append("\n");
-                }
-                writer.write(yaml.toString());
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.error("Could not save mods-required.yml!");
+            @Override
+            public void error(String message, Throwable error) {
+                HandShakerServer.LOGGER.error(message, error);
             }
-        }
+        };
 
-        // Save blacklisted mods
-        if (!blacklistedModsActive.isEmpty()) {
-            File blacklistedFile = new File(configDir, "mods-blacklisted.yml");
-            try (FileWriter writer = new FileWriter(blacklistedFile)) {
-                StringBuilder yaml = new StringBuilder();
-                yaml.append("# Blacklisted mods: modname: action\n# If a player has any of these mods, they will be kicked\n\n");
-                yaml.append("blacklisted:\n");
-                for (String mod : blacklistedModsActive) {
-                    ModConfig cfg = modConfigMap.get(mod);
-                    String action = cfg != null ? cfg.getActionName() : "kick";
-                    yaml.append("  ").append(mod).append(": ").append(action).append("\n");
-                }
-                writer.write(yaml.toString());
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.error("Could not save mods-blacklisted.yml!");
-            }
-        }
-
-        // Save whitelisted mods
-        if (!whitelistedModsActive.isEmpty()) {
-            File whitelistedFile = new File(configDir, "mods-whitelisted.yml");
-            try (FileWriter writer = new FileWriter(whitelistedFile)) {
-                StringBuilder yaml = new StringBuilder();
-                yaml.append("# Whitelisted mods which are allowed but not required,\n");
-                yaml.append("# but if in config.yml whitelist: true, only these mods are allowed\n\n");
-                yaml.append("whitelisted:\n");
-                for (String mod : whitelistedModsActive) {
-                    ModConfig cfg = modConfigMap.get(mod);
-                    String action = cfg != null ? cfg.getActionName() : "none";
-                    yaml.append("  ").append(mod).append(": ").append(action).append("\n");
-                }
-                writer.write(yaml.toString());
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.error("Could not save mods-whitelisted.yml!");
-            }
-        }
-    }
-
-    private String escapeYamlString(String str) {
-        return str.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+        ConfigWriter.writeAll(configDir.toPath(), saveLogger, snapshot);
     }
 
     public void checkPlayer(net.minecraft.server.network.ServerPlayerEntity player, ClientInfo info) {
@@ -759,54 +466,41 @@ public class ConfigManager {
             return;
         }
 
-        Set<String> missingRequired = new HashSet<>();
-        Set<String> blacklistedFound = new HashSet<>();
+        ModCheckInput input = new ModCheckInput(
+            whitelist,
+            modsRequiredEnabled,
+            modsBlacklistedEnabled,
+            modsWhitelistedEnabled,
+            ignoredMods,
+            whitelistedModsActive,
+            blacklistedModsActive,
+            requiredModsActive,
+            modConfigMap,
+            kickMessage,
+            missingWhitelistModMessage
+        );
+        ModCheckResult result = ModCheckEvaluator.evaluate(input, info.mods());
 
-        // Check required mods (only if enabled)
-        if (modsRequiredEnabled) {
-            for (String modId : requiredModsActive) {
-                if (!info.mods().contains(modId)) {
-                    missingRequired.add(modId);
-                }
-            }
-        }
-
-        // Check blacklisted mods (only if enabled)
-        if (modsBlacklistedEnabled) {
-            for (String modId : blacklistedModsActive) {
-                if (info.mods().contains(modId)) {
-                    blacklistedFound.add(modId);
-                }
-            }
-        }
-
-        if (!missingRequired.isEmpty()) {
-            String msg = missingWhitelistModMessage.replace("{mod}", String.join(", ", missingRequired));
-            player.networkHandler.disconnect(net.minecraft.text.Text.literal(msg));
-            return;
-        }
-
-        if (!blacklistedFound.isEmpty()) {
-            // Get the first blacklisted mod to determine the action
-            String firstBlacklistedMod = blacklistedFound.iterator().next();
-            ModConfig modCfg = modConfigMap.get(firstBlacklistedMod.toLowerCase(Locale.ROOT));
-            
-            if (modCfg != null) {
-                String actionName = modCfg.getActionName() != null ? modCfg.getActionName().toLowerCase(Locale.ROOT) : "kick";
+        if (result.isViolation()) {
+            if (result.isBlacklistedViolation()) {
+                String actionName = result.getActionName() != null
+                    ? result.getActionName().toLowerCase(Locale.ROOT)
+                    : "kick";
                 ActionDefinition actionDef = actionsMap.get(actionName);
-                
-                HandShakerServer.LOGGER.info("Blacklisted mod detected: {}. Action: '{}'. ActionDef exists: {}. ActionDef empty: {}", 
-                    firstBlacklistedMod, actionName, actionDef != null, (actionDef != null && actionDef.isEmpty()));
-                
                 if (actionDef != null && !actionDef.isEmpty()) {
-                    // Execute custom action commands
                     if (actionDef.shouldLog()) {
-                        HandShakerServer.LOGGER.info("Executing action '{}' for player {} (blacklisted mods: {})", 
-                            actionName, player.getName().getString(), blacklistedFound);
+                        HandShakerServer.LOGGER.info("Executing action '{}' for player {} (blacklisted mods: {})",
+                            actionName, player.getName().getString(), result.getMods());
                     }
-                    
+
+                    String modList = String.join(", ", result.getMods());
                     for (String command : actionDef.getCommands()) {
-                        String expandedCommand = expandCommandPlaceholders(command, player.getName().getString(), String.join(", ", blacklistedFound));
+                        String expandedCommand = MessagePlaceholderExpander.expand(
+                            command,
+                            player.getName().getString(),
+                            modList,
+                            messagesMap
+                        );
                         MinecraftServer server = HandShakerServer.getInstance().getServer();
                         if (server != null) {
                             try {
@@ -819,102 +513,56 @@ public class ConfigManager {
                             HandShakerServer.LOGGER.warn("Server instance is null, cannot execute action command");
                         }
                     }
-                    
-                    // Still kick the player after executing the action
-                    String msg = kickMessage.replace("{mod}", String.join(", ", blacklistedFound));
-                    player.networkHandler.disconnect(net.minecraft.text.Text.literal(msg));
-                } else {
-                    // Fall back to default kick if action doesn't exist or is empty
-                    String msg = kickMessage.replace("{mod}", String.join(", ", blacklistedFound));
-                    player.networkHandler.disconnect(net.minecraft.text.Text.literal(msg));
                 }
-            } else {
-                // Fall back to default kick if no config found
-                String msg = kickMessage.replace("{mod}", String.join(", ", blacklistedFound));
-                player.networkHandler.disconnect(net.minecraft.text.Text.literal(msg));
             }
+
+            if (result.getMessage() != null) {
+                player.networkHandler.disconnect(net.minecraft.text.Text.literal(result.getMessage()));
+            }
+            return;
         }
-        
-        // Check allowed/whitelisted mods and execute their actions
-        if (executeActions && modsWhitelistedEnabled) {
-            Set<String> allowedFound = new HashSet<>();
-            for (String modId : info.mods()) {
-                String modIdLower = modId.toLowerCase(Locale.ROOT);
-                ModConfig cfg = modConfigMap.get(modIdLower);
-                if (cfg != null && cfg.isAllowed()) {
-                    String actionName = cfg.getActionName();
-                    if (actionName != null && !actionName.equals("none")) {
-                        allowedFound.add(modIdLower);
-                    }
+
+        if (executeActions && modsWhitelistedEnabled && result.hasAllowedActions()) {
+            for (Map.Entry<String, String> entry : result.getAllowedActionsByMod().entrySet()) {
+                String allowedMod = entry.getKey();
+                String actionName = entry.getValue();
+                ActionDefinition actionDef = actionsMap.get(actionName.toLowerCase(Locale.ROOT));
+                if (HandShakerServer.DEBUG_MODE) {
+                    HandShakerServer.LOGGER.info("Allowed mod detected: {}. Action: '{}'. ActionDef exists: {}. ActionDef empty: {}",
+                        allowedMod, actionName, actionDef != null, (actionDef != null && actionDef.isEmpty()));
                 }
-            }
-        
-        if (!allowedFound.isEmpty()) {
-            // Only execute actions once per login session
-            // Check all allowed mods and execute actions for each one that has a valid action
-            for (String allowedMod : allowedFound) {
-                ModConfig modCfg = modConfigMap.get(allowedMod.toLowerCase(Locale.ROOT));
-                
-                if (modCfg != null) {
-                    String actionName = modCfg.getActionName();
-                    if (actionName != null && !actionName.isEmpty()) {
-                        ActionDefinition actionDef = actionsMap.get(actionName.toLowerCase(Locale.ROOT));
-                        if (HandShakerServer.DEBUG_MODE) {
-                            HandShakerServer.LOGGER.info("Allowed mod detected: {}. Action: '{}'. ActionDef exists: {}. ActionDef empty: {}", 
-                                allowedMod, actionName, actionDef != null, (actionDef != null && actionDef.isEmpty()));
-                        }
-                        
-                        if (actionDef != null && !actionDef.isEmpty()) {
-                            // Execute custom action commands
-                            if (actionDef.shouldLog()) {
-                                HandShakerServer.LOGGER.info("Executing action '{}' for player {} (allowed mod: {})", 
-                                    actionName, player.getName().getString(), allowedMod);
+
+                if (actionDef != null && !actionDef.isEmpty()) {
+                    if (actionDef.shouldLog()) {
+                        HandShakerServer.LOGGER.info("Executing action '{}' for player {} (allowed mod: {})",
+                            actionName, player.getName().getString(), allowedMod);
+                    }
+
+                    for (String command : actionDef.getCommands()) {
+                        String expandedCommand = MessagePlaceholderExpander.expand(
+                            command,
+                            player.getName().getString(),
+                            allowedMod,
+                            messagesMap
+                        );
+                        MinecraftServer server = HandShakerServer.getInstance().getServer();
+                        if (server != null) {
+                            try {
+                                var parseResults = server.getCommandManager().getDispatcher().parse(expandedCommand, server.getCommandSource());
+                                server.getCommandManager().execute(parseResults, expandedCommand);
+                            } catch (Exception e) {
+                                HandShakerServer.LOGGER.warn("Failed to execute action command '{}': {}", expandedCommand, e.getMessage());
                             }
-                            
-                            for (String command : actionDef.getCommands()) {
-                                String expandedCommand = expandCommandPlaceholders(command, player.getName().getString(), allowedMod);
-                                MinecraftServer server = HandShakerServer.getInstance().getServer();
-                                if (server != null) {
-                                    try {
-                                        var parseResults = server.getCommandManager().getDispatcher().parse(expandedCommand, server.getCommandSource());
-                                        server.getCommandManager().execute(parseResults, expandedCommand);
-                                    } catch (Exception e) {
-                                        HandShakerServer.LOGGER.warn("Failed to execute action command '{}': {}", expandedCommand, e.getMessage());
-                                    }
-                                } else {
-                                    HandShakerServer.LOGGER.warn("Server instance is null, cannot execute action command");
-                                }
-                            }
+                        } else {
+                            HandShakerServer.LOGGER.warn("Server instance is null, cannot execute action command");
                         }
                     }
                 }
             }
-        }
         }
     }
 
     public void playerLeft(ServerPlayerEntity player) {
     }
 
-    private String expandCommandPlaceholders(String command, String playerName, String modName) {
-        // Replace {messages.xxx} placeholders FIRST
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\{messages\\.([^}]+)\\}");
-        java.util.regex.Matcher matcher = pattern.matcher(command);
-        StringBuffer sb = new StringBuffer();
-        while (matcher.find()) {
-            String messageKey = matcher.group(1);
-            String messageValue = messagesMap.getOrDefault(messageKey, "{messages." + messageKey + "}");
-            matcher.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(messageValue));
-        }
-        matcher.appendTail(sb);
-        String result = sb.toString();
-        
-        // THEN replace player and mod placeholders (including those inside messages)
-        result = result
-            .replace("{player}", playerName)
-            .replace("{mod}", modName)
-            .replace("{mods}", modName);
-        
-        return result;
-    }
 }

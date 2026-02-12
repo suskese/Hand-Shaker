@@ -4,6 +4,7 @@ import me.mklv.handshaker.paper.ConfigManager;
 import me.mklv.handshaker.paper.HandShakerPlugin;
 import me.mklv.handshaker.common.configs.ConfigState;
 import me.mklv.handshaker.common.configs.ActionDefinition;
+import me.mklv.handshaker.common.configs.ModCheckResult;
 import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;
 import me.mklv.handshaker.common.utils.ClientInfo;
@@ -339,17 +340,17 @@ public class PluginProtocolHandler {
         Set<String> mods = info.mods();
 
         // Check player and execute action if needed
-        ConfigManager.PlayerModStatus status = configManager.checkPlayerWithAction(player, mods);
+        ModCheckResult status = configManager.checkPlayerWithAction(player, mods);
         
         if (HandShakerPlugin.DEBUG) {
             logger.info("[DEBUG] checkPlayerWithAction returned: " + (status != null ? "status(" + status.getActionName() + ")" : "null"));
         }
         
-        if (status != null && status.hasViolation()) {
+        if (status != null && status.isViolation()) {
             if (HandShakerPlugin.DEBUG) {
                 logger.info("[DEBUG] Player " + player.getName() + " has violation, kicking");
             }
-            kickPlayer(player, status.getKickMessage());
+            kickPlayer(player, status.getMessage());
             return;
         }
 
@@ -358,7 +359,7 @@ public class PluginProtocolHandler {
             if (HandShakerPlugin.DEBUG) {
                 logger.info("[DEBUG] Executing action for " + player.getName() + ": " + status.getActionName());
             }
-            executeAction(player, status.getActionName(), status.getDetectedMods());
+            executeAction(player, status.getActionName(), status.getMods());
         }
 
         // Mark as checked to prevent double execution
