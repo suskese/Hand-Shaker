@@ -177,6 +177,14 @@ actions:
 
 ---
 
+## Roadmap
+
+- Prevent mod spoofing (wip in 7.0.0)
+- More QoL features
+- Mod version parsing (wip in 7.0.0)
+
+---
+
 ## 🤝 Contributing
 
 Issues, pull requests, and suggestions are welcome! Check the [GitHub repository](https://github.com/suskese/Hand-Shaker) for contribution guidelines.
