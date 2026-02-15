@@ -2,7 +2,10 @@ package me.mklv.handshaker.paper;
 
 import me.mklv.handshaker.paper.utils.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.commands.CommandSuggestionData;
-import me.mklv.handshaker.common.configs.ConfigState;
+import me.mklv.handshaker.common.commands.CommandModUtil;
+import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
+import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
+import me.mklv.handshaker.common.utils.ClientInfo;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -21,17 +24,6 @@ public class HandShakerCommand {
     private final HandShakerPlugin plugin;
 
     private static final int PAGE_SIZE = 10;
-    
-    private static final List<String> ROOT_COMMANDS = CommandSuggestionData.ROOT_COMMANDS;
-    private static final List<String> INFO_SUBCOMMANDS = CommandSuggestionData.INFO_SUBCOMMANDS;
-    private static final List<String> CONFIG_PARAMS = CommandSuggestionData.CONFIG_PARAMS;
-    private static final List<String> MODE_LISTS = CommandSuggestionData.MODE_LISTS;
-    private static final List<String> MANAGE_SUBCOMMANDS = CommandSuggestionData.MANAGE_SUBCOMMANDS;
-    private static final List<String> MOD_MODES = CommandSuggestionData.MOD_MODES;
-    private static final List<String> BOOLEAN_VALUES = CommandSuggestionData.BOOLEAN_VALUES;
-    private static final List<String> INTEGRITY_MODES = CommandSuggestionData.INTEGRITY_MODES;
-    private static final List<String> BEHAVIOR_MODES = CommandSuggestionData.BEHAVIOR_MODES;
-    private static final List<String> IGNORE_SUBCOMMANDS = CommandSuggestionData.IGNORE_SUBCOMMANDS;
 
     public HandShakerCommand(HandShakerPlugin plugin) {
         this.plugin = plugin;
@@ -125,6 +117,9 @@ public class HandShakerCommand {
             return;
         }
         boolean removed = config.removeModConfig(args[2]);
+        if (removed) {
+            config.save();
+        }
         sender.sendMessage(removed ? "§aRemoved " + args[2] : "§e" + args[2] + " not found.");
         plugin.checkAllPlayers();
     }
@@ -211,6 +206,16 @@ public class HandShakerCommand {
                 config.setPlayerdbEnabled(enabled);
                 sender.sendMessage("§aSet playerdb to " + (enabled ? "enabled" : "disabled"));
             }
+            case "hash_mods" -> {
+                boolean enabled = value.equalsIgnoreCase("true");
+                config.setHashMods(enabled);
+                sender.sendMessage("§aSet hash-mods to " + enabled);
+            }
+            case "mod_versioning" -> {
+                boolean enabled = value.equalsIgnoreCase("true");
+                config.setModVersioning(enabled);
+                sender.sendMessage("§aSet mod-versioning to " + enabled);
+            }
             case "handshake_timeout" -> {
                 try {
                     int seconds = Integer.parseInt(value.trim());
@@ -255,22 +260,28 @@ public class HandShakerCommand {
                 return;
             }
             
-            Set<String> mods = plugin.getClientMods(senderPlayer.getUniqueId());
+            ClientInfo info = plugin.getClients().get(senderPlayer.getUniqueId());
+            Set<String> mods = info != null ? info.mods() : null;
             if (mods == null || mods.isEmpty()) {
                 sender.sendMessage("§cNo mod list found for you. Make sure you're using a modded client.");
                 return;
             }
             
             String mode = args[3];
-            String action = args.length > 4 ? args[4] : ("allowed".equalsIgnoreCase(mode) ? "none" : "kick");
+            String action = args.length > 4 ? args[4] : CommandModUtil.defaultActionForMode(mode);
             String warnMessage = args.length > 5 ? String.join(" ", Arrays.copyOfRange(args, 5, args.length)) : null;
             
             int added = 0;
             for (String mod : mods) {
                 if (!config.isIgnored(mod)) {
                     config.setModConfig(mod, mode, action, warnMessage);
+                    registerModFingerprint(config, mod);
                     added++;
                 }
+            }
+
+            if (added > 0) {
+                config.save();
             }
             
             sender.sendMessage("§aAdded " + added + " of your mods as " + mode.toLowerCase());
@@ -282,10 +293,12 @@ public class HandShakerCommand {
             }
             
             String mode = args[3];
-            String action = args.length > 4 ? args[4] : "kick";
+            String action = args.length > 4 ? args[4] : CommandModUtil.defaultActionForMode(mode);
             String warnMessage = args.length > 5 ? String.join(" ", Arrays.copyOfRange(args, 5, args.length)) : null;
             
             config.setModConfig(modId, mode, action, warnMessage);
+            registerModFingerprint(config, modId);
+            config.save();
             sender.sendMessage("§aSet " + modId + " to " + mode.toLowerCase());
             plugin.checkAllPlayers();
         }
@@ -303,8 +316,34 @@ public class HandShakerCommand {
         String warnMessage = args.length > 5 ? String.join(" ", Arrays.copyOfRange(args, 5, args.length)) : null;
         
         config.setModConfig(modId, mode, action, warnMessage);
+        config.save();
         sender.sendMessage("§aChanged " + modId + " to " + mode.toLowerCase());
         plugin.checkAllPlayers();
+    }
+
+    private void registerModFingerprint(ConfigManager config, String modToken) {
+        if (!config.isHashMods()) {
+            return;
+        }
+
+        PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
+        if (db == null) {
+            return;
+        }
+
+        ModEntry requested = ModEntry.parse(modToken);
+        if (requested == null) {
+            return;
+        }
+
+        String requestedVersion = config.isModVersioning() ? requested.version() : null;
+        String resolvedHash = CommandModUtil.normalizeHash(requested.hash());
+
+        if (resolvedHash == null) {
+            resolvedHash = CommandModUtil.resolveHashFromConnectedClients(plugin.getClients().values(), requested.modId(), requestedVersion);
+        }
+
+        db.registerModFingerprint(requested.modId(), requestedVersion, resolvedHash);
     }
 
     private void handleIgnore(CommandSender sender, String[] args, ConfigManager config) {
@@ -326,7 +365,8 @@ public class HandShakerCommand {
                         return;
                     }
                     
-                    Set<String> mods = plugin.getClientMods(senderPlayer.getUniqueId());
+                    ClientInfo info = plugin.getClients().get(senderPlayer.getUniqueId());
+                    Set<String> mods = info != null ? info.mods() : null;
                     if (mods == null || mods.isEmpty()) {
                         sender.sendMessage("§cNo mod list found for you.");
                         return;
@@ -338,9 +378,15 @@ public class HandShakerCommand {
                             added++;
                         }
                     }
+                    if (added > 0) {
+                        config.save();
+                    }
                     sender.sendMessage("§aAdded " + added + " of your mods to ignore list");
                 } else {
                     boolean added = config.addIgnoredMod(args[3]);
+                    if (added) {
+                        config.save();
+                    }
                     sender.sendMessage(added ? "§aAdded " + args[3] + " to ignore list" : "§e" + args[3] + " already in ignore list");
                 }
             }
@@ -350,6 +396,9 @@ public class HandShakerCommand {
                     return;
                 }
                 boolean removed = config.removeIgnoredMod(args[3]);
+                if (removed) {
+                    config.save();
+                }
                 sender.sendMessage(removed ? "§aRemoved " + args[3] + " from ignore list" : "§e" + args[3] + " not in ignore list");
             }
             case "list" -> {
@@ -651,7 +700,8 @@ public class HandShakerCommand {
             return;
         }
         
-        Set<String> mods = plugin.getClientMods(target.getUniqueId());
+        ClientInfo info = plugin.getClients().get(target.getUniqueId());
+        Set<String> mods = info != null ? info.mods() : null;
         if (mods == null || mods.isEmpty()) {
             sender.sendMessage("§cNo mod list found for " + target.getName() + ".");
             return;
@@ -666,6 +716,7 @@ public class HandShakerCommand {
             
             String mode = args[4];
             config.setModConfig(modId, mode, null, null);
+            config.save();
             sender.sendMessage("§aSet " + modId + " to " + mode.toLowerCase());
             plugin.checkAllPlayers();
             return;
@@ -781,6 +832,7 @@ public class HandShakerCommand {
         }
 
         sender.sendMessage("§a" + displayName + " turned " + (newState ? "ON" : "OFF"));
+        config.save();
         plugin.checkAllPlayers();
     }
 
@@ -854,15 +906,15 @@ public class HandShakerCommand {
 
     private List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return StringUtil.copyPartialMatches(args[0], ROOT_COMMANDS, new ArrayList<>());
+            return StringUtil.copyPartialMatches(args[0], CommandSuggestionData.ROOT_COMMANDS, new ArrayList<>());
         }
 
         if (args.length == 2) {
             switch (args[0].toLowerCase(Locale.ROOT)) {
-                case "info" -> { return StringUtil.copyPartialMatches(args[1], INFO_SUBCOMMANDS, new ArrayList<>()); }
-                case "config" -> { return StringUtil.copyPartialMatches(args[1], CONFIG_PARAMS, new ArrayList<>()); }
-                case "mode" -> { return StringUtil.copyPartialMatches(args[1], MODE_LISTS, new ArrayList<>()); }
-                case "manage" -> { return StringUtil.copyPartialMatches(args[1], MANAGE_SUBCOMMANDS, new ArrayList<>()); }
+                case "info" -> { return StringUtil.copyPartialMatches(args[1], CommandSuggestionData.INFO_SUBCOMMANDS, new ArrayList<>()); }
+                case "config" -> { return StringUtil.copyPartialMatches(args[1], CommandSuggestionData.CONFIG_PARAMS, new ArrayList<>()); }
+                case "mode" -> { return StringUtil.copyPartialMatches(args[1], CommandSuggestionData.MODE_LISTS, new ArrayList<>()); }
+                case "manage" -> { return StringUtil.copyPartialMatches(args[1], CommandSuggestionData.MANAGE_SUBCOMMANDS, new ArrayList<>()); }
             }
         }
 
@@ -871,7 +923,7 @@ public class HandShakerCommand {
                 PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
                 if (db != null) {
                     Map<String, Integer> popularity = db.getModPopularity();
-                    return StringUtil.copyPartialMatches(args[2], popularity.keySet(), new ArrayList<>());
+                    return StringUtil.copyPartialMatches(args[2], sanitizeModSuggestions(popularity.keySet()), new ArrayList<>());
                 }
                 return new ArrayList<>();
             }
@@ -882,9 +934,9 @@ public class HandShakerCommand {
             if (args[0].equalsIgnoreCase("config") && !args[1].isEmpty()) {
                 String param = args[1].toLowerCase(Locale.ROOT);
                 switch (param) {
-                    case "behavior" -> { return StringUtil.copyPartialMatches(args[2], BEHAVIOR_MODES, new ArrayList<>()); }
-                    case "integrity" -> { return StringUtil.copyPartialMatches(args[2], INTEGRITY_MODES, new ArrayList<>()); }
-                    case "whitelist", "allow_bedrock", "playerdb_enabled" -> { return StringUtil.copyPartialMatches(args[2], BOOLEAN_VALUES, new ArrayList<>()); }
+                    case "behavior" -> { return StringUtil.copyPartialMatches(args[2], CommandSuggestionData.BEHAVIOR_MODES, new ArrayList<>()); }
+                    case "integrity" -> { return StringUtil.copyPartialMatches(args[2], CommandSuggestionData.INTEGRITY_MODES, new ArrayList<>()); }
+                    case "whitelist", "allow_bedrock", "playerdb_enabled", "hash_mods", "mod_versioning" -> { return StringUtil.copyPartialMatches(args[2], CommandSuggestionData.BOOLEAN_VALUES, new ArrayList<>()); }
                 }
             }
         }
@@ -898,8 +950,9 @@ public class HandShakerCommand {
                     case "add" -> {
                         List<String> suggestions = new ArrayList<>(Arrays.asList("*"));
                         if (sender instanceof Player p) {
-                            Set<String> clientMods = plugin.getClientMods(p.getUniqueId());
-                            if (clientMods != null) suggestions.addAll(clientMods);
+                            ClientInfo info = plugin.getClients().get(p.getUniqueId());
+                            Set<String> clientMods = info != null ? info.mods() : null;
+                            if (clientMods != null) suggestions.addAll(sanitizeModSuggestions(clientMods));
                         }
                         return StringUtil.copyPartialMatches(args[2], suggestions, new ArrayList<>());
                     }
@@ -907,28 +960,30 @@ public class HandShakerCommand {
                         List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList());
                         return StringUtil.copyPartialMatches(args[2], playerNames, new ArrayList<>());
                     }
-                    case "ignore" -> { return StringUtil.copyPartialMatches(args[2], IGNORE_SUBCOMMANDS, new ArrayList<>()); }
+                    case "ignore" -> { return StringUtil.copyPartialMatches(args[2], CommandSuggestionData.IGNORE_SUBCOMMANDS, new ArrayList<>()); }
                 }
             }
 
             if (args.length == 4) {
                 if ((manageCmd.equals("add") || manageCmd.equals("change"))) {
-                    return StringUtil.copyPartialMatches(args[3], MOD_MODES, new ArrayList<>());
+                    return StringUtil.copyPartialMatches(args[3], CommandSuggestionData.MOD_MODES, new ArrayList<>());
                 }
                 if (manageCmd.equals("player")) {
                     Player target = Bukkit.getPlayer(args[2]);
                     if (target != null) {
-                        Set<String> clientMods = plugin.getClientMods(target.getUniqueId());
+                        ClientInfo info = plugin.getClients().get(target.getUniqueId());
+                        Set<String> clientMods = info != null ? info.mods() : null;
                         if (clientMods != null) {
-                            return StringUtil.copyPartialMatches(args[3], clientMods, new ArrayList<>());
+                            return StringUtil.copyPartialMatches(args[3], sanitizeModSuggestions(clientMods), new ArrayList<>());
                         }
                     }
                 }
                 if (manageCmd.equals("ignore") && args[2].equalsIgnoreCase("add")) {
                     List<String> suggestions = new ArrayList<>(Arrays.asList("*"));
                     if (sender instanceof Player p) {
-                        Set<String> clientMods = plugin.getClientMods(p.getUniqueId());
-                        if (clientMods != null) suggestions.addAll(clientMods);
+                        ClientInfo info = plugin.getClients().get(p.getUniqueId());
+                        Set<String> clientMods = info != null ? info.mods() : null;
+                        if (clientMods != null) suggestions.addAll(sanitizeModSuggestions(clientMods));
                     }
                     return StringUtil.copyPartialMatches(args[3], suggestions, new ArrayList<>());
                 }
@@ -944,5 +999,22 @@ public class HandShakerCommand {
         }
         
         return Collections.emptyList();
+    }
+
+    private Set<String> sanitizeModSuggestions(Collection<String> rawMods) {
+        Set<String> result = new LinkedHashSet<>();
+        if (rawMods == null) {
+            return result;
+        }
+
+        for (String rawMod : rawMods) {
+            ModEntry entry = ModEntry.parse(rawMod);
+            if (entry != null) {
+                result.add(entry.toDisplayKey());
+            } else if (rawMod != null && !rawMod.isBlank()) {
+                result.add(rawMod);
+            }
+        }
+        return result;
     }
 }

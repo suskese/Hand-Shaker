@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
 import me.mklv.handshaker.common.utils.CachedValue;
+import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 
 import java.io.File;
 import java.sql.*;
@@ -80,6 +81,17 @@ public class PlayerHistoryDatabase {
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_mod_history_uuid ON mod_history(player_uuid)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_mod_history_mod ON mod_history(mod_name)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_player_uuid ON player_names(uuid)");
+
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS mod_registry (
+                    mod_id TEXT NOT NULL,
+                    mod_version TEXT NOT NULL,
+                    mod_hash TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (mod_id, mod_version)
+                )
+                """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_mod_registry_id ON mod_registry(mod_id)");
         } catch (SQLException e) {
             logger.error("Failed to create database tables", e);
         }
@@ -177,14 +189,24 @@ public class PlayerHistoryDatabase {
                     ps.executeUpdate();
                 }
                 
+                Set<String> normalizedCurrentMods = new HashSet<>();
+                if (currentMods != null) {
+                    for (String modToken : currentMods) {
+                        String normalized = normalizeHistoryModToken(modToken);
+                        if (normalized != null && !normalized.isBlank()) {
+                            normalizedCurrentMods.add(normalized);
+                        }
+                    }
+                }
+
                 // Get active mods from DB
                 Set<String> dbActiveMods = getActiveModsForSync(conn, uuid);
                 
                 // Calculate diffs
-                Set<String> newMods = new HashSet<>(currentMods);
+                Set<String> newMods = new HashSet<>(normalizedCurrentMods);
                 newMods.removeAll(dbActiveMods);
                 Set<String> removedMods = new HashSet<>(dbActiveMods);
-                removedMods.removeAll(currentMods);
+                removedMods.removeAll(normalizedCurrentMods);
                 
                 // Batch insert new mods
                 if (!newMods.isEmpty()) {
@@ -398,6 +420,139 @@ public class PlayerHistoryDatabase {
         }
         
         return 0;
+    }
+
+    public void registerModFingerprint(String modToken, boolean versioningEnabled) {
+        ModEntry entry = ModEntry.parse(modToken);
+        if (entry == null) {
+            return;
+        }
+        registerModFingerprint(entry.modId(), versioningEnabled ? entry.version() : null, entry.hash());
+    }
+
+    public void registerModFingerprint(String modId, String modVersion, String modHash) {
+        if (dataSource == null || modId == null || modId.isBlank()) {
+            return;
+        }
+
+        String normalizedId = modId.toLowerCase(Locale.ROOT);
+        String normalizedVersion = normalizeVersion(modVersion);
+        String normalizedHash = normalizeHash(modHash);
+        String sql = """
+            MERGE INTO mod_registry (mod_id, mod_version, mod_hash, updated_at) KEY(mod_id, mod_version)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """;
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            if (normalizedHash == null) {
+                normalizedHash = getExistingRegisteredHash(conn, normalizedId, normalizedVersion);
+            }
+            stmt.setString(1, normalizedId);
+            stmt.setString(2, normalizedVersion);
+            stmt.setString(3, normalizedHash);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            logger.warn("Failed to register mod fingerprint: {}", e.getMessage());
+        }
+    }
+
+    private String getExistingRegisteredHash(Connection conn, String modId, String modVersion) {
+        String sql = "SELECT mod_hash FROM mod_registry WHERE mod_id = ? AND mod_version = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, modId);
+            stmt.setString(2, modVersion);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    String hash = normalizeHash(rs.getString("mod_hash"));
+                    if (hash != null) {
+                        return hash;
+                    }
+                }
+            }
+        } catch (SQLException ignored) {
+        }
+        return null;
+    }
+
+    private static String normalizeHistoryModToken(String modToken) {
+        ModEntry entry = ModEntry.parse(modToken);
+        if (entry != null) {
+            return entry.toDisplayKey();
+        }
+        if (modToken == null) {
+            return null;
+        }
+        String trimmed = modToken.trim();
+        return trimmed.isEmpty() ? null : trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    public Map<String, String> getRegisteredHashes(Set<String> ruleKeys, boolean versioningEnabled) {
+        Map<String, String> result = new LinkedHashMap<>();
+        if (dataSource == null || ruleKeys == null || ruleKeys.isEmpty()) {
+            return result;
+        }
+
+        String sql = """
+            SELECT mod_hash
+            FROM mod_registry
+            WHERE mod_id = ? AND mod_version = ?
+            """;
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (String ruleKey : ruleKeys) {
+                ModEntry rule = ModEntry.parse(ruleKey);
+                if (rule == null) {
+                    continue;
+                }
+
+                String resolvedKey = rule.toRuleKey(versioningEnabled);
+                String version = normalizeVersion(versioningEnabled ? rule.version() : null);
+
+                stmt.setString(1, rule.modId());
+                stmt.setString(2, version);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        String hash = rs.getString("mod_hash");
+                        if (hash != null && !hash.isBlank()) {
+                            result.put(resolvedKey, hash);
+                        }
+                    }
+                }
+
+                if (!result.containsKey(resolvedKey) && !version.isEmpty()) {
+                    stmt.setString(1, rule.modId());
+                    stmt.setString(2, "");
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            String hash = rs.getString("mod_hash");
+                            if (hash != null && !hash.isBlank()) {
+                                result.put(resolvedKey, hash);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            logger.warn("Failed to load registered hashes: {}", e.getMessage());
+        }
+
+        return result;
+    }
+
+    private static String normalizeVersion(String version) {
+        if (version == null || version.isBlank() || "null".equalsIgnoreCase(version)) {
+            return "";
+        }
+        return version.toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeHash(String hash) {
+        if (hash == null || hash.isBlank() || "null".equalsIgnoreCase(hash)) {
+            return null;
+        }
+        return hash.toLowerCase(Locale.ROOT);
     }
 
     public void close() {

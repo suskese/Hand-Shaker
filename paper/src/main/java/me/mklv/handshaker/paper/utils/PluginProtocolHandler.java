@@ -2,15 +2,15 @@ package me.mklv.handshaker.paper.utils;
 
 import me.mklv.handshaker.paper.ConfigManager;
 import me.mklv.handshaker.paper.HandShakerPlugin;
-import me.mklv.handshaker.common.configs.ConfigState;
-import me.mklv.handshaker.common.configs.ActionDefinition;
-import me.mklv.handshaker.common.configs.ModCheckResult;
+import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
+import me.mklv.handshaker.common.configs.ConfigTypes.ActionDefinition;
+import me.mklv.handshaker.common.configs.ModChecks.ModCheckResult;
 import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
-import me.mklv.handshaker.common.configs.StandardMessages;
+import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -431,10 +431,7 @@ public class PluginProtocolHandler {
         if (HandShakerPlugin.DEBUG) {
             logger.info("[DEBUG] Executing action '" + actionName + "' for player " + player.getName());
         }
-
-        // Execute commands on main thread (Bukkit commands require main thread)
-        // Note: We use getGlobalRegionScheduler().run() instead of async because
-        // Bukkit.dispatchCommand() must execute on the main thread
+        
         try {
             plugin.getServer().getGlobalRegionScheduler().run(plugin, task -> {
                 for (String command : action.getCommands()) {
@@ -461,9 +458,6 @@ public class PluginProtocolHandler {
         }
     }
 
-    /**
-     * Kicks a player with a message
-     */
     private void kickPlayer(Player player, String message) {
         player.kick(Component.text(message).color(NamedTextColor.RED));
     }
@@ -483,9 +477,6 @@ public class PluginProtocolHandler {
         return offset + stringLength;
     }
 
-    /**
-     * Checks if a player is connecting via Bedrock
-     */
     private boolean isBedrockPlayer(Player player) {
         return BedrockPlayer.isBedrockPlayer(player.getUniqueId(), player.getName(), new BedrockPlayer.LogSink() {
             @Override

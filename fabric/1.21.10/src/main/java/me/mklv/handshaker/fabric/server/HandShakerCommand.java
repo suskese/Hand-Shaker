@@ -10,8 +10,10 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 import me.mklv.handshaker.common.commands.CommandSuggestionData;
+import me.mklv.handshaker.common.commands.CommandModUtil;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
-import me.mklv.handshaker.common.configs.ConfigState;
+import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
+import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -75,7 +77,15 @@ public class HandShakerCommand {
                 .then(literal("playerdb_enabled")
                     .then(argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                    .executes(ctx -> setConfigValue(ctx, "playerdb_enabled")))))
+                    .executes(ctx -> setConfigValue(ctx, "playerdb_enabled"))))
+                .then(literal("hash_mods")
+                    .then(argument("value", StringArgumentType.word())
+                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
+                    .executes(ctx -> setConfigValue(ctx, "hash_mods"))))
+                .then(literal("mod_versioning")
+                    .then(argument("value", StringArgumentType.word())
+                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
+                    .executes(ctx -> setConfigValue(ctx, "mod_versioning")))))
             .then(literal("mode")
                 .then(argument("list", StringArgumentType.word())
                     .suggests(HandShakerCommand::suggestModeLists)
@@ -257,6 +267,24 @@ public class HandShakerCommand {
                 config.setPlayerdbEnabled(enable);
                 ctx.getSource().sendFeedback(() -> Text.literal("✓ Player database " + (enable ? "enabled" : "disabled")).formatted(Formatting.GREEN), true);
             }
+            case "hash_mods" -> {
+                if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+                    ctx.getSource().sendError(Text.literal("hash_mods must be true or false"));
+                    return 0;
+                }
+                boolean enable = value.equalsIgnoreCase("true");
+                config.setHashMods(enable);
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ hash_mods " + (enable ? "enabled" : "disabled")).formatted(Formatting.GREEN), true);
+            }
+            case "mod_versioning" -> {
+                if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+                    ctx.getSource().sendError(Text.literal("mod_versioning must be true or false"));
+                    return 0;
+                }
+                boolean enable = value.equalsIgnoreCase("true");
+                config.setModVersioning(enable);
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ mod_versioning " + (enable ? "enabled" : "disabled")).formatted(Formatting.GREEN), true);
+            }
             default -> {
                 ctx.getSource().sendError(Text.literal("Unknown config parameter: " + param));
                 return 0;
@@ -301,7 +329,8 @@ public class HandShakerCommand {
             int added = 0;
             for (String mod : info.mods()) {
                 if (!config.isIgnored(mod)) {
-                    config.setModConfig(mod, mode, "kick", null);
+                    config.setModConfig(mod, mode, defaultActionForMode(mode), null);
+                    registerModFingerprint(config, mod);
                     added++;
                 }
             }
@@ -311,7 +340,8 @@ public class HandShakerCommand {
         } else {
             final String finalModId = modId;
             final String finalMode = mode;
-            config.setModConfig(modId, mode, "kick", null);
+            config.setModConfig(modId, mode, defaultActionForMode(mode), null);
+            registerModFingerprint(config, modId);
             ctx.getSource().sendFeedback(() -> Text.literal("✓ Added " + finalModId + " as " + finalMode).formatted(Formatting.GREEN), true);
         }
         
@@ -362,6 +392,7 @@ public class HandShakerCommand {
             for (String mod : info.mods()) {
                 if (!config.isIgnored(mod)) {
                     config.setModConfig(mod, mode, action, null);
+                    registerModFingerprint(config, mod);
                     added++;
                 }
             }
@@ -374,6 +405,7 @@ public class HandShakerCommand {
             final String finalMode = mode;
             final String finalAction = action;
             config.setModConfig(modId, mode, action, null);
+            registerModFingerprint(config, modId);
             ctx.getSource().sendFeedback(() -> Text.literal("✓ Added " + finalModId + " as " + finalMode + " with " + finalAction).formatted(Formatting.GREEN), true);
         }
         
@@ -741,6 +773,10 @@ public class HandShakerCommand {
         return CommandSuggestionData.MOD_MODES.contains(mode);
     }
 
+    private static String defaultActionForMode(String mode) {
+        return CommandModUtil.defaultActionForMode(mode);
+    }
+
     private static boolean isValidAction(String action) {
         ConfigManager config = HandShakerServer.getInstance().getConfigManager();
         Set<String> availableActions = config.getAvailableActions();
@@ -799,8 +835,9 @@ public class HandShakerCommand {
         ClientInfo clientInfo = HandShakerServer.getInstance().getClients().get(player.getUuid());
         if (clientInfo != null) {
             for (String mod : clientInfo.mods()) {
-                if (mod.toLowerCase().startsWith(remaining)) {
-                    builder.suggest(mod);
+                String display = toDisplayModToken(mod);
+                if (display.toLowerCase().startsWith(remaining)) {
+                    builder.suggest(display);
                 }
             }
         }
@@ -826,8 +863,9 @@ public class HandShakerCommand {
         Map<String, Integer> allMods = db.getModPopularity();
         String remaining = builder.getRemaining().toLowerCase();
         for (String mod : allMods.keySet()) {
-            if (mod.toLowerCase().startsWith(remaining)) {
-                builder.suggest(mod);
+            String display = toDisplayModToken(mod);
+            if (display.toLowerCase().startsWith(remaining)) {
+                builder.suggest(display);
             }
         }
         return builder.buildFuture();
@@ -890,8 +928,9 @@ public class HandShakerCommand {
         }
         
         for (String mod : info.mods()) {
-            if (mod.toLowerCase().startsWith(builder.getRemaining().toLowerCase())) {
-                builder.suggest(mod);
+            String display = toDisplayModToken(mod);
+            if (display.toLowerCase().startsWith(builder.getRemaining().toLowerCase())) {
+                builder.suggest(display);
             }
         }
         return builder.buildFuture();
@@ -981,7 +1020,8 @@ public class HandShakerCommand {
             int updated = 0;
             for (String mod : info.mods()) {
                 if (!config.isIgnored(mod)) {
-                    config.setModConfig(mod, mode, "kick", null);
+                    config.setModConfig(mod, mode, defaultActionForMode(mode), null);
+                    registerModFingerprint(config, mod);
                     updated++;
                 }
             }
@@ -992,7 +1032,8 @@ public class HandShakerCommand {
                 ctx.getSource().sendError(Text.literal("Player " + playerName + " does not have mod: " + modId));
                 return 0;
             }
-            config.setModConfig(modId, mode, "kick", null);
+            config.setModConfig(modId, mode, defaultActionForMode(mode), null);
+            registerModFingerprint(config, modId);
             ctx.getSource().sendFeedback(() -> Text.literal("✓ Set " + modId + " to " + mode + " for " + playerName).formatted(Formatting.GREEN), true);
         }
         
@@ -1078,6 +1119,33 @@ public class HandShakerCommand {
         return Command.SINGLE_SUCCESS;
     }
 
+    private static void registerModFingerprint(ConfigManager config, String modToken) {
+        if (!config.isHashMods()) {
+            return;
+        }
+        PlayerHistoryDatabase db = HandShakerServer.getInstance().getPlayerHistoryDb();
+        if (db == null) {
+            return;
+        }
+
+        ModEntry requested = ModEntry.parse(modToken);
+        if (requested == null) {
+            return;
+        }
+
+        String requestedVersion = config.isModVersioning() ? requested.version() : null;
+        String resolvedHash = CommandModUtil.normalizeHash(requested.hash());
+        if (resolvedHash == null) {
+            resolvedHash = CommandModUtil.resolveHashFromConnectedClients(
+                HandShakerServer.getInstance().getClients().values(),
+                requested.modId(),
+                requestedVersion
+            );
+        }
+
+        db.registerModFingerprint(requested.modId(), requestedVersion, resolvedHash);
+    }
+
     private static CompletableFuture<Suggestions> suggestIgnoredMods(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
         ConfigManager config = HandShakerServer.getInstance().getConfigManager();
         for (String mod : config.getIgnoredMods()) {
@@ -1086,5 +1154,13 @@ public class HandShakerCommand {
             }
         }
         return builder.buildFuture();
+    }
+
+    private static String toDisplayModToken(String rawMod) {
+        ModEntry entry = ModEntry.parse(rawMod);
+        if (entry != null) {
+            return entry.toDisplayKey();
+        }
+        return rawMod != null ? rawMod : "";
     }
 }

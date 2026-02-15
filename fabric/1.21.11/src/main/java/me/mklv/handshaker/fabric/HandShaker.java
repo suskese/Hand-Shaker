@@ -15,6 +15,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import me.mklv.handshaker.common.utils.HashUtils;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.Optional;
 
 public class HandShaker implements ClientModInitializer {
@@ -47,7 +50,14 @@ public class HandShaker implements ClientModInitializer {
 		MinecraftClient client = MinecraftClient.getInstance();
 		if (client == null || client.getNetworkHandler() == null) return;
 		String payload = FabricLoader.getInstance().getAllMods().stream()
-				.map(m -> m.getMetadata().getId())
+				.map(m -> {
+					String id = m.getMetadata().getId();
+					String normalizedId = MOD_ID.equals(id) ? MOD_ID : id;
+					String version = m.getMetadata().getVersion().getFriendlyString();
+					Path modPath = safeFirstOriginPath(m).orElse(null);
+					String modHash = computeModFileHash(modPath).orElse("null");
+					return normalizedId + ":" + version + ":" + modHash;
+				})
 				.sorted()
 				.reduce((a,b) -> a + "," + b)
 				.orElse("");
@@ -55,6 +65,21 @@ public class HandShaker implements ClientModInitializer {
 		String nonce = generateNonce();
 		ClientPlayNetworking.send(new ModsListPayload(payload, modListHash, nonce));
 		LOGGER.info("Sent mod list ({} chars, hash: {}) with nonce: {}", payload.length(), modListHash.substring(0, 8), nonce);
+	}
+
+	private Optional<Path> safeFirstOriginPath(net.fabricmc.loader.api.ModContainer modContainer) {
+		if (modContainer == null || modContainer.getOrigin() == null) {
+			return Optional.empty();
+		}
+		try {
+			var paths = modContainer.getOrigin().getPaths();
+			if (paths == null || paths.isEmpty()) {
+				return Optional.empty();
+			}
+			return Optional.ofNullable(paths.get(0));
+		} catch (UnsupportedOperationException ignored) {
+			return Optional.empty();
+		}
 	}
 
 	private void sendSignature() {
@@ -246,6 +271,26 @@ public class HandShaker implements ClientModInitializer {
 		} catch (Exception e) {
 			LOGGER.error("Error verifying JAR signature locally: {}", e.getMessage());
 			return Optional.of(false);
+		}
+	}
+
+	private Optional<String> computeModFileHash(Path modPath) {
+		if (modPath == null || !Files.isRegularFile(modPath)) {
+			return Optional.empty();
+		}
+
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			try (var input = Files.newInputStream(modPath)) {
+				byte[] buffer = new byte[8192];
+				int read;
+				while ((read = input.read(buffer)) > 0) {
+					digest.update(buffer, 0, read);
+				}
+			}
+			return Optional.of(HashUtils.toHex(digest.digest()));
+		} catch (Exception e) {
+			return Optional.empty();
 		}
 	}
 

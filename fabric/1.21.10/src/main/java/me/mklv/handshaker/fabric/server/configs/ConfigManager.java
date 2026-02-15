@@ -1,24 +1,20 @@
 package me.mklv.handshaker.fabric.server.configs;
 
 import net.fabricmc.loader.api.FabricLoader;
-import org.yaml.snakeyaml.Yaml;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
-import me.mklv.handshaker.common.configs.ActionDefinition;
-import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
-import me.mklv.handshaker.common.configs.ConfigSnapshotBuilder;
-import me.mklv.handshaker.common.configs.ConfigWriter;
-import me.mklv.handshaker.common.configs.MessagePlaceholderExpander;
-import me.mklv.handshaker.common.configs.ModConfigStore;
-import me.mklv.handshaker.common.configs.ModCheckEvaluator;
-import me.mklv.handshaker.common.configs.ModCheckInput;
-import me.mklv.handshaker.common.configs.ModCheckResult;
-import me.mklv.handshaker.common.configs.ConfigLoadOptions;
-import me.mklv.handshaker.common.configs.ConfigLoadResult;
-import me.mklv.handshaker.common.configs.ConfigLoader;
-import me.mklv.handshaker.common.configs.ConfigState.Behavior;
-import me.mklv.handshaker.common.configs.ConfigState.IntegrityMode;
-import me.mklv.handshaker.common.configs.ConfigState.ModConfig;
+import me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap;
+import me.mklv.handshaker.common.configs.ConfigRuntime.CommonConfigManagerBase;
+import me.mklv.handshaker.common.configs.ConfigRuntime.MessagePlaceholderExpander;
+import me.mklv.handshaker.common.configs.ConfigRuntime.ModConfigStore;
+import me.mklv.handshaker.common.configs.ConfigTypes.ActionDefinition;
+import me.mklv.handshaker.common.configs.ConfigTypes.ConfigLoadOptions;
+import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Behavior;
+import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.IntegrityMode;
+import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
+import me.mklv.handshaker.common.configs.ModChecks.ModCheckEvaluator;
+import me.mklv.handshaker.common.configs.ModChecks.ModCheckInput;
+import me.mklv.handshaker.common.configs.ModChecks.ModCheckResult;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.fabric.server.HandShakerServer;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
@@ -26,33 +22,8 @@ import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 import java.io.*;
 import java.util.*;
 
-public class ConfigManager {
+public class ConfigManager extends CommonConfigManagerBase {
     private final File configDir;
-
-    private Behavior behavior = Behavior.STRICT;
-    private IntegrityMode integrityMode = IntegrityMode.SIGNED;
-    private String kickMessage = "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
-    private String noHandshakeKickMessage = "To connect to this server please download 'Hand-shaker' mod.";
-    private String missingWhitelistModMessage = "You are missing required mods: {mod}. Please install them to join this server.";
-    private String invalidSignatureKickMessage = "Invalid client signature. Please use the official client.";
-    private boolean allowBedrockPlayers = false;
-    private boolean playerdbEnabled = false; // Default: disabled for security
-    private int handshakeTimeoutSeconds = 5;
-    
-    // Mod list toggle states - persisted in config
-    private boolean modsRequiredEnabled = true;
-    private boolean modsBlacklistedEnabled = true;
-    private boolean modsWhitelistedEnabled = true;
-    
-    private final Map<String, ModConfig> modConfigMap = new LinkedHashMap<>();
-    private boolean whitelist = false;
-    private final Set<String> ignoredMods = new HashSet<>();
-    private final Set<String> whitelistedModsActive = new HashSet<>();
-    private final Set<String> optionalModsActive = new HashSet<>();
-    private final Set<String> blacklistedModsActive = new HashSet<>();
-    private final Set<String> requiredModsActive = new HashSet<>();
-    private final Map<String, ActionDefinition> actionsMap = new LinkedHashMap<>();
-    private final Map<String, String> messagesMap = new LinkedHashMap<>();
 
     public ConfigManager() {
         File configRootDir = FabricLoader.getInstance().getConfigDir().toFile();
@@ -80,234 +51,45 @@ public class ConfigManager {
         };
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, true, true, "kick", true);
-        ConfigLoadResult result = ConfigLoader.load(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
-        applyLoadResult(result);
-    }
-
-    private void applyLoadResult(ConfigLoadResult result) {
-        behavior = result.getBehavior();
-        integrityMode = result.getIntegrityMode();
-        kickMessage = result.getKickMessage();
-        noHandshakeKickMessage = result.getNoHandshakeKickMessage();
-        missingWhitelistModMessage = result.getMissingWhitelistModMessage();
-        invalidSignatureKickMessage = result.getInvalidSignatureKickMessage();
-        allowBedrockPlayers = result.isAllowBedrockPlayers();
-        playerdbEnabled = result.isPlayerdbEnabled();
-        handshakeTimeoutSeconds = result.getHandshakeTimeoutSeconds();
-        modsRequiredEnabled = result.areModsRequiredEnabled();
-        modsBlacklistedEnabled = result.areModsBlacklistedEnabled();
-        modsWhitelistedEnabled = result.areModsWhitelistedEnabled();
-        whitelist = result.isWhitelist();
-
-        messagesMap.clear();
-        messagesMap.putAll(result.getMessages());
-
-        modConfigMap.clear();
-        modConfigMap.putAll(result.getModConfigMap());
-        ignoredMods.clear();
-        ignoredMods.addAll(result.getIgnoredMods());
-        whitelistedModsActive.clear();
-        whitelistedModsActive.addAll(result.getWhitelistedModsActive());
-        optionalModsActive.clear();
-        optionalModsActive.addAll(result.getOptionalModsActive());
-        blacklistedModsActive.clear();
-        blacklistedModsActive.addAll(result.getBlacklistedModsActive());
-        requiredModsActive.clear();
-        requiredModsActive.addAll(result.getRequiredModsActive());
-        actionsMap.clear();
-        actionsMap.putAll(result.getActionsMap());
-    }
-
-
-    // Getters
-    public Behavior getBehavior() { return behavior; }
-    public IntegrityMode getIntegrityMode() { return integrityMode; }
-    public String getKickMessage() { return kickMessage; }
-    public String getNoHandshakeKickMessage() { return noHandshakeKickMessage; }
-    public String getMissingWhitelistModMessage() { return missingWhitelistModMessage; }
-    public String getInvalidSignatureKickMessage() { return invalidSignatureKickMessage; }
-    public Map<String, ModConfig> getModConfigMap() { return Collections.unmodifiableMap(modConfigMap); }
-    public boolean isWhitelist() { return whitelist; }
-    public Set<String> getIgnoredMods() { return Collections.unmodifiableSet(ignoredMods); }
-    public boolean isAllowBedrockPlayers() { return allowBedrockPlayers; }
-    public Set<String> getWhitelistedMods() { return Collections.unmodifiableSet(whitelistedModsActive); }
-    public Set<String> getOptionalMods() { return Collections.unmodifiableSet(optionalModsActive); }
-    public Set<String> getBlacklistedMods() { return Collections.unmodifiableSet(blacklistedModsActive); }
-    public Set<String> getRequiredMods() { return Collections.unmodifiableSet(requiredModsActive); }
-    public boolean isPlayerdbEnabled() { return playerdbEnabled; }
-    public boolean areModsRequiredEnabled() { return modsRequiredEnabled; }
-    public boolean areModsBlacklistedEnabled() { return modsBlacklistedEnabled; }
-    public boolean areModsWhitelistedEnabled() { return modsWhitelistedEnabled; }
-    public int getHandshakeTimeoutSeconds() { return handshakeTimeoutSeconds; }
-    public ActionDefinition getAction(String actionName) { 
-        if (actionName == null) return null;
-        return actionsMap.get(actionName.toLowerCase(Locale.ROOT));
-    }
-    public String getMessageOrDefault(String key, String fallback) {
-        if (key == null) {
-            return fallback;
-        }
-        String message = messagesMap.get(key);
-        return message != null ? message : fallback;
-    }
-    public Set<String> getAvailableActions() {
-        return Collections.unmodifiableSet(actionsMap.keySet());
-    }
-
-    // Setters for configuration
-    public void setBehavior(String value) {
-        this.behavior = value.equalsIgnoreCase("STRICT") ? Behavior.STRICT : Behavior.VANILLA;
-    }
-
-    public void setIntegrityMode(String value) {
-        this.integrityMode = value.equalsIgnoreCase("SIGNED") ? IntegrityMode.SIGNED : IntegrityMode.DEV;
-    }
-
-    public void setWhitelist(boolean value) {
-        this.whitelist = value;
+        loadCommon(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
     }
 
     public boolean toggleWhitelistedModsActive() {
         modsWhitelistedEnabled = !modsWhitelistedEnabled;
-        if (modsWhitelistedEnabled) {
-            loadWhitelistedModsFromFile();
-        } else {
-            whitelistedModsActive.clear();
-        }
         save();
         return modsWhitelistedEnabled;
     }
 
     public boolean toggleBlacklistedModsActive() {
         modsBlacklistedEnabled = !modsBlacklistedEnabled;
-        if (modsBlacklistedEnabled) {
-            loadBlacklistedModsFromFile();
-        } else {
-            blacklistedModsActive.clear();
-        }
         save();
         return modsBlacklistedEnabled;
     }
 
     public boolean toggleRequiredModsActive() {
         modsRequiredEnabled = !modsRequiredEnabled;
-        if (modsRequiredEnabled) {
-            loadRequiredModsFromFile();
-        } else {
-            requiredModsActive.clear();
-        }
         save();
         return modsRequiredEnabled;
     }
 
-    private void loadWhitelistedModsFromFile() {
-        File whitelistedFile = new File(configDir, "mods-whitelisted.yml");
-        if (whitelistedFile.exists()) {
-            try (FileReader reader = new FileReader(whitelistedFile)) {
-                Yaml yaml = new Yaml();
-                Map<String, Object> data = yaml.load(reader);
-                if (data != null && data.containsKey("whitelisted")) {
-                    Object whitelistedObj = data.get("whitelisted");
-                    if (whitelistedObj instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> whitelistedMap = (Map<String, Object>) whitelistedObj;
-                        for (String mod : whitelistedMap.keySet()) {
-                            whitelistedModsActive.add(mod.toLowerCase(Locale.ROOT));
-                        }
-                    } else if (whitelistedObj instanceof List) {
-                        @SuppressWarnings("unchecked")
-                        List<String> whitelistedList = (List<String>) whitelistedObj;
-                        if (whitelistedList != null) {
-                            for (String mod : whitelistedList) {
-                                whitelistedModsActive.add(mod.toLowerCase(Locale.ROOT));
-                            }
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.warn("Failed to load mods-whitelisted.yml: {}", e.getMessage());
-            }
-        }
-    }
-
-    private void loadBlacklistedModsFromFile() {
-        File blacklistedFile = new File(configDir, "mods-blacklisted.yml");
-        if (blacklistedFile.exists()) {
-            try (FileReader reader = new FileReader(blacklistedFile)) {
-                Yaml yaml = new Yaml();
-                Map<String, Object> data = yaml.load(reader);
-                if (data != null && data.containsKey("blacklisted")) {
-                    Object blacklistedObj = data.get("blacklisted");
-                    if (blacklistedObj instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> blacklistedMap = (Map<String, Object>) blacklistedObj;
-                        for (String mod : blacklistedMap.keySet()) {
-                            blacklistedModsActive.add(mod.toLowerCase(Locale.ROOT));
-                        }
-                    } else if (blacklistedObj instanceof List) {
-                        @SuppressWarnings("unchecked")
-                        List<String> blacklistedList = (List<String>) blacklistedObj;
-                        if (blacklistedList != null) {
-                            for (String mod : blacklistedList) {
-                                blacklistedModsActive.add(mod.toLowerCase(Locale.ROOT));
-                            }
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.warn("Failed to load mods-blacklisted.yml: {}", e.getMessage());
-            }
-        }
-    }
-
-    private void loadRequiredModsFromFile() {
-        File requiredFile = new File(configDir, "mods-required.yml");
-        if (requiredFile.exists()) {
-            try (FileReader reader = new FileReader(requiredFile)) {
-                Yaml yaml = new Yaml();
-                Map<String, Object> data = yaml.load(reader);
-                if (data != null && data.containsKey("required")) {
-                    Object requiredObj = data.get("required");
-                    if (requiredObj instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> requiredMap = (Map<String, Object>) requiredObj;
-                        for (String mod : requiredMap.keySet()) {
-                            requiredModsActive.add(mod.toLowerCase(Locale.ROOT));
-                        }
-                    } else if (requiredObj instanceof List) {
-                        @SuppressWarnings("unchecked")
-                        List<String> requiredList = (List<String>) requiredObj;
-                        if (requiredList != null) {
-                            for (String mod : requiredList) {
-                                requiredModsActive.add(mod.toLowerCase(Locale.ROOT));
-                            }
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                HandShakerServer.LOGGER.warn("Failed to load mods-required.yml: {}", e.getMessage());
-            }
-        }
-    }
-
     public void setKickMessage(String message) {
-        this.kickMessage = message;
+        super.setKickMessage(message);
     }
 
     public void setNoHandshakeKickMessage(String message) {
-        this.noHandshakeKickMessage = message;
+        super.setNoHandshakeKickMessage(message);
     }
 
     public void setMissingWhitelistModMessage(String message) {
-        this.missingWhitelistModMessage = message;
+        super.setMissingWhitelistModMessage(message);
     }
 
     public void setInvalidSignatureKickMessage(String message) {
-        this.invalidSignatureKickMessage = message;
+        super.setInvalidSignatureKickMessage(message);
     }
 
     public void setAllowBedrockPlayers(boolean allow) {
-        this.allowBedrockPlayers = allow;
+        super.setAllowBedrockPlayers(allow);
     }
 
     public void setPlayerdbEnabled(boolean enabled) {
@@ -316,7 +98,17 @@ public class ConfigManager {
     }
 
     public void setHandshakeTimeoutSeconds(int seconds) {
-        this.handshakeTimeoutSeconds = Math.max(1, seconds);
+        super.setHandshakeTimeoutSeconds(seconds);
+        save();
+    }
+
+    public void setHashMods(boolean enabled) {
+        this.hashMods = enabled;
+        save();
+    }
+
+    public void setModVersioning(boolean enabled) {
+        this.modVersioning = enabled;
         save();
     }
 
@@ -350,8 +142,8 @@ public class ConfigManager {
             mode,
             action,
             warnMessage,
-            null,
-            null
+            "none",
+            "kick"
         );
         save();
         return true;
@@ -390,38 +182,14 @@ public class ConfigManager {
             requiredModsActive,
             blacklistedModsActive,
             whitelistedModsActive,
-            null,
-            null
+            "none",
+            "kick"
         );
         save();
     }
 
 
     public void save() {
-        ConfigLoadResult snapshot = ConfigSnapshotBuilder.build(
-            behavior,
-            integrityMode,
-            kickMessage,
-            noHandshakeKickMessage,
-            missingWhitelistModMessage,
-            invalidSignatureKickMessage,
-            allowBedrockPlayers,
-            playerdbEnabled,
-            modsRequiredEnabled,
-            modsBlacklistedEnabled,
-            modsWhitelistedEnabled,
-            whitelist,
-            handshakeTimeoutSeconds,
-            messagesMap,
-            modConfigMap,
-            ignoredMods,
-            whitelistedModsActive,
-            blacklistedModsActive,
-            requiredModsActive,
-            optionalModsActive,
-            actionsMap
-        );
-
         ConfigFileBootstrap.Logger saveLogger = new ConfigFileBootstrap.Logger() {
             @Override
             public void info(String message) {
@@ -439,7 +207,7 @@ public class ConfigManager {
             }
         };
 
-        ConfigWriter.writeAll(configDir.toPath(), saveLogger, snapshot);
+        saveCommon(configDir.toPath(), saveLogger);
     }
 
     public void checkPlayer(net.minecraft.server.network.ServerPlayerEntity player, ClientInfo info) {
@@ -492,6 +260,9 @@ public class ConfigManager {
             modsRequiredEnabled,
             modsBlacklistedEnabled,
             modsWhitelistedEnabled,
+            hashMods,
+            modVersioning,
+            collectKnownHashes(),
             ignoredMods,
             whitelistedModsActive,
             optionalModsActive,
@@ -579,9 +350,28 @@ public class ConfigManager {
                             HandShakerServer.LOGGER.warn("Server instance is null, cannot execute action command");
                         }
                     }
+
                 }
             }
         }
+    }
+
+    private Map<String, String> collectKnownHashes() {
+        if (!hashMods) {
+            return Collections.emptyMap();
+        }
+
+        var server = HandShakerServer.getInstance();
+        if (server == null || server.getPlayerHistoryDb() == null) {
+            return Collections.emptyMap();
+        }
+
+        Set<String> ruleKeys = new LinkedHashSet<>();
+        ruleKeys.addAll(requiredModsActive);
+        ruleKeys.addAll(blacklistedModsActive);
+        ruleKeys.addAll(whitelistedModsActive);
+        ruleKeys.addAll(optionalModsActive);
+        return server.getPlayerHistoryDb().getRegisteredHashes(ruleKeys, modVersioning);
     }
 
     public void playerLeft(ServerPlayerEntity player) {

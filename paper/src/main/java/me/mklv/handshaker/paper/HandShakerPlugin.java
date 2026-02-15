@@ -1,6 +1,6 @@
 package me.mklv.handshaker.paper;
 
-import me.mklv.handshaker.common.configs.ConfigMigrator;
+import me.mklv.handshaker.common.configs.ConfigMigration.ConfigMigrator;
 import me.mklv.handshaker.paper.utils.HandShakerListener;
 import me.mklv.handshaker.paper.utils.PlayerHistoryDatabase;
 import me.mklv.handshaker.paper.utils.PluginProtocolHandler;
@@ -9,7 +9,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -145,15 +144,6 @@ public class HandShakerPlugin extends JavaPlugin {
 
     public PlayerHistoryDatabase getPlayerHistoryDb() {
         return playerHistoryDb;
-    }
-
-    public PluginProtocolHandler getProtocolHandler() {
-        return protocolHandler;
-    }
-
-    public Set<String> getClientMods(UUID uuid) {
-        ClientInfo info = clients.get(uuid);
-        return info != null ? info.mods() : null;
     }
 
     public Map<UUID, ClientInfo> getClients() {

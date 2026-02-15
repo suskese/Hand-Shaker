@@ -2,8 +2,8 @@ package me.mklv.handshaker.fabric.server;
 
 import me.mklv.handshaker.fabric.HandShaker;
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
-import me.mklv.handshaker.common.configs.ConfigMigrator;
-import me.mklv.handshaker.common.configs.StandardMessages;
+import me.mklv.handshaker.common.configs.ConfigMigration.ConfigMigrator;
+import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;

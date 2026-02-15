@@ -1,0 +1,6 @@
+# Required mods to join the server
+# Players must have ALL of these mods installed
+# Format: modname: action (action is from mods-actions.yml or default 'kick')
+
+required:
+  hand-shaker:7.0.0: none

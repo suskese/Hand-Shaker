@@ -6,7 +6,6 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
-import net.neoforged.neoforgespi.language.IModInfo;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import me.mklv.handshaker.neoforge.server.HandShakerServerMod;
@@ -14,6 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import me.mklv.handshaker.common.utils.HashUtils;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,8 +39,15 @@ public class HandShakerClientMod {
 
     private void sendModList(ClientPlayerNetworkEvent.LoggingIn event) {
         String payload = ModList.get().getMods().stream()
-                .map(IModInfo::getModId)
-                .map(id -> id.equals(MOD_ID) ? "hand-shaker" : id)
+                .map(mod -> {
+                    String id = mod.getModId();
+                    String normalizedId = id.equals(MOD_ID) ? "hand-shaker" : id;
+                    String version = mod.getVersion().toString();
+                String hash = resolveModFilePath(mod)
+                    .flatMap(this::computeFileSha256)
+                    .orElse("null");
+                return normalizedId + ":" + version + ":" + hash;
+                })
                 .sorted()
                 .reduce((a, b) -> a + "," + b)
                 .orElse("");
@@ -162,6 +171,48 @@ public class HandShakerClientMod {
 
     private String generateNonce() {
         return UUID.randomUUID().toString();
+    }
+
+    private Optional<Path> resolveModFilePath(Object modInfo) {
+        try {
+            Object owningFile = modInfo.getClass().getMethod("getOwningFile").invoke(modInfo);
+            if (owningFile == null) {
+                return Optional.empty();
+            }
+            Object modFile = owningFile.getClass().getMethod("getFile").invoke(owningFile);
+            if (modFile == null) {
+                return Optional.empty();
+            }
+            Object filePath = modFile.getClass().getMethod("getFilePath").invoke(modFile);
+            if (filePath instanceof Path path) {
+                return Optional.of(path);
+            }
+            if (filePath != null) {
+                return Optional.of(Paths.get(filePath.toString()));
+            }
+        } catch (Exception ignored) {
+        }
+        return Optional.empty();
+    }
+
+    private Optional<String> computeFileSha256(Path path) {
+        if (path == null || !Files.isRegularFile(path)) {
+            return Optional.empty();
+        }
+
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (var input = Files.newInputStream(path)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = input.read(buffer)) > 0) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            return Optional.of(HashUtils.toHex(digest.digest()));
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
     }
 
 }

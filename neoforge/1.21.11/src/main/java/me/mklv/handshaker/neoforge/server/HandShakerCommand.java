@@ -8,8 +8,10 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import me.mklv.handshaker.common.commands.CommandSuggestionData;
+import me.mklv.handshaker.common.commands.CommandModUtil;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
-import me.mklv.handshaker.common.configs.ConfigState;
+import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
+import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -71,7 +73,15 @@ public class HandShakerCommand {
                 .then(Commands.literal("playerdb_enabled")
                     .then(Commands.argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "playerdb_enabled")))))
+                        .executes(ctx -> setConfigValue(ctx, "playerdb_enabled"))))
+                .then(Commands.literal("hash_mods")
+                    .then(Commands.argument("value", StringArgumentType.word())
+                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
+                        .executes(ctx -> setConfigValue(ctx, "hash_mods"))))
+                .then(Commands.literal("mod_versioning")
+                    .then(Commands.argument("value", StringArgumentType.word())
+                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
+                        .executes(ctx -> setConfigValue(ctx, "mod_versioning")))))
             .then(Commands.literal("mode")
                 .then(Commands.argument("list", StringArgumentType.word())
                     .suggests(HandShakerCommand::suggestModeLists)
@@ -455,8 +465,20 @@ public class HandShakerCommand {
                 config.setPlayerdbEnabled(playerdb);
                 ctx.getSource().sendSuccess(() -> Component.literal("✓ Player database " + (playerdb ? "enabled" : "disabled")), true);
             }
+            case "hash_mods" -> {
+                boolean enabled = value.equalsIgnoreCase("true") || value.equalsIgnoreCase("on");
+                config.setHashMods(enabled);
+                ctx.getSource().sendSuccess(() -> Component.literal("✓ hash_mods " + (enabled ? "enabled" : "disabled")), true);
+            }
+            case "mod_versioning" -> {
+                boolean enabled = value.equalsIgnoreCase("true") || value.equalsIgnoreCase("on");
+                config.setModVersioning(enabled);
+                ctx.getSource().sendSuccess(() -> Component.literal("✓ mod_versioning " + (enabled ? "enabled" : "disabled")), true);
+            }
             default -> ctx.getSource().sendFailure(Component.literal("Unknown config parameter: " + param));
         }
+
+        config.save();
         
         return Command.SINGLE_SUCCESS;
     }
@@ -483,6 +505,8 @@ public class HandShakerCommand {
             }
             default -> ctx.getSource().sendFailure(Component.literal("Unknown list: " + list + ". Use: mods_required, mods_blacklisted, or mods_whitelisted"));
         }
+
+        config.save();
         
         HandShakerServerMod.getInstance().checkAllPlayers();
         return Command.SINGLE_SUCCESS;
@@ -492,7 +516,8 @@ public class HandShakerCommand {
         String mod = StringArgumentType.getString(ctx, "mod");
         String mode = StringArgumentType.getString(ctx, "mode");
         ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
-        config.setModConfigByString(mod, mode, "kick", null);
+        config.setModConfigByString(mod, mode, defaultActionForMode(mode), null);
+        registerModFingerprint(config, mod);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Added mod '" + mod + "' as " + mode), true);
         HandShakerServerMod.getInstance().checkAllPlayers();
         return Command.SINGLE_SUCCESS;
@@ -504,6 +529,7 @@ public class HandShakerCommand {
         String action = StringArgumentType.getString(ctx, "action");
         ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.setModConfigByString(mod, mode, action, null);
+        registerModFingerprint(config, mod);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Added mod '" + mod + "' as " + mode + " with action " + action), true);
         HandShakerServerMod.getInstance().checkAllPlayers();
         return Command.SINGLE_SUCCESS;
@@ -513,7 +539,7 @@ public class HandShakerCommand {
         String mod = StringArgumentType.getString(ctx, "mod");
         String mode = StringArgumentType.getString(ctx, "mode");
         ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
-        config.setModConfigByString(mod, mode, "kick", null);
+        config.setModConfigByString(mod, mode, defaultActionForMode(mode), null);
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Changed mod '" + mod + "' to " + mode), true);
         HandShakerServerMod.getInstance().checkAllPlayers();
         return Command.SINGLE_SUCCESS;
@@ -539,7 +565,8 @@ public class HandShakerCommand {
         
         // Add all mods with the specified mode
         for (String mod : modsToAdd) {
-            config.setModConfigByString(mod, mode, "kick", null);
+            config.setModConfigByString(mod, mode, defaultActionForMode(mode), null);
+            registerModFingerprint(config, mod);
         }
         
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Added " + modsToAdd.size() + " mods as " + mode), true);
@@ -569,6 +596,7 @@ public class HandShakerCommand {
         // Add all mods with the specified mode and action
         for (String mod : modsToAdd) {
             config.setModConfigByString(mod, mode, action, null);
+            registerModFingerprint(config, mod);
         }
         
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Added " + modsToAdd.size() + " mods as " + mode + " with action " + action), true);
@@ -596,10 +624,15 @@ public class HandShakerCommand {
         return Command.SINGLE_SUCCESS;
     }
 
+    private static String defaultActionForMode(String mode) {
+        return CommandModUtil.defaultActionForMode(mode);
+    }
+
     private static int ignoreMod(CommandContext<CommandSourceStack> ctx) {
         String mod = StringArgumentType.getString(ctx, "mod");
         ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.addIgnoredMod(mod);
+        config.save();
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Now ignoring mod '" + mod + "'"), true);
         return Command.SINGLE_SUCCESS;
     }
@@ -620,6 +653,8 @@ public class HandShakerCommand {
                 count[0]++;
             }
         }
+
+        config.save();
         
         int added = count[0];
         ctx.getSource().sendSuccess(() -> Component.literal("✓ Added " + added + " mods to ignore list"), true);
@@ -630,6 +665,7 @@ public class HandShakerCommand {
         String mod = StringArgumentType.getString(ctx, "mod");
         ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         config.removeIgnoredMod(mod);
+        config.save();
         ctx.getSource().sendSuccess(() -> Component.literal("✓ No longer ignoring mod '" + mod + "'"), true);
         return Command.SINGLE_SUCCESS;
     }
@@ -643,6 +679,33 @@ public class HandShakerCommand {
             ctx.getSource().sendSystemMessage(Component.literal("  • " + mod).withColor(0xFFFF55));
         }
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static void registerModFingerprint(ConfigManager config, String modToken) {
+        if (!config.isHashMods()) {
+            return;
+        }
+        PlayerHistoryDatabase db = HandShakerServerMod.getInstance().getPlayerHistoryDb();
+        if (db == null) {
+            return;
+        }
+
+        ModEntry requested = ModEntry.parse(modToken);
+        if (requested == null) {
+            return;
+        }
+
+        String requestedVersion = config.isModVersioning() ? requested.version() : null;
+        String resolvedHash = CommandModUtil.normalizeHash(requested.hash());
+        if (resolvedHash == null) {
+            resolvedHash = CommandModUtil.resolveHashFromConnectedClients(
+                HandShakerServerMod.getInstance().getClients().values(),
+                requested.modId(),
+                requestedVersion
+            );
+        }
+
+        db.registerModFingerprint(requested.modId(), requestedVersion, resolvedHash);
     }
 
     private static int showPlayerMods(CommandContext<CommandSourceStack> ctx) {
@@ -726,7 +789,7 @@ public class HandShakerCommand {
 
     private static CompletableFuture<Suggestions> suggestConfiguredMods(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
         ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
-        return SharedSuggestionProvider.suggest(config.getModConfigMap().keySet(), builder);
+        return SharedSuggestionProvider.suggest(sanitizeModSuggestions(config.getModConfigMap().keySet()), builder);
     }
 
     private static CompletableFuture<Suggestions> suggestIgnoredMods(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
@@ -739,7 +802,7 @@ public class HandShakerCommand {
         for (ServerPlayer player : ctx.getSource().getServer().getPlayerList().getPlayers()) {
             allMods.addAll(HandShakerServerMod.getInstance().getClientMods(player.getUUID()));
         }
-        return SharedSuggestionProvider.suggest(allMods, builder);
+        return SharedSuggestionProvider.suggest(sanitizeModSuggestions(allMods), builder);
     }
 
     private static CompletableFuture<Suggestions> suggestPlayers(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
@@ -747,5 +810,22 @@ public class HandShakerCommand {
             ctx.getSource().getServer().getPlayerList().getPlayers().stream().map(p -> p.getName().getString()).collect(Collectors.toList()),
             builder
         );
+    }
+
+    private static Set<String> sanitizeModSuggestions(Collection<String> rawMods) {
+        Set<String> result = new LinkedHashSet<>();
+        if (rawMods == null) {
+            return result;
+        }
+
+        for (String rawMod : rawMods) {
+            ModEntry entry = ModEntry.parse(rawMod);
+            if (entry != null) {
+                result.add(entry.toDisplayKey());
+            } else if (rawMod != null && !rawMod.isBlank()) {
+                result.add(rawMod);
+            }
+        }
+        return result;
     }
 }
