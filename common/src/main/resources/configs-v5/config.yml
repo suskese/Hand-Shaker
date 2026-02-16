@@ -1,36 +1,77 @@
+# HandShaker Configuration File
+
+# ========================
+#     General Settings    
+# ========================
+
+# !!! DONT EDIT THIS !!!
 config: v5
 
-# Behavior: "strict" - Force requires client-side mod or "vanilla" allow also non-mod clients
+# Enable debug logging, Big console spam
+debug: false
+
+# Behavior: 
+# "strict" - Force requires client-side
+# "vanilla" - Allow also non-mod clients like Vanilla
 behavior: strict
 
-# Integrity Mode: "signed" or "dev" - allow unsigned mods (if you are building own client/server fork)
+# Integrity Mode: 
+# "signed" - require official HandShaker mod build from Modrinth/CF
+# "dev" - allow unsigned mods (if you are building own client/server fork)
 integrity-mode: signed
 
-# Whitelist mode: true = only allowed mods (inside whitelisted.yml), false = allowed by default
+# Whitelist:
+# true = only allowed mods (inside whitelisted.yml)
+# false = all mods are allowed unless they are in blacklisted.yml
 whitelist: false
 
 # Allow Bedrock players
 allow-bedrock-players: false
 
-# Handshake timeout in seconds (how long to wait for client payloads)
+# Handshake timeout in seconds
+# (how long to wait for client payloads)
 handshake-timeout-seconds: 5
 
-# Player Database: Store and track player mod history (requires playerdb to be enabled)
+# ========================
+#    Advanced Settings   
+# ========================
+
+
+# Player Database:
+# Store and track player mod history / mod hashes / versions
 playerdb-enabled: false
 
-# Hash Mods: true = use mod hashes for additional verification, good for stable modpacks and whitelist:true,
-# false = uses legacy mod ids and compitable with older versions of HandShaker
+# Hash Mods: 
+# true = use hashes for verification, good for stable modpacks and whitelist:true
+# false = uses legacy mod ids and compitable with older 6.0 version of HandShaker
+# Requires "playerdb-enabled:true" to store and track mod hashes
 hash-mods: true
 
-# Refactor mod config from mod_id:action to mod_id:version:action, allowing for more specific mod version control
+# Mod Versioning:
+# true = mod config format is mod_id:version:action, allowing for specific version control
+# false = mod config format is mod_id:action
+# Requires "playerdb-enabled:true" to store and track mod versions
 mod-versioning: true
 
-# Mod List Toggles: Enable/disable each mod list without losing configuration
+# Core List Toggles: 
+# Enable/disable each mod list without losing configuration
+
+# Custom lists are being enabled with a command
+# or changing enabled to true inside the custom list
 mods-required-enabled: true
 mods-blacklisted-enabled: true
 mods-whitelisted-enabled: true
 
-# Kick Messages - customize as needed (use {mod} for mod name)
+
+# ========================
+#         Messages        
+# ========================
+
+# Placeholders:
+# {mod} = mod name
+# {player} = player name
+# {messages.<action>} for custom action messages
+
 messages:
   kick: "You are using a blacklisted mod: {mod}. Please remove it to join this server."
   no-handshake: "To connect to this server please download 'Hand-shaker' mod."

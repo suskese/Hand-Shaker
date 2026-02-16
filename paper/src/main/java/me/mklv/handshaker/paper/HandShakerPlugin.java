@@ -13,7 +13,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class HandShakerPlugin extends JavaPlugin {
-    public static boolean DEBUG = true;
+    public static boolean DEBUG = false;
     
     // Plugin channels for communication
     public static final String MODS_CHANNEL = "hand-shaker:mods";
@@ -71,6 +71,9 @@ public class HandShakerPlugin extends JavaPlugin {
 
         configManager = new ConfigManager(this);
         configManager.load();
+
+        // Sync global debug flag from config
+        DEBUG = configManager.isDebug();
     }
 
     private void loadDatabase() {

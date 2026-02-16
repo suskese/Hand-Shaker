@@ -10,9 +10,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -149,6 +151,10 @@ public final class ConfigIO {
                 return;
             }
 
+            if (data.containsKey("debug")) {
+                result.setDebug(Boolean.parseBoolean(String.valueOf(data.get("debug"))));
+            }
+
             if (data.containsKey("behavior")) {
                 String behaviorStr = data.get("behavior").toString().toLowerCase(Locale.ROOT);
                 result.setBehavior(behaviorStr.startsWith("strict")
@@ -242,68 +248,92 @@ public final class ConfigIO {
             result.getModConfigMap().clear();
             result.getIgnoredMods().clear();
             result.getWhitelistedModsActive().clear();
+            result.getOptionalModsActive().clear();
             result.getBlacklistedModsActive().clear();
             result.getRequiredModsActive().clear();
 
-            File ignoredFile = configDir.resolve("mods-ignored.yml").toFile();
-            Map<String, Object> ignoredData = readYaml(ignoredFile, logger);
-            if (ignoredData != null && ignoredData.containsKey("ignored")) {
-                Object ignoredObj = ignoredData.get("ignored");
-                if (ignoredObj instanceof List) {
-                    @SuppressWarnings("unchecked")
-                    List<String> ignoredList = (List<String>) ignoredObj;
-                    for (String mod : ignoredList) {
-                        if (mod != null) {
-                            result.getIgnoredMods().add(mod.toLowerCase(Locale.ROOT));
-                        }
-                    }
-                } else {
-                    if (logger != null) {
-                        logger.warn("Invalid format in mods-ignored.yml, expected list format");
-                    }
-                }
+            List<Path> yamlFiles = listYamlFiles(configDir, logger);
+            if (yamlFiles.isEmpty()) {
+                return;
             }
 
-            File requiredFile = configDir.resolve("mods-required.yml").toFile();
-            loadModeFile(requiredFile,
-                "required",
-                ConfigTypes.ConfigState.MODE_REQUIRED,
-                "kick",
-                result.getModConfigMap(),
-                result.getRequiredModsActive(),
-                logger);
+            // Deterministic order; later files override earlier files.
+            yamlFiles.sort(Comparator.comparing(p -> p.getFileName().toString().toLowerCase(Locale.ROOT)));
 
-            File blacklistedFile = configDir.resolve("mods-blacklisted.yml").toFile();
-            loadModeFile(blacklistedFile,
-                "blacklisted",
-                ConfigTypes.ConfigState.MODE_BLACKLISTED,
-                "kick",
-                result.getModConfigMap(),
-                result.getBlacklistedModsActive(),
-                logger);
+            String defaultWhitelistedAction = options != null
+                ? options.getDefaultWhitelistedAction()
+                : "none";
 
-            boolean loadWhitelisted = options == null
-                || options.isLoadWhitelistedWhenDisabled()
-                || result.areModsWhitelistedEnabled();
+            for (Path yamlPath : yamlFiles) {
+                String filenameLower = yamlPath.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (filenameLower.equals("config.yml") || filenameLower.equals("mods-actions.yml")) {
+                    continue;
+                }
 
-            if (loadWhitelisted) {
-                String defaultWhitelistedAction = options != null
-                    ? options.getDefaultWhitelistedAction()
-                    : "none";
-                File whitelistedFile = configDir.resolve("mods-whitelisted.yml").toFile();
-                loadModeFile(whitelistedFile,
-                    "whitelisted",
-                    ConfigTypes.ConfigState.MODE_ALLOWED,
-                    defaultWhitelistedAction,
+                File file = yamlPath.toFile();
+                Map<String, Object> data = readYaml(file, logger);
+                if (data == null || data.isEmpty()) {
+                    continue;
+                }
+
+                boolean enabled = readEnabledFlag(data, true);
+                if (!enabled) {
+                    continue;
+                }
+
+                boolean consumed = false;
+                consumed |= loadIgnoredSection(data.get("ignored"), result.getIgnoredMods(), logger, file.getName());
+
+                consumed |= loadModeSection(
+                    data.get("required"),
+                    ConfigTypes.ConfigState.MODE_REQUIRED,
+                    "kick",
                     result.getModConfigMap(),
-                    result.getWhitelistedModsActive(),
-                    logger);
-                loadOptionalMods(whitelistedFile,
+                    result.getRequiredModsActive(),
+                    logger,
+                    file.getName()
+                );
+
+                consumed |= loadModeSection(
+                    data.get("blacklisted"),
+                    ConfigTypes.ConfigState.MODE_BLACKLISTED,
+                    "kick",
                     result.getModConfigMap(),
-                    result.getWhitelistedModsActive(),
-                    result.getOptionalModsActive(),
-                    defaultWhitelistedAction,
-                    logger);
+                    result.getBlacklistedModsActive(),
+                    logger,
+                    file.getName()
+                );
+
+                // Whitelisted section is used both for whitelist-mode allowlist and for allowed-actions.
+                boolean loadWhitelisted = options == null
+                    || options.isLoadWhitelistedWhenDisabled()
+                    || result.areModsWhitelistedEnabled();
+                if (loadWhitelisted) {
+                    consumed |= loadModeSection(
+                        data.get("whitelisted"),
+                        ConfigTypes.ConfigState.MODE_ALLOWED,
+                        defaultWhitelistedAction,
+                        result.getModConfigMap(),
+                        result.getWhitelistedModsActive(),
+                        logger,
+                        file.getName()
+                    );
+
+                    consumed |= loadOptionalSection(
+                        data.get("optional"),
+                        result.getModConfigMap(),
+                        result.getWhitelistedModsActive(),
+                        result.getOptionalModsActive(),
+                        defaultWhitelistedAction,
+                        logger,
+                        file.getName()
+                    );
+                }
+
+                // Backwards compatible: if we didn't find any recognized keys in a non-empty YAML, don't warn.
+                // Many users may keep extra YAML files in the config folder.
+                @SuppressWarnings("unused")
+                boolean ignored = consumed;
             }
 
             if (options != null
@@ -322,8 +352,38 @@ public final class ConfigIO {
                                                 ConfigTypes.ConfigLoadOptions options) {
             result.getActionsMap().clear();
 
+            // 1) Standard actions file
             File actionsFile = configDir.resolve("mods-actions.yml").toFile();
             Map<String, Object> data = readYaml(actionsFile, logger);
+            mergeActionsFromYamlData(data, result, options);
+
+            // 2) Embedded actions inside any enabled mods/list YAML file (e.g. mods-example.yml)
+            List<Path> yamlFiles = listYamlFiles(configDir, logger);
+            if (yamlFiles.isEmpty()) {
+                return;
+            }
+            yamlFiles.sort(Comparator.comparing(p -> p.getFileName().toString().toLowerCase(Locale.ROOT)));
+
+            for (Path yamlPath : yamlFiles) {
+                String filenameLower = yamlPath.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (filenameLower.equals("config.yml") || filenameLower.equals("mods-actions.yml")) {
+                    continue;
+                }
+
+                Map<String, Object> listData = readYaml(yamlPath.toFile(), logger);
+                if (listData == null || listData.isEmpty()) {
+                    continue;
+                }
+                if (!readEnabledFlag(listData, true)) {
+                    continue;
+                }
+                mergeActionsFromYamlData(listData, result, options);
+            }
+        }
+
+        private static void mergeActionsFromYamlData(Map<String, Object> data,
+                                                     ConfigTypes.ConfigLoadResult result,
+                                                     ConfigTypes.ConfigLoadOptions options) {
             if (data == null || !data.containsKey("actions")) {
                 return;
             }
@@ -336,6 +396,9 @@ public final class ConfigIO {
             @SuppressWarnings("unchecked")
             Map<String, Object> actionsMap = (Map<String, Object>) actionsObj;
             for (Map.Entry<String, Object> entry : actionsMap.entrySet()) {
+                if (entry.getKey() == null) {
+                    continue;
+                }
                 String actionName = entry.getKey().toLowerCase(Locale.ROOT);
                 Object actionValue = entry.getValue();
                 if (!(actionValue instanceof Map)) {
@@ -358,31 +421,103 @@ public final class ConfigIO {
                     if (commandsObj instanceof List) {
                         @SuppressWarnings("unchecked")
                         List<String> cmdList = (List<String>) commandsObj;
-                        commands.addAll(cmdList);
+                        for (Object cmd : cmdList) {
+                            if (cmd != null) {
+                                commands.add(cmd.toString());
+                            }
+                        }
                     }
                 }
 
                 ConfigTypes.ActionDefinition action = new ConfigTypes.ActionDefinition(actionName, commands, shouldLog);
                 boolean includeEmpty = options == null || options.isIncludeEmptyActions();
                 if (includeEmpty || !action.isEmpty() || shouldLog) {
+                    // last write wins
                     result.getActionsMap().put(actionName, action);
                 }
             }
         }
 
-        private static void loadModeFile(File file,
-                                         String key,
-                                         String mode,
-                                         String defaultAction,
-                                         Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
-                                         Set<String> activeSet,
-                                         ConfigFileBootstrap.Logger logger) {
-            Map<String, Object> data = readYaml(file, logger);
-            if (data == null || !data.containsKey(key)) {
-                return;
+        private static List<Path> listYamlFiles(Path configDir, ConfigFileBootstrap.Logger logger) {
+            if (configDir == null) {
+                return Collections.emptyList();
+            }
+            try (var stream = Files.list(configDir)) {
+                List<Path> out = new ArrayList<>();
+                stream
+                    .filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                        return name.endsWith(".yml") || name.endsWith(".yaml");
+                    })
+                    .forEach(out::add);
+                return out;
+            } catch (IOException e) {
+                if (logger != null) {
+                    logger.warn("Failed to list YAML files in config directory: " + e.getMessage());
+                }
+                return Collections.emptyList();
+            }
+        }
+
+        private static boolean readEnabledFlag(Map<String, Object> data, boolean defaultValue) {
+            if (data == null || !data.containsKey("enabled")) {
+                return defaultValue;
+            }
+            Object enabledObj = data.get("enabled");
+            if (enabledObj instanceof Boolean) {
+                return (Boolean) enabledObj;
+            }
+            if (enabledObj == null) {
+                return defaultValue;
+            }
+            String s = enabledObj.toString().trim().toLowerCase(Locale.ROOT);
+            if (s.isEmpty()) {
+                return defaultValue;
+            }
+            return s.equals("true") || s.equals("on") || s.equals("yes") || s.equals("1");
+        }
+
+        private static boolean loadIgnoredSection(Object ignoredObj,
+                                                  Set<String> ignoredMods,
+                                                  ConfigFileBootstrap.Logger logger,
+                                                  String fileName) {
+            if (ignoredObj == null) {
+                return false;
             }
 
-            Object obj = data.get(key);
+            if (ignoredObj instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<Object> ignoredList = (List<Object>) ignoredObj;
+                for (Object mod : ignoredList) {
+                    if (mod == null) {
+                        continue;
+                    }
+                    ConfigTypes.ModEntry entry = ConfigTypes.ModEntry.parse(mod.toString());
+                    if (entry != null && entry.modId() != null) {
+                        ignoredMods.add(entry.modId().toLowerCase(Locale.ROOT));
+                    }
+                }
+                return true;
+            }
+
+            if (logger != null) {
+                logger.warn("Invalid format in " + fileName + ": expected list format for ignored");
+            }
+            return true;
+        }
+
+        private static boolean loadModeSection(Object obj,
+                                               String mode,
+                                               String defaultAction,
+                                               Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
+                                               Set<String> activeSet,
+                                               ConfigFileBootstrap.Logger logger,
+                                               String fileName) {
+            if (obj == null) {
+                return false;
+            }
+
             if (obj instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> map = (Map<String, Object>) obj;
@@ -396,14 +531,17 @@ public final class ConfigIO {
                     activeSet.add(modId);
                     modConfigMap.put(modId, new ConfigTypes.ConfigState.ModConfig(mode, action, null));
                 }
-                return;
+                return true;
             }
 
             if (obj instanceof List) {
                 @SuppressWarnings("unchecked")
-                List<String> list = (List<String>) obj;
-                for (String mod : list) {
-                    ConfigTypes.ModEntry modEntry = ConfigTypes.ModEntry.parse(mod);
+                List<Object> list = (List<Object>) obj;
+                for (Object mod : list) {
+                    if (mod == null) {
+                        continue;
+                    }
+                    ConfigTypes.ModEntry modEntry = ConfigTypes.ModEntry.parse(mod.toString());
                     if (modEntry == null) {
                         continue;
                     }
@@ -411,26 +549,26 @@ public final class ConfigIO {
                     activeSet.add(modId);
                     modConfigMap.put(modId, new ConfigTypes.ConfigState.ModConfig(mode, defaultAction, null));
                 }
-                return;
+                return true;
             }
 
             if (logger != null) {
-                logger.warn("Invalid format in " + file.getName() + ": expected map or list");
+                logger.warn("Invalid format in " + fileName + ": expected map or list");
             }
+            return true;
         }
 
-        private static void loadOptionalMods(File file,
-                                             Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
-                                             Set<String> whitelistedActive,
-                                             Set<String> optionalActive,
-                                             String defaultAction,
-                                             ConfigFileBootstrap.Logger logger) {
-            Map<String, Object> data = readYaml(file, logger);
-            if (data == null || !data.containsKey("optional")) {
-                return;
+        private static boolean loadOptionalSection(Object obj,
+                                                   Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
+                                                   Set<String> whitelistedActive,
+                                                   Set<String> optionalActive,
+                                                   String defaultAction,
+                                                   ConfigFileBootstrap.Logger logger,
+                                                   String fileName) {
+            if (obj == null) {
+                return false;
             }
 
-            Object obj = data.get("optional");
             if (obj instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> map = (Map<String, Object>) obj;
@@ -446,14 +584,17 @@ public final class ConfigIO {
                         modConfigMap.put(modId, new ConfigTypes.ConfigState.ModConfig(ConfigTypes.ConfigState.MODE_ALLOWED, action, null));
                     }
                 }
-                return;
+                return true;
             }
 
             if (obj instanceof List) {
                 @SuppressWarnings("unchecked")
-                List<String> list = (List<String>) obj;
-                for (String mod : list) {
-                    ConfigTypes.ModEntry modEntry = ConfigTypes.ModEntry.parse(mod);
+                List<Object> list = (List<Object>) obj;
+                for (Object mod : list) {
+                    if (mod == null) {
+                        continue;
+                    }
+                    ConfigTypes.ModEntry modEntry = ConfigTypes.ModEntry.parse(mod.toString());
                     if (modEntry == null) {
                         continue;
                     }
@@ -463,12 +604,13 @@ public final class ConfigIO {
                         modConfigMap.put(modId, new ConfigTypes.ConfigState.ModConfig(ConfigTypes.ConfigState.MODE_ALLOWED, defaultAction, null));
                     }
                 }
-                return;
+                return true;
             }
 
             if (logger != null) {
-                logger.warn("Invalid format in " + file.getName() + ": expected map or list for optional mods");
+                logger.warn("Invalid format in " + fileName + ": expected map or list for optional");
             }
+            return true;
         }
 
         private static void createWhitelistedTemplate(File file, ConfigFileBootstrap.Logger logger) {
@@ -536,8 +678,17 @@ public final class ConfigIO {
         private static void writeConfigYml(Path configPath,
                                            ConfigFileBootstrap.Logger logger,
                                            ConfigTypes.ConfigLoadResult data) {
+            // Try to update existing file in-place to preserve order/comments.
+            if (updateConfigFileInPlace(configPath, data, logger)) {
+                return;
+            }
+
             Map<String, Object> root = readYamlObject(configPath, logger);
             root.put("config", "v4");
+
+            // Debug logging / verbosity toggle
+            root.put("debug", data.isDebug());
+
             root.put("behavior", data.getBehavior().toString().toLowerCase(Locale.ROOT));
             root.put("integrity-mode", data.getIntegrityMode().toString().toLowerCase(Locale.ROOT));
             root.put("whitelist", data.isWhitelist());
@@ -574,6 +725,176 @@ public final class ConfigIO {
             writeYamlObject(configPath, root, logger, "config.yml");
         }
 
+        private static boolean updateConfigFileInPlace(Path configPath,
+                                                       ConfigTypes.ConfigLoadResult data,
+                                                       ConfigFileBootstrap.Logger logger) {
+            File file = configPath.toFile();
+            if (!file.exists()) {
+                return false;
+            }
+
+            List<String> lines;
+            try {
+                lines = Files.readAllLines(configPath);
+            } catch (IOException e) {
+                if (logger != null) {
+                    logger.warn("Failed to read config.yml for in-place update: " + e.getMessage());
+                }
+                return false;
+            }
+
+            boolean changed = false;
+            changed |= updateRootKey(lines, "config", "v4");
+            changed |= updateRootKey(lines, "debug", String.valueOf(data.isDebug()));
+            changed |= updateRootKey(lines, "behavior", data.getBehavior().toString().toLowerCase(Locale.ROOT));
+            changed |= updateRootKey(lines, "integrity-mode", data.getIntegrityMode().toString().toLowerCase(Locale.ROOT));
+            changed |= updateRootKey(lines, "whitelist", String.valueOf(data.isWhitelist()));
+            changed |= updateRootKey(lines, "allow-bedrock-players", String.valueOf(data.isAllowBedrockPlayers()));
+            changed |= updateRootKey(lines, "handshake-timeout-seconds", String.valueOf(data.getHandshakeTimeoutSeconds()));
+            changed |= updateRootKey(lines, "playerdb-enabled", String.valueOf(data.isPlayerdbEnabled()));
+            changed |= updateRootKey(lines, "mods-required-enabled", String.valueOf(data.areModsRequiredEnabled()));
+            changed |= updateRootKey(lines, "mods-blacklisted-enabled", String.valueOf(data.areModsBlacklistedEnabled()));
+            changed |= updateRootKey(lines, "mods-whitelisted-enabled", String.valueOf(data.areModsWhitelistedEnabled()));
+            changed |= updateRootKey(lines, "hash-mods", String.valueOf(data.isHashMods()));
+            changed |= updateRootKey(lines, "mod-versioning", String.valueOf(data.isModVersioning()));
+
+            Map<String, String> messageUpdates = new LinkedHashMap<>();
+            if (data.getKickMessage() != null) {
+                messageUpdates.put("kick", data.getKickMessage());
+            }
+            if (data.getNoHandshakeKickMessage() != null) {
+                messageUpdates.put("no-handshake", data.getNoHandshakeKickMessage());
+            }
+            if (data.getMissingWhitelistModMessage() != null) {
+                messageUpdates.put("missing-whitelist", data.getMissingWhitelistModMessage());
+            }
+            if (data.getInvalidSignatureKickMessage() != null) {
+                messageUpdates.put("invalid-signature", data.getInvalidSignatureKickMessage());
+            }
+            for (Map.Entry<String, String> entry : data.getMessages().entrySet()) {
+                if (entry.getValue() != null) {
+                    messageUpdates.put(entry.getKey(), entry.getValue());
+                }
+            }
+            changed |= updateMessageKeys(lines, messageUpdates);
+
+            if (!changed) {
+                return true; // Nothing to change, but no need to rewrite.
+            }
+
+            try {
+                Files.write(configPath, lines);
+                return true;
+            } catch (IOException e) {
+                if (logger != null) {
+                    logger.warn("Failed to update config.yml in place: " + e.getMessage());
+                }
+                return false;
+            }
+        }
+
+        private static boolean updateRootKey(List<String> lines, String key, String value) {
+            String prefix = key + ":";
+            String replacement = prefix + " " + formatYamlValue(value);
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (line == null) {
+                    continue;
+                }
+                if (!line.startsWith(" ") && line.trim().startsWith(prefix)) {
+                    lines.set(i, replacement);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static boolean updateMessageKeys(List<String> lines, Map<String, String> messageUpdates) {
+            if (messageUpdates == null || messageUpdates.isEmpty()) {
+                return false;
+            }
+
+            int messagesLine = -1;
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (line == null) {
+                    continue;
+                }
+                if (!line.startsWith(" ") && line.trim().startsWith("messages:")) {
+                    messagesLine = i;
+                    break;
+                }
+            }
+
+            if (messagesLine == -1) {
+                return false;
+            }
+
+            int end = lines.size();
+            for (int i = messagesLine + 1; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (line == null) {
+                    continue;
+                }
+                if (!line.startsWith(" ") && !line.trim().isEmpty() && !line.trim().startsWith("#")) {
+                    end = i;
+                    break;
+                }
+            }
+
+            boolean changed = false;
+            for (Map.Entry<String, String> entry : messageUpdates.entrySet()) {
+                String key = entry.getKey();
+                String prefix = "  " + key + ":";
+                String replacement = prefix + " " + formatYamlValue(entry.getValue());
+                boolean updated = false;
+                for (int i = messagesLine + 1; i < end; i++) {
+                    String line = lines.get(i);
+                    if (line == null) {
+                        continue;
+                    }
+                    if (line.startsWith("  ") && line.trim().startsWith(key + ":")) {
+                        lines.set(i, replacement);
+                        updated = true;
+                        changed = true;
+                        break;
+                    }
+                }
+                if (!updated) {
+                    lines.add(end, replacement);
+                    end++;
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
+        private static String formatYamlValue(String value) {
+            if (value == null) {
+                return "null";
+            }
+
+            String trimmed = value.trim();
+            if (trimmed.equalsIgnoreCase("true") || trimmed.equalsIgnoreCase("false")) {
+                return trimmed.toLowerCase(Locale.ROOT);
+            }
+
+            boolean isNumber = true;
+            for (int i = 0; i < trimmed.length(); i++) {
+                char c = trimmed.charAt(i);
+                if (!Character.isDigit(c)) {
+                    isNumber = false;
+                    break;
+                }
+            }
+            if (isNumber && !trimmed.isEmpty()) {
+                return trimmed;
+            }
+
+            String escaped = trimmed.replace("\\", "\\\\").replace("\"", "\\\"");
+            return "\"" + escaped + "\"";
+        }
+
         private static void writeModsYamlFiles(Path configDir,
                                                ConfigFileBootstrap.Logger logger,
                                                ConfigTypes.ConfigLoadResult data) {
@@ -593,9 +914,11 @@ public final class ConfigIO {
                                              Set<String> ignoredMods) {
             Map<String, Object> root = readYamlObject(file, logger);
             if (ignoredMods == null || ignoredMods.isEmpty()) {
-                return;
+                // Remove the key if list is empty
+                root.remove("ignored");
+            } else {
+                root.put("ignored", toSortedList(ignoredMods));
             }
-            root.put("ignored", toSortedList(ignoredMods));
             writeYamlObject(file, root, logger, file.getFileName().toString());
         }
 
@@ -605,17 +928,34 @@ public final class ConfigIO {
                                                  Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
                                                  Set<String> optionalMods) {
             Map<String, Object> root = readYamlObject(file, logger);
-            boolean hasWhitelisted = whitelistedMods != null && !whitelistedMods.isEmpty();
+            
+            // Separate whitelisted mods from optional mods
+            Set<String> pureWhitelisted = new LinkedHashSet<>();
+            if (whitelistedMods != null) {
+                for (String mod : whitelistedMods) {
+                    if (optionalMods == null || !optionalMods.contains(mod)) {
+                        pureWhitelisted.add(mod);
+                    }
+                }
+            }
+            
+            boolean hasWhitelisted = !pureWhitelisted.isEmpty();
             boolean hasOptional = optionalMods != null && !optionalMods.isEmpty();
-            if (!hasWhitelisted && !hasOptional) {
-                return;
-            }
+            
+            // Remove or update whitelisted section
             if (hasWhitelisted) {
-                root.put("whitelisted", buildModeMap(whitelistedMods, modConfigMap, "none"));
+                root.put("whitelisted", buildModeMap(pureWhitelisted, modConfigMap, "none"));
+            } else {
+                root.remove("whitelisted");
             }
+            
+            // Remove or update optional section
             if (hasOptional) {
-                root.put("optional", toSortedList(optionalMods));
+                root.put("optional", buildModeMap(optionalMods, modConfigMap, "none"));
+            } else {
+                root.remove("optional");
             }
+            
             writeYamlObject(file, root, logger, file.getFileName().toString());
         }
 
@@ -626,11 +966,13 @@ public final class ConfigIO {
                                          Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
                                          String defaultAction,
                                          String fileName) {
-            if (mods == null || mods.isEmpty()) {
-                return;
-            }
             Map<String, Object> root = readYamlObject(file, logger);
-            root.put(rootKey, buildModeMap(mods, modConfigMap, defaultAction));
+            if (mods == null || mods.isEmpty()) {
+                // Remove the key if list is empty
+                root.remove(rootKey);
+            } else {
+                root.put(rootKey, buildModeMap(mods, modConfigMap, defaultAction));
+            }
             writeYamlObject(file, root, logger, fileName);
         }
 

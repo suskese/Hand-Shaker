@@ -14,6 +14,7 @@ import me.mklv.handshaker.common.commands.CommandModUtil;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
+import me.mklv.handshaker.common.configs.ModListFiles;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -724,49 +725,63 @@ public class HandShakerCommand {
         String action = StringArgumentType.getString(ctx, "action").toLowerCase();
         ConfigManager config = HandShakerServer.getInstance().getConfigManager();
 
-        if (!action.equals("on") && !action.equals("off")) {
-            ctx.getSource().sendFeedback(() -> Text.literal("✗ Action must be 'on' or 'off'").formatted(Formatting.RED), true);
+        Boolean enable = parseEnableFlag(action);
+        if (enable == null) {
+            ctx.getSource().sendFeedback(() -> Text.literal("✗ Action must be on/off/true/false").formatted(Formatting.RED), true);
             return Command.SINGLE_SUCCESS;
         }
 
-        boolean isActive = action.equals("on");
-        String displayName;
-        boolean newState;
-
         switch (listName) {
             case "mods_required" -> {
-                newState = config.toggleRequiredModsActive();
-                displayName = "Required Mods";
-                if (isActive && config.getRequiredMods().isEmpty()) {
-                    ctx.getSource().sendMessage(Text.literal("⚠ Warning: No required mods configured in mods-required.yml").formatted(Formatting.YELLOW));
-                }
+                config.setModsRequiredEnabledState(enable);
+                config.save();
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ Required Mods turned " + (enable ? "ON" : "OFF")).formatted(Formatting.GREEN), true);
             }
             case "mods_blacklisted" -> {
-                newState = config.toggleBlacklistedModsActive();
-                displayName = "Blacklisted Mods";
-                if (isActive && config.getBlacklistedMods().isEmpty()) {
-                    ctx.getSource().sendMessage(Text.literal("⚠ Warning: No blacklisted mods configured in mods-blacklisted.yml").formatted(Formatting.YELLOW));
-                }
+                config.setModsBlacklistedEnabledState(enable);
+                config.save();
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ Blacklisted Mods turned " + (enable ? "ON" : "OFF")).formatted(Formatting.GREEN), true);
             }
             case "mods_whitelisted" -> {
-                newState = config.toggleWhitelistedModsActive();
-                displayName = "Whitelisted Mods";
-                if (isActive && config.getWhitelistedMods().isEmpty()) {
-                    ctx.getSource().sendMessage(Text.literal("⚠ Warning: No whitelisted mods configured in mods-whitelisted.yml").formatted(Formatting.YELLOW));
-                }
+                config.setModsWhitelistedEnabledState(enable);
+                config.save();
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ Whitelisted Mods turned " + (enable ? "ON" : "OFF")).formatted(Formatting.GREEN), true);
             }
             default -> {
-                ctx.getSource().sendFeedback(() -> Text.literal("✗ Unknown list: " + listName).formatted(Formatting.RED), true);
-                ctx.getSource().sendMessage(Text.literal("Available lists: mods_required, mods_blacklisted, mods_whitelisted").formatted(Formatting.GRAY));
-                return Command.SINGLE_SUCCESS;
+                var logger = new me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap.Logger() {
+                    @Override public void info(String message) { HandShakerServer.LOGGER.info(message); }
+                    @Override public void warn(String message) { HandShakerServer.LOGGER.warn(message); }
+                    @Override public void error(String message, Throwable error) { HandShakerServer.LOGGER.error(message, error); }
+                };
+
+                java.nio.file.Path listFile = ModListFiles.findListFile(config.getConfigDirPath(), listName);
+                if (listFile == null) {
+                    ctx.getSource().sendFeedback(() -> Text.literal("✗ Unknown list file: " + listName + " (expected <name>.yml in config/HandShaker)").formatted(Formatting.RED), true);
+                    return Command.SINGLE_SUCCESS;
+                }
+                if (!ModListFiles.setListEnabled(listFile, enable, logger)) {
+                    ctx.getSource().sendFeedback(() -> Text.literal("✗ Failed to update list file: " + listFile.getFileName()).formatted(Formatting.RED), true);
+                    return Command.SINGLE_SUCCESS;
+                }
+                config.load();
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ " + listFile.getFileName() + " enabled=" + (enable ? "true" : "false")).formatted(Formatting.GREEN), true);
             }
         }
 
-        final String finalDisplayName = displayName;
-        final boolean finalNewState = newState;
-        ctx.getSource().sendFeedback(() -> Text.literal("✓ " + finalDisplayName + " turned " + (finalNewState ? "ON" : "OFF")).formatted(Formatting.GREEN), true);
         HandShakerServer.getInstance().checkAllPlayers();
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static Boolean parseEnableFlag(String value) {
+        if (value == null) {
+            return null;
+        }
+        String v = value.trim().toLowerCase(Locale.ROOT);
+        return switch (v) {
+            case "on", "true", "yes", "1" -> Boolean.TRUE;
+            case "off", "false", "no", "0" -> Boolean.FALSE;
+            default -> null;
+        };
     }
 
     private static boolean isValidMode(String mode) {

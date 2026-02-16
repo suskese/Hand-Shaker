@@ -297,7 +297,7 @@ public final class ModChecks {
                 Map<String, String> allowedActions = new LinkedHashMap<>();
                 for (ConfigTypes.ModEntry clientMod : parsedMods) {
                     ConfigTypes.ConfigState.ModConfig cfg = findMatchingConfig(clientMod, input);
-                    if (cfg != null && cfg.isAllowed() && isHashAccepted(clientMod, input)) {
+                    if (cfg != null && (cfg.isAllowed() || cfg.isRequired()) && isHashAccepted(clientMod, input)) {
                         String action = cfg.getActionName();
                         if (action != null && !action.equalsIgnoreCase("none")) {
                             allowedActions.put(clientMod.toDisplayKey(), action);

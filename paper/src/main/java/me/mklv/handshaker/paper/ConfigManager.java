@@ -44,6 +44,9 @@ public class ConfigManager extends CommonConfigManagerBase {
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, false, true, "none", false);
         loadCommon(dataFolder.toPath(), plugin.getClass(), bootstrapLogger, options);
+
+        // Ensure reload applies debug toggle immediately
+        HandShakerPlugin.DEBUG = isDebug();
     }
     public ActionDefinition getActionOrDefault(String actionName, ActionDefinition defaultAction) {
         if (actionName == null) return defaultAction;

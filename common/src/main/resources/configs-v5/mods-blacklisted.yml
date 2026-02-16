@@ -1,4 +1,4 @@
-# Blacklisted mods: modname: kick/ban
+# Blacklisted mods: mod_id:version|null: kick/ban/custom
 # If a player has any of these mods, they will be kicked
 
 blacklisted:

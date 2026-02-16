@@ -1,0 +1,29 @@
+enabled: true
+actions:
+  test_action:
+    commands:
+      - "msg {player} {messages.test_action}"
+      - "give {player} minecraft:diamond 1"
+      - "say Say Hello to {player}, who is using {mod}!"
+
+  watchdog:
+    commands:
+      - "ac increase_alert_level {player} 1000"
+
+required:
+  hand-shaker:7.0.0: none
+
+whitelisted:
+  sodium:null: none
+
+optional:
+  jade:null: none
+
+blacklisted:
+  xray:null: ban
+  forge:null: kick
+  sus_mod:null: watchdog
+
+ignored:
+  - fabric-api
+  - fabric-loader

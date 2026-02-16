@@ -20,6 +20,7 @@ import me.mklv.handshaker.fabric.server.HandShakerServer;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 
 import java.io.*;
+import java.nio.file.Path;
 import java.util.*;
 
 public class ConfigManager extends CommonConfigManagerBase {
@@ -28,6 +29,10 @@ public class ConfigManager extends CommonConfigManagerBase {
     public ConfigManager() {
         File configRootDir = FabricLoader.getInstance().getConfigDir().toFile();
         this.configDir = new File(configRootDir, "HandShaker");
+    }
+
+    public Path getConfigDirPath() {
+        return configDir.toPath();
     }
 
     public void load() {
@@ -52,6 +57,8 @@ public class ConfigManager extends CommonConfigManagerBase {
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, true, true, "kick", true);
         loadCommon(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
+
+        HandShakerServer.DEBUG_MODE = isDebug();
     }
 
     public boolean toggleWhitelistedModsActive() {
@@ -138,6 +145,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             blacklistedModsActive,
             whitelistedModsActive,
+            optionalModsActive,
             modId,
             mode,
             action,
@@ -155,6 +163,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             blacklistedModsActive,
             whitelistedModsActive,
+            optionalModsActive,
             modId
         );
         if (removed) {
@@ -182,6 +191,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             blacklistedModsActive,
             whitelistedModsActive,
+            optionalModsActive,
             "none",
             "kick"
         );

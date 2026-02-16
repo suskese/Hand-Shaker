@@ -12,6 +12,7 @@ import me.mklv.handshaker.common.commands.CommandModUtil;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
+import me.mklv.handshaker.common.configs.ModListFiles;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -489,6 +490,8 @@ public class HandShakerCommand {
         ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
         
         boolean enable = action.equalsIgnoreCase("on") || action.equalsIgnoreCase("true");
+
+        boolean shouldSaveConfig = true;
         
         switch (list.toLowerCase(Locale.ROOT)) {
             case "mods_required" -> {
@@ -503,10 +506,31 @@ public class HandShakerCommand {
                 config.setModsWhitelistedEnabledState(enable);
                 ctx.getSource().sendSuccess(() -> Component.literal("✓ Whitelisted mods " + (enable ? "enabled" : "disabled")), true);
             }
-            default -> ctx.getSource().sendFailure(Component.literal("Unknown list: " + list + ". Use: mods_required, mods_blacklisted, or mods_whitelisted"));
+            default -> {
+                shouldSaveConfig = false;
+                var logger = new me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap.Logger() {
+                    @Override public void info(String message) { HandShakerServerMod.LOGGER.info(message); }
+                    @Override public void warn(String message) { HandShakerServerMod.LOGGER.warn(message); }
+                    @Override public void error(String message, Throwable error) { HandShakerServerMod.LOGGER.error(message, error); }
+                };
+
+                java.nio.file.Path listFile = ModListFiles.findListFile(config.getConfigDirPath(), list);
+                if (listFile == null) {
+                    ctx.getSource().sendFailure(Component.literal("Unknown list file: " + list + " (expected <name>.yml in config/HandShaker)"));
+                    break;
+                }
+                if (!ModListFiles.setListEnabled(listFile, enable, logger)) {
+                    ctx.getSource().sendFailure(Component.literal("Failed to update list file: " + listFile.getFileName()));
+                    break;
+                }
+                config.load();
+                ctx.getSource().sendSuccess(() -> Component.literal("✓ " + listFile.getFileName() + " enabled=" + (enable ? "true" : "false")), true);
+            }
         }
 
-        config.save();
+        if (shouldSaveConfig) {
+            config.save();
+        }
         
         HandShakerServerMod.getInstance().checkAllPlayers();
         return Command.SINGLE_SUCCESS;

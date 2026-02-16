@@ -251,6 +251,7 @@ public final class ConfigTypes {
     }
 
     public static final class ConfigLoadResult {
+        private boolean debug = false;
         private ConfigState.Behavior behavior = ConfigState.Behavior.STRICT;
         private ConfigState.IntegrityMode integrityMode = ConfigState.IntegrityMode.SIGNED;
         private String kickMessage = StandardMessages.DEFAULT_KICK_MESSAGE;
@@ -275,6 +276,14 @@ public final class ConfigTypes {
         private final Set<String> requiredModsActive = new LinkedHashSet<>();
         private final Set<String> optionalModsActive = new LinkedHashSet<>();
         private final Map<String, ActionDefinition> actionsMap = new LinkedHashMap<>();
+
+        public boolean isDebug() {
+            return debug;
+        }
+
+        public void setDebug(boolean debug) {
+            this.debug = debug;
+        }
 
         public ConfigState.Behavior getBehavior() {
             return behavior;

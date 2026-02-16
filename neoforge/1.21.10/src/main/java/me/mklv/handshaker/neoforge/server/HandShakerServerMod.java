@@ -137,7 +137,9 @@ public class HandShakerServerMod {
                     return;
                 }
                 Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
-                LOGGER.info("Received mod list from {} with nonce: {}", player.getName().getString(), payload.nonce());
+                if (isDebugMode()) {
+                    LOGGER.info("Received mod list from {} with nonce: {}", player.getName().getString(), payload.nonce());
+                }
 
                 if (playerHistoryDb != null) {
                     playerHistoryDb.syncPlayerMods(player.getUUID(), player.getName().getString(), mods);
@@ -215,8 +217,10 @@ public class HandShakerServerMod {
                         // Client sent a local verification flag: {1} = verified, {0} = not verified
                         boolean signatureVerified = clientSignature[0] == 1;
                         if (signatureVerified) {
-                            LOGGER.info("Integrity check for {}: JAR signature VERIFIED locally by client (hash: {})", 
-                                player.getName().getString(), jarHash.substring(0, Math.min(8, jarHash.length())));
+                            if (isDebugMode()) {
+                                LOGGER.info("Integrity check for {}: JAR signature VERIFIED locally by client (hash: {})", 
+                                    player.getName().getString(), jarHash.substring(0, Math.min(8, jarHash.length())));
+                            }
                             verified = true;
                         } else {
                             LOGGER.warn("Integrity check for {}: client reported signature NOT verified", player.getName().getString());
@@ -231,7 +235,9 @@ public class HandShakerServerMod {
                             try {
                                 verified = verifySignatureWithPublicKey(jarHash, clientSignature);
                                 if (verified) {
-                                    LOGGER.info("Integrity check for {}: JAR SIGNED with VALID SIGNATURE (hash: {})", player.getName().getString(), jarHash.substring(0, Math.min(8, jarHash.length())));
+                                    if (isDebugMode()) {
+                                        LOGGER.info("Integrity check for {}: JAR SIGNED with VALID SIGNATURE (hash: {})", player.getName().getString(), jarHash.substring(0, Math.min(8, jarHash.length())));
+                                    }
                                 } else {
                                     LOGGER.warn("Integrity check for {}: signature verification FAILED - signature was not created with our key", player.getName().getString());
                                 }
@@ -249,7 +255,11 @@ public class HandShakerServerMod {
                     verified = false;
                 }
                 
-                LOGGER.info("Integrity check for {} with nonce {}: {}", player.getName().getString(), payload.nonce(), verified ? "PASSED" : "FAILED");
+                if (isDebugMode()) {
+                    LOGGER.info("Integrity check for {} with nonce {}: {}", player.getName().getString(), payload.nonce(), verified ? "PASSED" : "FAILED");
+                } else {
+                    LOGGER.info("{} - Integrity: {}", player.getName().getString(), verified ? "PASSED" : "FAILED");
+                }
 
                 final boolean finalVerified = verified;
                 clients.compute(player.getUUID(), (uuid, oldInfo) ->
@@ -283,7 +293,11 @@ public class HandShakerServerMod {
                 String signatureHash = payload.signatureHash();
                 boolean verified = signatureHash != null && !signatureHash.isEmpty();
 
-                LOGGER.info("Velton check for {} with nonce {}: {}", player.getName().getString(), payload.nonce(), verified ? "PASSED" : "FAILED");
+                if (isDebugMode()) {
+                    LOGGER.info("Velton check for {} with nonce {}: {}", player.getName().getString(), payload.nonce(), verified ? "PASSED" : "FAILED");
+                } else {
+                    LOGGER.info("{} - Velton: {}", player.getName().getString(), verified ? "PASSED" : "FAILED");
+                }
 
                 if (!verified) {
                     LOGGER.warn("Kicking {} - Velton signature verification failed", player.getName().getString());
@@ -400,7 +414,9 @@ public class HandShakerServerMod {
         publicKey = CertLoader.loadPublicKey(HandShakerServerMod.class.getClassLoader(), "public.cer", new CertLoader.LogSink() {
             @Override
             public void info(String message) {
-                LOGGER.info(message);
+                if (isDebugMode()) {
+                    LOGGER.info(message);
+                }
             }
 
             @Override
@@ -413,7 +429,9 @@ public class HandShakerServerMod {
             signatureVerifier = new SignatureVerifier(publicKey, new SignatureVerifier.LogSink() {
                 @Override
                 public void info(String message) {
-                    LOGGER.info(message);
+                    if (isDebugMode()) {
+                        LOGGER.info(message);
+                    }
                 }
 
                 @Override
@@ -424,6 +442,10 @@ public class HandShakerServerMod {
         } else {
             signatureVerifier = null;
         }
+    }
+
+    private boolean isDebugMode() {
+        return blacklistConfig != null && blacklistConfig.isDebug();
     }
 
     private boolean verifySignatureWithPublicKey(String jarHash, byte[] signatureBytes) throws Exception {

@@ -23,6 +23,7 @@ public final class ConfigRuntime {
 
         public static ConfigTypes.ConfigLoadResult build(ConfigTypes.ConfigState.Behavior behavior,
                                                          ConfigTypes.ConfigState.IntegrityMode integrityMode,
+                                                         boolean debug,
                                                          String kickMessage,
                                                          String noHandshakeKickMessage,
                                                          String missingWhitelistModMessage,
@@ -45,6 +46,7 @@ public final class ConfigRuntime {
                                                          Set<String> optionalModsActive,
                                                          Map<String, ConfigTypes.ActionDefinition> actionsMap) {
             ConfigTypes.ConfigLoadResult snapshot = new ConfigTypes.ConfigLoadResult();
+            snapshot.setDebug(debug);
             snapshot.setBehavior(behavior);
             snapshot.setIntegrityMode(integrityMode);
             snapshot.setKickMessage(kickMessage);
@@ -135,6 +137,7 @@ public final class ConfigRuntime {
                                            Set<String> requiredModsActive,
                                            Set<String> blacklistedModsActive,
                                            Set<String> whitelistedModsActive,
+                                           Set<String> optionalModsActive,
                                            String modId,
                                            String mode,
                                            String action,
@@ -163,7 +166,7 @@ public final class ConfigRuntime {
             }
 
             if (mode != null) {
-                updateActiveSets(normalizedId, mode, requiredModsActive, blacklistedModsActive, whitelistedModsActive);
+                updateActiveSets(normalizedId, mode, requiredModsActive, blacklistedModsActive, whitelistedModsActive, optionalModsActive);
             }
         }
 
@@ -171,6 +174,7 @@ public final class ConfigRuntime {
                                               Set<String> requiredModsActive,
                                               Set<String> blacklistedModsActive,
                                               Set<String> whitelistedModsActive,
+                                              Set<String> optionalModsActive,
                                               String modId) {
             String normalizedId = normalizeModId(modId);
             if (normalizedId == null) {
@@ -182,6 +186,7 @@ public final class ConfigRuntime {
                 requiredModsActive.remove(normalizedId);
                 blacklistedModsActive.remove(normalizedId);
                 whitelistedModsActive.remove(normalizedId);
+                optionalModsActive.remove(normalizedId);
             }
             return removed;
         }
@@ -194,6 +199,7 @@ public final class ConfigRuntime {
                                       Set<String> requiredModsActive,
                                       Set<String> blacklistedModsActive,
                                       Set<String> whitelistedModsActive,
+                                      Set<String> optionalModsActive,
                                       String defaultAllowedAction,
                                       String defaultOtherAction) {
             if (mods == null) {
@@ -207,7 +213,7 @@ public final class ConfigRuntime {
                     continue;
                 }
                 modConfigMap.put(normalizedId, new ConfigTypes.ConfigState.ModConfig(mode, resolvedAction, warnMessage));
-                updateActiveSets(normalizedId, mode, requiredModsActive, blacklistedModsActive, whitelistedModsActive);
+                updateActiveSets(normalizedId, mode, requiredModsActive, blacklistedModsActive, whitelistedModsActive, optionalModsActive);
             }
         }
 
@@ -235,10 +241,12 @@ public final class ConfigRuntime {
                                              String mode,
                                              Set<String> requiredModsActive,
                                              Set<String> blacklistedModsActive,
-                                             Set<String> whitelistedModsActive) {
+                                             Set<String> whitelistedModsActive,
+                                             Set<String> optionalModsActive) {
             requiredModsActive.remove(modId);
             blacklistedModsActive.remove(modId);
             whitelistedModsActive.remove(modId);
+            optionalModsActive.remove(modId);
 
             String modeLower = mode.toLowerCase(Locale.ROOT);
             if (ConfigTypes.ConfigState.MODE_REQUIRED.equals(modeLower)) {
@@ -247,6 +255,10 @@ public final class ConfigRuntime {
                 blacklistedModsActive.add(modId);
             } else if (ConfigTypes.ConfigState.MODE_ALLOWED.equals(modeLower) || ConfigTypes.ConfigState.MODE_WHITELISTED.equals(modeLower)) {
                 whitelistedModsActive.add(modId);
+            } else if ("optional".equals(modeLower)) {
+                optionalModsActive.add(modId);
+                // Optional mods are also added to whitelisted for backwards compatibility
+                whitelistedModsActive.add(modId);
             }
         }
     }
@@ -254,6 +266,7 @@ public final class ConfigRuntime {
 
     // region CommonConfigManagerBase
     public abstract static class CommonConfigManagerBase {
+        protected boolean debug = false;
         protected ConfigTypes.ConfigState.Behavior behavior = ConfigTypes.ConfigState.Behavior.STRICT;
         protected ConfigTypes.ConfigState.IntegrityMode integrityMode = ConfigTypes.ConfigState.IntegrityMode.SIGNED;
         protected String kickMessage = ConfigTypes.StandardMessages.DEFAULT_KICK_MESSAGE;
@@ -301,6 +314,8 @@ public final class ConfigRuntime {
                 return;
             }
 
+            debug = result.isDebug();
+
             behavior = result.getBehavior();
             integrityMode = result.getIntegrityMode();
             kickMessage = result.getKickMessage();
@@ -347,6 +362,7 @@ public final class ConfigRuntime {
             ConfigTypes.ConfigLoadResult snapshot = ConfigSnapshotBuilder.build(
                 behavior,
                 integrityMode,
+                debug,
                 kickMessage,
                 noHandshakeKickMessage,
                 missingWhitelistModMessage,
@@ -371,6 +387,10 @@ public final class ConfigRuntime {
             );
 
             ConfigIO.ConfigWriter.writeAll(configDir, logger, snapshot);
+        }
+
+        public boolean isDebug() {
+            return debug;
         }
 
         public ConfigTypes.ConfigState.Behavior getBehavior() {
@@ -612,6 +632,7 @@ public final class ConfigRuntime {
                 requiredModsActive,
                 blacklistedModsActive,
                 whitelistedModsActive,
+                optionalModsActive,
                 modId,
                 mode,
                 action,
@@ -628,6 +649,7 @@ public final class ConfigRuntime {
                 requiredModsActive,
                 blacklistedModsActive,
                 whitelistedModsActive,
+                optionalModsActive,
                 modId
             );
         }
@@ -656,6 +678,7 @@ public final class ConfigRuntime {
                 requiredModsActive,
                 blacklistedModsActive,
                 whitelistedModsActive,
+                optionalModsActive,
                 "none",
                 "kick"
             );

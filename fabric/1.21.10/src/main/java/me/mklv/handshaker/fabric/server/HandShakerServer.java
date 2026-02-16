@@ -85,6 +85,8 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         
         configManager = new ConfigManager();
         configManager.load();
+
+        DEBUG_MODE = configManager.isDebug();
         
         loadPublicCertificate();
         
@@ -191,7 +193,9 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                         try {
                             verified = verifySignatureWithPublicKey(jarHash, clientSignature);
                             if (verified) {
-                                LOGGER.info("Integrity check for {}: JAR SIGNED with VALID SIGNATURE (hash: {})", playerName, StringUtils.truncate(jarHash, 8));
+                                if (DEBUG_MODE) {
+                                    LOGGER.info("Integrity check for {}: JAR SIGNED with VALID SIGNATURE (hash: {})", playerName, StringUtils.truncate(jarHash, 8));
+                                }
                             } else {
                                 LOGGER.warn("Integrity check for {}: signature verification FAILED - signature was not created with our key", playerName);
                             }
@@ -210,8 +214,10 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                     LOGGER.warn("Integrity check for {}: no JAR hash received", playerName);
                     verified = false;
                 }
-                if (HandShakerServer.DEBUG_MODE) {
+                if (DEBUG_MODE) {
                     LOGGER.info("Integrity check for {} with nonce {}: {}", playerName, payload.nonce(), verified ? "PASSED" : "FAILED");
+                } else {
+                    LOGGER.info("{} - Integrity: {}", playerName, verified ? "PASSED" : "FAILED");
                 }
                 final boolean finalVerified = verified;
                 clients.compute(player.getUuid(), (uuid, oldInfo) ->
@@ -274,7 +280,9 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                         try {
                             verified = verifySignatureWithPublicKey(jarHash, clientSignature);
                             if (verified) {
-                                LOGGER.info("Velton integrity check for {}: JAR SIGNED with VALID SIGNATURE (hash: {})", playerName, StringUtils.truncate(jarHash, 8));
+                                if (DEBUG_MODE) {
+                                    LOGGER.info("Velton integrity check for {}: JAR SIGNED with VALID SIGNATURE (hash: {})", playerName, StringUtils.truncate(jarHash, 8));
+                                }
                             } else {
                                 LOGGER.warn("Velton integrity check for {}: signature verification FAILED - signature was not created with our key", playerName);
                             }
@@ -294,8 +302,10 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                     verified = false;
                 }
                 
-                if (HandShakerServer.DEBUG_MODE) {
+                if (DEBUG_MODE) {
                     LOGGER.info("Velton check for {} with nonce {}: {}", playerName, payload.nonce(), verified ? "PASSED" : "FAILED");
+                } else {
+                    LOGGER.info("{} - Velton: {}", playerName, verified ? "PASSED" : "FAILED");
                 }
 
                 // Kick player if Velton signature is invalid/missing
@@ -383,7 +393,9 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         publicKey = CertLoader.loadPublicKey(HandShakerServer.class.getClassLoader(), "public.cer", new CertLoader.LogSink() {
             @Override
             public void info(String message) {
-                LOGGER.info(message);
+                if (DEBUG_MODE) {
+                    LOGGER.info(message);
+                }
             }
 
             @Override
@@ -396,7 +408,9 @@ public class HandShakerServer implements DedicatedServerModInitializer {
             signatureVerifier = new SignatureVerifier(publicKey, new SignatureVerifier.LogSink() {
                 @Override
                 public void info(String message) {
-                    LOGGER.info(message);
+                    if (DEBUG_MODE) {
+                        LOGGER.info(message);
+                    }
                 }
 
                 @Override

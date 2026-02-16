@@ -37,7 +37,19 @@ public class PluginProtocolHandler {
         
         // Load public key for signature verification
         PublicKey publicKey = loadPublicCertificate();
-        this.signatureVerifier = new SignatureVerifier(publicKey, logger);
+        this.signatureVerifier = new SignatureVerifier(publicKey, new SignatureVerifier.LogSink() {
+            @Override
+            public void info(String message) {
+                if (HandShakerPlugin.DEBUG) {
+                    logger.info(message);
+                }
+            }
+
+            @Override
+            public void warn(String message) {
+                logger.warning(message);
+            }
+        });
     }
 
     public void registerPluginChannels() {
@@ -66,7 +78,9 @@ public class PluginProtocolHandler {
         return CertLoader.loadPublicKey(plugin.getClass(), "/public.cer", new CertLoader.LogSink() {
             @Override
             public void info(String message) {
-                logger.info(message);
+                if (HandShakerPlugin.DEBUG) {
+                    logger.info(message);
+                }
             }
 
             @Override
@@ -228,7 +242,9 @@ public class PluginProtocolHandler {
             } else if (clientSignature.length >= 128) {
                 verified = signatureVerifier.verifySignature(jarHash, clientSignature);
                 if (verified) {
-                    logger.info("Integrity check for " + player.getName() + ": JAR SIGNED with VALID SIGNATURE (hash: " + jarHash.substring(0, 8) + ")");
+                    if (HandShakerPlugin.DEBUG) {
+                        logger.info("Integrity check for " + player.getName() + ": JAR SIGNED with VALID SIGNATURE (hash: " + jarHash.substring(0, 8) + ")");
+                    }
                 } else {
                     logger.warning("Integrity check for " + player.getName() + ": signature verification FAILED");
                 }
@@ -243,6 +259,8 @@ public class PluginProtocolHandler {
 
         if (HandShakerPlugin.DEBUG) {
             logger.info("Integrity check for " + player.getName() + " with nonce " + nonce + ": " + (verified ? "PASSED" : "FAILED"));
+        } else {
+            logger.info(player.getName() + " - Integrity: " + (verified ? "PASSED" : "FAILED"));
         }
 
         // Update client info
@@ -318,7 +336,9 @@ public class PluginProtocolHandler {
             } else if (clientSignature.length >= 128) {
                 verified = signatureVerifier.verifySignature(jarHash, clientSignature);
                 if (verified) {
-                    logger.info("Velton integrity check for " + player.getName() + ": JAR SIGNED with VALID SIGNATURE (hash: " + jarHash.substring(0, 8) + ")");
+                    if (HandShakerPlugin.DEBUG) {
+                        logger.info("Velton integrity check for " + player.getName() + ": JAR SIGNED with VALID SIGNATURE (hash: " + jarHash.substring(0, 8) + ")");
+                    }
                 } else {
                     logger.warning("Velton integrity check for " + player.getName() + ": signature verification FAILED");
                 }
@@ -333,6 +353,8 @@ public class PluginProtocolHandler {
 
         if (HandShakerPlugin.DEBUG) {
             logger.info("Velton check for " + player.getName() + " with nonce " + nonce + ": " + (verified ? "PASSED" : "FAILED"));
+        } else {
+            logger.info(player.getName() + " - Velton: " + (verified ? "PASSED" : "FAILED"));
         }
 
         if (!verified) {
@@ -391,20 +413,23 @@ public class PluginProtocolHandler {
             logger.info("[DEBUG] checkPlayerWithAction returned: " + (status != null ? "status(" + status.getActionName() + ")" : "null"));
         }
         
-        if (status != null && status.isViolation()) {
-            if (HandShakerPlugin.DEBUG) {
-                logger.info("[DEBUG] Player " + player.getName() + " has violation, kicking");
+        if (status != null) {
+            // Execute action first (if any), then kick if this is a violation.
+            // This allows blacklist/required/whitelist actions (ban, log, custom commands) to run.
+            if (player.isOnline()) {
+                if (HandShakerPlugin.DEBUG) {
+                    logger.info("[DEBUG] Executing action for " + player.getName() + ": " + status.getActionName());
+                }
+                executeAction(player, status.getActionName(), status.getMods());
             }
-            kickPlayer(player, status.getMessage());
-            return;
-        }
 
-        // Execute the action if player wasn't kicked
-        if (status != null && player.isOnline()) {
-            if (HandShakerPlugin.DEBUG) {
-                logger.info("[DEBUG] Executing action for " + player.getName() + ": " + status.getActionName());
+            if (status.isViolation()) {
+                if (HandShakerPlugin.DEBUG) {
+                    logger.info("[DEBUG] Player " + player.getName() + " has violation, kicking");
+                }
+                kickPlayer(player, status.getMessage());
+                return;
             }
-            executeAction(player, status.getActionName(), status.getMods());
         }
 
         // Mark as checked to prevent double execution

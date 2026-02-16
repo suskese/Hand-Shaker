@@ -27,6 +27,10 @@ public class ConfigManager extends CommonConfigManagerBase {
         this.configDir = new File(configRootDir, "HandShaker");
     }
 
+    public java.nio.file.Path getConfigDirPath() {
+        return configDir.toPath();
+    }
+
     public void load() {
         configDir.mkdirs();
 
@@ -59,6 +63,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             blacklistedModsActive,
             whitelistedModsActive,
+            optionalModsActive,
             modId,
             mode,
             action,
@@ -86,6 +91,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             blacklistedModsActive,
             whitelistedModsActive,
+            optionalModsActive,
             modId
         );
         if (removed) {
@@ -132,6 +138,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             blacklistedModsActive,
             whitelistedModsActive,
+            optionalModsActive,
             "none",
             "kick"
         );

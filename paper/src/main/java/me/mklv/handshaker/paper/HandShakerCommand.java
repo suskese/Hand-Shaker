@@ -5,6 +5,7 @@ import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.commands.CommandModUtil;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
+import me.mklv.handshaker.common.configs.ModListFiles;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -249,7 +250,7 @@ public class HandShakerCommand {
 
     private void handleAdd(CommandSender sender, String[] args, ConfigManager config) {
         if (args.length < 3) {
-            sender.sendMessage("§cUsage: /handshaker manage add <mod | *> <allowed | required | blacklisted> [action] [warn-message]");
+            sender.sendMessage("§cUsage: /handshaker manage add <mod | *> <allowed | required | blacklisted | optional> [action] [warn-message]");
             return;
         }
         
@@ -288,7 +289,7 @@ public class HandShakerCommand {
             plugin.checkAllPlayers();
         } else {
             if (args.length < 4) {
-                sender.sendMessage("§cUsage: /handshaker manage add <mod> <allowed|required|blacklisted> [action] [warn-message]");
+                sender.sendMessage("§cUsage: /handshaker manage add <mod> <allowed|required|blacklisted|optional> [action] [warn-message]");
                 return;
             }
             
@@ -306,7 +307,7 @@ public class HandShakerCommand {
 
     private void handleChange(CommandSender sender, String[] args, ConfigManager config) {
         if (args.length < 4) {
-            sender.sendMessage("§cUsage: /handshaker manage change <mod> <allowed|required|blacklisted> [action] [warn-message]");
+            sender.sendMessage("§cUsage: /handshaker manage change <mod> <allowed|required|blacklisted|optional> [action] [warn-message]");
             return;
         }
         
@@ -787,53 +788,74 @@ public class HandShakerCommand {
 
     private void handleMode(CommandSender sender, String[] args, ConfigManager config) {
         if (args.length < 3) {
-            sender.sendMessage("§cUsage: /handshaker mode <mods_required | mods_blacklisted | mods_whitelisted> <on | off>");
+            sender.sendMessage("§cUsage: /handshaker mode <list> <on|off|true|false>");
             return;
         }
 
         String listName = args[1].toLowerCase(Locale.ROOT);
         String action = args[2].toLowerCase(Locale.ROOT);
 
-        if (!action.equals("on") && !action.equals("off")) {
-            sender.sendMessage("§cAction must be 'on' or 'off'");
+        Boolean enable = parseEnableFlag(action);
+        if (enable == null) {
+            sender.sendMessage("§cAction must be on/off/true/false");
             return;
         }
 
-        boolean newState = false;
-        String displayName = "";
-
         switch (listName) {
             case "mods_required" -> {
-                newState = config.toggleRequiredModsActive();
-                displayName = "Required Mods";
-                if (action.equals("on") && config.getRequiredMods().isEmpty()) {
-                    sender.sendMessage("§eWarning: No required mods configured in mods-required.yml");
-                }
+                config.setModsRequiredEnabledState(enable);
+                sender.sendMessage("§aRequired Mods turned " + (enable ? "ON" : "OFF"));
+                config.save();
+                plugin.checkAllPlayers();
             }
             case "mods_blacklisted" -> {
-                newState = config.toggleBlacklistedModsActive();
-                displayName = "Blacklisted Mods";
-                if (action.equals("on") && config.getBlacklistedMods().isEmpty()) {
-                    sender.sendMessage("§eWarning: No blacklisted mods configured in mods-blacklisted.yml");
-                }
+                config.setModsBlacklistedEnabledState(enable);
+                sender.sendMessage("§aBlacklisted Mods turned " + (enable ? "ON" : "OFF"));
+                config.save();
+                plugin.checkAllPlayers();
             }
             case "mods_whitelisted" -> {
-                newState = config.toggleWhitelistedModsActive();
-                displayName = "Whitelisted Mods";
-                if (action.equals("on") && config.getWhitelistedMods().isEmpty()) {
-                    sender.sendMessage("§eWarning: No whitelisted mods configured in mods-whitelisted.yml");
-                }
+                config.setModsWhitelistedEnabledState(enable);
+                sender.sendMessage("§aWhitelisted Mods turned " + (enable ? "ON" : "OFF"));
+                config.save();
+                plugin.checkAllPlayers();
             }
             default -> {
-                sender.sendMessage("§cUnknown list: " + listName);
-                sender.sendMessage("§cAvailable lists: mods_required, mods_blacklisted, mods_whitelisted");
-                return;
+                var logger = new me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap.Logger() {
+                    @Override public void info(String message) { plugin.getLogger().info(message); }
+                    @Override public void warn(String message) { plugin.getLogger().warning(message); }
+                    @Override public void error(String message, Throwable error) { plugin.getLogger().severe(message + ": " + error.getMessage()); }
+                };
+
+                java.nio.file.Path configDir = plugin.getDataFolder().toPath();
+                java.nio.file.Path listFile = ModListFiles.findListFile(configDir, listName);
+                if (listFile == null) {
+                    sender.sendMessage("§cUnknown list file: " + listName + " (expected <name>.yml in plugin folder)");
+                    return;
+                }
+
+                if (!ModListFiles.setListEnabled(listFile, enable, logger)) {
+                    sender.sendMessage("§cFailed to update list file: " + listFile.getFileName());
+                    return;
+                }
+
+                config.load();
+                sender.sendMessage("§a" + listFile.getFileName() + " enabled=" + (enable ? "true" : "false"));
+                plugin.checkAllPlayers();
             }
         }
+    }
 
-        sender.sendMessage("§a" + displayName + " turned " + (newState ? "ON" : "OFF"));
-        config.save();
-        plugin.checkAllPlayers();
+    private static Boolean parseEnableFlag(String value) {
+        if (value == null) {
+            return null;
+        }
+        String v = value.trim().toLowerCase(Locale.ROOT);
+        return switch (v) {
+            case "on", "true", "yes", "1" -> Boolean.TRUE;
+            case "off", "false", "no", "0" -> Boolean.FALSE;
+            default -> null;
+        };
     }
 
     private void sendUsage(CommandSender sender) {
@@ -917,7 +939,14 @@ public class HandShakerCommand {
                 case "manage" -> { return StringUtil.copyPartialMatches(args[1], CommandSuggestionData.MANAGE_SUBCOMMANDS, new ArrayList<>()); }
             }
         }
+        if (args.length == 3 )
+            {
+                if (args[0].equalsIgnoreCase("mode") && (!args[1].isEmpty())) {
+                    return StringUtil.copyPartialMatches(args[2], CommandSuggestionData.BOOLEAN_VALUES, new ArrayList<>());
+                }
 
+
+            }
         if (args.length == 3) {
             if (args[0].equalsIgnoreCase("info") && args[1].equalsIgnoreCase("mod")) {
                 PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
