@@ -1,7 +1,5 @@
 package me.mklv.handshaker.common.configs;
 
-import me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap;
-
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
@@ -305,7 +303,7 @@ public final class ConfigRuntime {
                                         Class<?> resourceBase,
                                         ConfigFileBootstrap.Logger logger,
                                         ConfigTypes.ConfigLoadOptions options) {
-            ConfigTypes.ConfigLoadResult result = ConfigIO.ConfigLoader.load(configDir, resourceBase, logger, options);
+            ConfigTypes.ConfigLoadResult result = ConfigLoader.load(configDir, resourceBase, logger, options);
             applyLoadResult(result);
         }
 
@@ -386,7 +384,7 @@ public final class ConfigRuntime {
                 actionsMap
             );
 
-            ConfigIO.ConfigWriter.writeAll(configDir, logger, snapshot);
+            ConfigWriter.writeAll(configDir, logger, snapshot);
         }
 
         public boolean isDebug() {

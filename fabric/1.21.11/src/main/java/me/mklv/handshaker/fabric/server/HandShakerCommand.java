@@ -12,6 +12,7 @@ import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.commands.CommandModUtil;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.configs.ModListFiles;
@@ -748,7 +749,7 @@ public class HandShakerCommand {
                 ctx.getSource().sendFeedback(() -> Text.literal("✓ Whitelisted Mods turned " + (enable ? "ON" : "OFF")).formatted(Formatting.GREEN), true);
             }
             default -> {
-                var logger = new me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap.Logger() {
+                var logger = new ConfigFileBootstrap.Logger() {
                     @Override public void info(String message) { HandShakerServer.LOGGER.info(message); }
                     @Override public void warn(String message) { HandShakerServer.LOGGER.warn(message); }
                     @Override public void error(String message, Throwable error) { HandShakerServer.LOGGER.error(message, error); }

@@ -1,7 +1,5 @@
 package me.mklv.handshaker.common.configs;
 
-import me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

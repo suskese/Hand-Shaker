@@ -1,6 +1,6 @@
 package me.mklv.handshaker.paper;
 
-import me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap;
+import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
 import me.mklv.handshaker.common.configs.ConfigRuntime.CommonConfigManagerBase;
 import me.mklv.handshaker.common.configs.ConfigRuntime.MessagePlaceholderExpander;
 import me.mklv.handshaker.common.configs.ConfigTypes.ActionDefinition;

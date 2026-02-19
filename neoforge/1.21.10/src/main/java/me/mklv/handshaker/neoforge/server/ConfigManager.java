@@ -1,6 +1,6 @@
 package me.mklv.handshaker.neoforge.server;
 
-import me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap;
+import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
 import me.mklv.handshaker.common.configs.ConfigRuntime.CommonConfigManagerBase;
 import me.mklv.handshaker.common.configs.ConfigRuntime.ModConfigStore;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigLoadOptions;

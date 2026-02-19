@@ -3,7 +3,7 @@ package me.mklv.handshaker.fabric.server.configs;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
-import me.mklv.handshaker.common.configs.ConfigIO.ConfigFileBootstrap;
+import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
 import me.mklv.handshaker.common.configs.ConfigRuntime.CommonConfigManagerBase;
 import me.mklv.handshaker.common.configs.ConfigRuntime.MessagePlaceholderExpander;
 import me.mklv.handshaker.common.configs.ConfigRuntime.ModConfigStore;
