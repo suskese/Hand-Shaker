@@ -2,9 +2,11 @@ package me.mklv.handshaker.paper;
 
 import me.mklv.handshaker.common.configs.ConfigMigration.ConfigMigrator;
 import me.mklv.handshaker.paper.utils.HandShakerListener;
-import me.mklv.handshaker.paper.utils.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.database.SQLitePlayerHistoryDatabase;
 import me.mklv.handshaker.paper.utils.PluginProtocolHandler;
 import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.DatabaseLoggerAdapter;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -77,7 +79,7 @@ public class HandShakerPlugin extends JavaPlugin {
     }
 
     private void loadDatabase() {
-        playerHistoryDb = new PlayerHistoryDatabase(getDataFolder(), getLogger(), configManager.isPlayerdbEnabled());
+        playerHistoryDb = new SQLitePlayerHistoryDatabase(getDataFolder(), DatabaseLoggerAdapter.fromLoaderLogger(getLogger()), configManager.isPlayerdbEnabled());
     }
 
     @Override
@@ -90,25 +92,6 @@ public class HandShakerPlugin extends JavaPlugin {
         }
         clients.clear();
         getLogger().info("HandShaker plugin disabled");
-    }
-
-    public boolean validateAndSyncModList(Player player, String payload, String modListHash, String nonce) {
-        if (protocolHandler != null) {
-            return protocolHandler.validateAndSyncModList(player, payload, modListHash, nonce);
-        }
-        return false;
-    }
-
-    public void handleIntegrityCheck(Player player, byte[] clientSignature, String jarHash, String nonce) {
-        if (protocolHandler != null) {
-            protocolHandler.handleIntegrityCheck(player, clientSignature, jarHash, nonce);
-        }
-    }
-
-    public void handleVeltonPayload(Player player, byte[] clientSignature, String jarHash, String nonce) {
-        if (protocolHandler != null) {
-            protocolHandler.handleVeltonPayload(player, clientSignature, jarHash, nonce);
-        }
     }
 
     public void checkPlayer(Player player) {

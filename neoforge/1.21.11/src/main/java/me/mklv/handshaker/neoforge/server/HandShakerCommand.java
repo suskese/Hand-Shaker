@@ -9,11 +9,12 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.commands.CommandModUtil;
+import me.mklv.handshaker.common.commands.ModFingerprintRegistrar;
+import me.mklv.handshaker.common.commands.ModListToggler;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
-import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
-import me.mklv.handshaker.common.configs.ModListFiles;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -509,23 +510,18 @@ public class HandShakerCommand {
             }
             default -> {
                 shouldSaveConfig = false;
-                var logger = new ConfigFileBootstrap.Logger() {
-                    @Override public void info(String message) { HandShakerServerMod.LOGGER.info(message); }
-                    @Override public void warn(String message) { HandShakerServerMod.LOGGER.warn(message); }
-                    @Override public void error(String message, Throwable error) { HandShakerServerMod.LOGGER.error(message, error); }
-                };
-
-                java.nio.file.Path listFile = ModListFiles.findListFile(config.getConfigDirPath(), list);
-                if (listFile == null) {
+                var logger = LoggerAdapter.fromLoaderLogger(HandShakerServerMod.LOGGER);
+                var toggleResult = ModListToggler.toggleListDetailed(config.getConfigDirPath(), list, enable, logger);
+                if (toggleResult.status() == ModListToggler.ToggleStatus.NOT_FOUND) {
                     ctx.getSource().sendFailure(Component.literal("Unknown list file: " + list + " (expected <name>.yml in config/HandShaker)"));
                     break;
                 }
-                if (!ModListFiles.setListEnabled(listFile, enable, logger)) {
-                    ctx.getSource().sendFailure(Component.literal("Failed to update list file: " + listFile.getFileName()));
+                if (toggleResult.status() == ModListToggler.ToggleStatus.UPDATE_FAILED) {
+                    ctx.getSource().sendFailure(Component.literal("Failed to update list file: " + toggleResult.listFile().getFileName()));
                     break;
                 }
                 config.load();
-                ctx.getSource().sendSuccess(() -> Component.literal("✓ " + listFile.getFileName() + " enabled=" + (enable ? "true" : "false")), true);
+                ctx.getSource().sendSuccess(() -> Component.literal("✓ " + toggleResult.listFile().getFileName() + " enabled=" + (enable ? "true" : "false")), true);
             }
         }
 
@@ -707,30 +703,13 @@ public class HandShakerCommand {
     }
 
     private static void registerModFingerprint(ConfigManager config, String modToken) {
-        if (!config.isHashMods()) {
-            return;
-        }
-        PlayerHistoryDatabase db = HandShakerServerMod.getInstance().getPlayerHistoryDb();
-        if (db == null) {
-            return;
-        }
-
-        ModEntry requested = ModEntry.parse(modToken);
-        if (requested == null) {
-            return;
-        }
-
-        String requestedVersion = config.isModVersioning() ? requested.version() : null;
-        String resolvedHash = CommandModUtil.normalizeHash(requested.hash());
-        if (resolvedHash == null) {
-            resolvedHash = CommandModUtil.resolveHashFromConnectedClients(
-                HandShakerServerMod.getInstance().getClients().values(),
-                requested.modId(),
-                requestedVersion
-            );
-        }
-
-        db.registerModFingerprint(requested.modId(), requestedVersion, resolvedHash);
+        ModFingerprintRegistrar.registerFromCommand(
+            modToken,
+            HandShakerServerMod.getInstance().getPlayerHistoryDb(),
+            config.isHashMods(),
+            config.isModVersioning(),
+            HandShakerServerMod.getInstance().getClients().values()
+        );
     }
 
     private static int showPlayerMods(CommandContext<CommandSourceStack> ctx) {

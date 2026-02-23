@@ -1,4 +1,6 @@
-package me.mklv.handshaker.common.configs;
+package me.mklv.handshaker.common.utils;
+
+import me.mklv.handshaker.common.configs.ConfigTypes;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -8,6 +10,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+
+
 
 public final class ModChecks {
     private ModChecks() {

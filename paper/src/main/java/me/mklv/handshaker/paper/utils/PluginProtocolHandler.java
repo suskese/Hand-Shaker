@@ -4,12 +4,15 @@ import me.mklv.handshaker.paper.ConfigManager;
 import me.mklv.handshaker.paper.HandShakerPlugin;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import me.mklv.handshaker.common.configs.ConfigTypes.ActionDefinition;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckResult;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;
+import me.mklv.handshaker.common.protocols.PayloadValidation;
+import me.mklv.handshaker.common.protocols.PayloadValidation.PayloadValidationCallbacks;
+import me.mklv.handshaker.common.protocols.PayloadValidation.ValidationResult;
 import me.mklv.handshaker.common.utils.ClientInfo;
-import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 
 import net.kyori.adventure.text.Component;
@@ -27,6 +30,7 @@ public class PluginProtocolHandler {
     private final SignatureVerifier signatureVerifier;
     private final PayloadDecoder payloadDecoder;
     private final ConfigManager configManager;
+    private final PayloadValidation payloadValidator;
 
     public PluginProtocolHandler(HandShakerPlugin plugin, Map<UUID, ClientInfo> clients) {
         this.plugin = plugin;
@@ -50,6 +54,55 @@ public class PluginProtocolHandler {
                 logger.warning(message);
             }
         });
+
+        // Initialize unified payload validator with Paper-specific callbacks
+        this.payloadValidator = new PayloadValidation(
+            new PayloadValidationCallbacks() {
+                @Override
+                public String getMessageOrDefault(String key, String defaultMessage) {
+                    return configManager.getMessageOrDefault(key, defaultMessage);
+                }
+
+                @Override
+                public void logInfo(String format, Object... args) {
+                    logger.info(String.format(format, args));
+                }
+
+                @Override
+                public void logWarning(String format, Object... args) {
+                    logger.warning(String.format(format, args));
+                }
+
+                @Override
+                public void syncPlayerMods(UUID playerId, String playerName, Set<String> mods) {
+                    PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
+                    if (db != null) {
+                        plugin.getServer().getAsyncScheduler().runNow(plugin, task -> {
+                            try {
+                                db.syncPlayerMods(playerId, playerName, mods);
+                            } catch (Exception e) {
+                                logger.warning("Failed to sync player mods to database: " + e.getMessage());
+                            }
+                        });
+                    }
+                }
+
+                @Override
+                public void checkPlayer(UUID playerId, String playerName, ClientInfo info) {
+                    Player player = Bukkit.getPlayer(playerId);
+                    if (player != null) {
+                        // Mark info as checked and update in clients map
+                        ClientInfo checkedInfo = info.withChecked(true);
+                        clients.put(playerId, checkedInfo);
+                        // Call the checkPlayer logic
+                        PluginProtocolHandler.this.checkPlayer(player, clients);
+                    }
+                }
+            },
+            signatureVerifier,
+            clients
+        );
+        payloadValidator.setDebugMode(HandShakerPlugin.DEBUG);
     }
 
     public void registerPluginChannels() {
@@ -93,25 +146,19 @@ public class PluginProtocolHandler {
     private void handleModList(Player player, byte[] data) {
         try {
             String payload = payloadDecoder.decodeString(data);
-            if (payload == null) {
+            if (payload == null || payload.isBlank()) {
                 logger.warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
                 kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED));
-                return;
-            }
-            if (payload.isBlank()) {
-                logger.warning("Received empty mod list from " + player.getName() + ". Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_EMPTY_MOD_LIST,
-                    StandardMessages.HANDSHAKE_EMPTY_MOD_LIST));
                 return;
             }
 
             // Decode hash
             PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, calculateOffset(data, payload.length()));
             if (hashResult == null || hashResult.value == null || ((String) hashResult.value).isEmpty()) {
-                logger.warning("Received mod list from " + player.getName() + " with invalid/missing hash. Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_HASH,
-                    StandardMessages.HANDSHAKE_MISSING_HASH));
+                logger.warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
             String modListHash = (String) hashResult.value;
@@ -119,66 +166,28 @@ public class PluginProtocolHandler {
             // Decode nonce
             PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
             if (nonceResult == null || nonceResult.value == null || ((String) nonceResult.value).isEmpty()) {
-                logger.warning("Received mod list from " + player.getName() + " with invalid/missing nonce. Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
-                    StandardMessages.HANDSHAKE_MISSING_NONCE));
+                logger.warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
             String nonce = (String) nonceResult.value;
 
-            validateAndSyncModList(player, payload, modListHash, nonce);
+            // Ensure fabric flag is set for this player
+            clients.putIfAbsent(player.getUniqueId(), new ClientInfo(
+                true, new HashSet<>(), false, false, null, null, null, false));
+
+            // Delegate to unified validator
+            ValidationResult result = payloadValidator.validateModList(player.getUniqueId(), player.getName(), 
+                payload, modListHash, nonce);
+            if (!result.success) {
+                kickPlayer(player, result.errorMessage);
+            }
         } catch (Exception e) {
             logger.severe("Failed to decode mod list from " + player.getName() + ". Terminating connection: " + e.getMessage());
             kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                 StandardMessages.HANDSHAKE_CORRUPTED));
         }
-    }
-
-    public boolean validateAndSyncModList(Player player, String payload, String modListHash, String nonce) {
-        // Verify hash matches payload
-        String calculatedHash = HashUtils.sha256Hex(payload);
-        if (!calculatedHash.equals(modListHash)) {
-            if (HandShakerPlugin.DEBUG) {
-                logger.warning("Received mod list from " + player.getName() + " with mismatched hash. Expected " + calculatedHash + " but got " + modListHash);
-            }
-            kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_HASH_MISMATCH,
-                StandardMessages.HANDSHAKE_HASH_MISMATCH));
-            return false;
-        }
-
-        // Parse mod list
-        Set<String> mods = new HashSet<>();
-        if (!payload.isBlank()) {
-            for (String s : payload.split(",")) {
-                if (!s.isBlank()) mods.add(s.trim().toLowerCase(Locale.ROOT));
-            }
-        }
-
-        if (HandShakerPlugin.DEBUG) {
-            logger.info("Received mod list from " + player.getName() + " with nonce: " + nonce);
-        }
-
-        // Sync with database asynchronously (Folia-compatible)
-        PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
-        if (db != null) {
-            plugin.getServer().getAsyncScheduler().runNow(plugin, task -> {
-                try {
-                    db.syncPlayerMods(player.getUniqueId(), player.getName(), mods);
-                } catch (Exception dbEx) {
-                    logger.warning("Failed to sync player mods to database: " + dbEx.getMessage());
-                }
-            });
-        }
-
-        // Update client info
-        ClientInfo oldInfo = clients.get(player.getUniqueId());
-        if (oldInfo == null) {
-            clients.put(player.getUniqueId(), new ClientInfo(true, mods, false, false, nonce, null, null, false));
-        } else {
-            clients.put(player.getUniqueId(), new ClientInfo(true, mods, oldInfo.signatureVerified(), 
-                    oldInfo.veltonVerified(), nonce, oldInfo.integrityNonce(), oldInfo.veltonNonce(), false));
-        }
-        return true;
     }
 
     private void handleIntegrityPayload(Player player, byte[] data) {
@@ -192,40 +201,37 @@ public class PluginProtocolHandler {
                 return;
             }
             byte[] clientSignature = (byte[]) sigResult.value;
-            if (clientSignature == null || clientSignature.length == 0) {
-                logger.warning("Received integrity payload from " + player.getName() + " with invalid/missing signature. Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
-                    StandardMessages.HANDSHAKE_MISSING_SIGNATURE));
-                return;
-            }
-            if (clientSignature.length == 1) {
-                logger.warning("Received legacy integrity payload from " + player.getName() + ". Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_OUTDATED_CLIENT,
-                    StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE));
-                return;
-            }
 
             // Decode jar hash (string)
             PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, sigResult.offset);
-            if (hashResult == null || hashResult.value == null || ((String) hashResult.value).isEmpty()) {
-                logger.warning("Received integrity payload from " + player.getName() + " with invalid/missing jar hash. Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
-                    StandardMessages.HANDSHAKE_MISSING_JAR_HASH));
+            if (hashResult == null || hashResult.value == null) {
+                logger.warning("Failed to decode integrity payload from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
             String jarHash = (String) hashResult.value;
 
             // Decode nonce (string)
             PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
-            if (nonceResult == null || nonceResult.value == null || ((String) nonceResult.value).isEmpty()) {
-                logger.warning("Received integrity payload from " + player.getName() + " with invalid/missing nonce. Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
-                    StandardMessages.HANDSHAKE_MISSING_NONCE));
+            if (nonceResult == null || nonceResult.value == null) {
+                logger.warning("Failed to decode integrity payload from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
             String nonce = (String) nonceResult.value;
 
-            handleIntegrityCheck(player, clientSignature, jarHash, nonce);
+            // Ensure fabric flag is set for this player
+            clients.putIfAbsent(player.getUniqueId(), new ClientInfo(
+                true, new HashSet<>(), false, false, null, null, null, false));
+
+            // Delegate to unified validator
+            ValidationResult result = payloadValidator.validateIntegrity(player.getUniqueId(), player.getName(), 
+                clientSignature, jarHash, nonce);
+            if (!result.success) {
+                kickPlayer(player, result.errorMessage);
+            }
         } catch (Exception e) {
             logger.severe("Failed to decode integrity payload from " + player.getName() + ". Terminating connection: " + e.getMessage());
             kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
@@ -233,146 +239,43 @@ public class PluginProtocolHandler {
         }
     }
 
-    public void handleIntegrityCheck(Player player, byte[] clientSignature, String jarHash, String nonce) {
-        boolean verified = false;
-
-        if (!jarHash.isEmpty() && clientSignature.length > 0) {
-            if (!signatureVerifier.isKeyLoaded()) {
-                logger.warning("Cannot verify signature for " + player.getName() + ": public key not loaded");
-            } else if (clientSignature.length >= 128) {
-                verified = signatureVerifier.verifySignature(jarHash, clientSignature);
-                if (verified) {
-                    if (HandShakerPlugin.DEBUG) {
-                        logger.info("Integrity check for " + player.getName() + ": JAR SIGNED with VALID SIGNATURE (hash: " + jarHash.substring(0, 8) + ")");
-                    }
-                } else {
-                    logger.warning("Integrity check for " + player.getName() + ": signature verification FAILED");
-                }
-            } else {
-                logger.warning("Integrity check for " + player.getName() + ": signature too small to be valid");
-            }
-        } else if (clientSignature.length == 0) {
-            logger.warning("Integrity check for " + player.getName() + ": no signature data received");
-        } else if (jarHash.isEmpty()) {
-            logger.warning("Integrity check for " + player.getName() + ": no JAR hash received");
-        }
-
-        if (HandShakerPlugin.DEBUG) {
-            logger.info("Integrity check for " + player.getName() + " with nonce " + nonce + ": " + (verified ? "PASSED" : "FAILED"));
-        } else {
-            logger.info(player.getName() + " - Integrity: " + (verified ? "PASSED" : "FAILED"));
-        }
-
-        // Update client info
-        ClientInfo oldInfo = clients.get(player.getUniqueId());
-        boolean finalVerified = verified;
-        if (oldInfo == null) {
-            clients.put(player.getUniqueId(), new ClientInfo(false, Collections.emptySet(), finalVerified, false, null, nonce, null, false));
-        } else {
-            clients.put(player.getUniqueId(), new ClientInfo(oldInfo.fabric(), oldInfo.mods(), finalVerified,
-                    oldInfo.veltonVerified(), oldInfo.modListNonce(), nonce, oldInfo.veltonNonce(), oldInfo.checked()));
-        }
-        checkPlayer(player, clients);
-    }
-
     private void handleVeltonPayloadInternal(Player player, byte[] data) {
         try {
-            // Decode signature (byte array)
-            PayloadDecoder.DecodeResult sigResult = payloadDecoder.decodeByteArrayWithOffset(data, 0);
-            if (sigResult == null) {
+            // Decode jar hash (string) - this is the signature verification result from Velton
+            PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, 0);
+            if (hashResult == null || hashResult.value == null) {
                 logger.warning("Failed to decode Velton payload from " + player.getName() + ". Rejecting.");
                 kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED));
-                return;
-            }
-            byte[] clientSignature = (byte[]) sigResult.value;
-            if (clientSignature == null || clientSignature.length == 0) {
-                logger.warning("Received Velton payload from " + player.getName() + " with invalid/missing signature. Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
-                    StandardMessages.HANDSHAKE_MISSING_SIGNATURE));
-                return;
-            }
-            if (clientSignature.length == 1) {
-                logger.warning("Received legacy Velton payload from " + player.getName() + ". Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_OUTDATED_CLIENT,
-                    StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE));
-                return;
-            }
-
-            // Decode jar hash (string)
-            PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, sigResult.offset);
-            if (hashResult == null || hashResult.value == null || ((String) hashResult.value).isEmpty()) {
-                logger.warning("Received Velton payload from " + player.getName() + " with invalid/missing jar hash. Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
-                    StandardMessages.HANDSHAKE_MISSING_JAR_HASH));
                 return;
             }
             String jarHash = (String) hashResult.value;
 
             // Decode nonce (string)
             PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
-            if (nonceResult == null || nonceResult.value == null || ((String) nonceResult.value).isEmpty()) {
-                logger.warning("Received Velton payload from " + player.getName() + " with invalid/missing nonce. Rejecting.");
-                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
-                    StandardMessages.HANDSHAKE_MISSING_NONCE));
+            if (nonceResult == null || nonceResult.value == null) {
+                logger.warning("Failed to decode Velton payload from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
             String nonce = (String) nonceResult.value;
 
-            handleVeltonPayload(player, clientSignature, jarHash, nonce);
+            // Ensure fabric flag is set for this player
+            clients.putIfAbsent(player.getUniqueId(), new ClientInfo(
+                true, new HashSet<>(), false, false, null, null, null, false));
+
+            // Delegate to unified validator
+            ValidationResult result = payloadValidator.validateVelton(player.getUniqueId(), player.getName(), 
+                jarHash, nonce);
+            if (!result.success) {
+                kickPlayer(player, result.errorMessage);
+            }
         } catch (Exception e) {
             logger.severe("Failed to decode Velton payload from " + player.getName() + ". Terminating connection: " + e.getMessage());
             kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                 StandardMessages.HANDSHAKE_CORRUPTED));
         }
-    }
-
-    public void handleVeltonPayload(Player player, byte[] clientSignature, String jarHash, String nonce) {
-        boolean verified = false;
-
-        if (!jarHash.isEmpty() && clientSignature.length > 0) {
-            if (!signatureVerifier.isKeyLoaded()) {
-                logger.warning("Cannot verify Velton signature for " + player.getName() + ": public key not loaded");
-            } else if (clientSignature.length >= 128) {
-                verified = signatureVerifier.verifySignature(jarHash, clientSignature);
-                if (verified) {
-                    if (HandShakerPlugin.DEBUG) {
-                        logger.info("Velton integrity check for " + player.getName() + ": JAR SIGNED with VALID SIGNATURE (hash: " + jarHash.substring(0, 8) + ")");
-                    }
-                } else {
-                    logger.warning("Velton integrity check for " + player.getName() + ": signature verification FAILED");
-                }
-            } else {
-                logger.warning("Velton integrity check for " + player.getName() + ": signature too small to be valid");
-            }
-        } else if (clientSignature.length == 0) {
-            logger.warning("Velton integrity check for " + player.getName() + ": no signature data received");
-        } else if (jarHash.isEmpty()) {
-            logger.warning("Velton integrity check for " + player.getName() + ": no JAR hash received");
-        }
-
-        if (HandShakerPlugin.DEBUG) {
-            logger.info("Velton check for " + player.getName() + " with nonce " + nonce + ": " + (verified ? "PASSED" : "FAILED"));
-        } else {
-            logger.info(player.getName() + " - Velton: " + (verified ? "PASSED" : "FAILED"));
-        }
-
-        if (!verified) {
-            logger.warning("Kicking " + player.getName() + " - Velton signature verification failed");
-            kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_VELTON_FAILED,
-                StandardMessages.VELTON_VERIFICATION_FAILED));
-            return;
-        }
-
-        // Update client info
-        ClientInfo oldInfo = clients.get(player.getUniqueId());
-        if (oldInfo == null) {
-            clients.put(player.getUniqueId(), new ClientInfo(false, Collections.emptySet(), false, verified, null, null, nonce, false));
-        } else {
-            clients.put(player.getUniqueId(), new ClientInfo(oldInfo.fabric(), oldInfo.mods(), oldInfo.signatureVerified(),
-                    verified, oldInfo.modListNonce(), oldInfo.integrityNonce(), nonce, oldInfo.checked()));
-        }
-        checkPlayer(player, clients);
     }
 
     public void checkPlayer(Player player, Map<UUID, ClientInfo> clients) {

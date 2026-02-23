@@ -11,12 +11,13 @@ import me.mklv.handshaker.fabric.server.configs.ConfigManager;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.commands.CommandModUtil;
+import me.mklv.handshaker.common.commands.ModFingerprintRegistrar;
+import me.mklv.handshaker.common.commands.ModListToggler;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
-import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
-import me.mklv.handshaker.common.configs.ModListFiles;
 import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.*;
@@ -749,25 +750,20 @@ public class HandShakerCommand {
                 ctx.getSource().sendFeedback(() -> Text.literal("✓ Whitelisted Mods turned " + (enable ? "ON" : "OFF")).formatted(Formatting.GREEN), true);
             }
             default -> {
-                var logger = new ConfigFileBootstrap.Logger() {
-                    @Override public void info(String message) { HandShakerServer.LOGGER.info(message); }
-                    @Override public void warn(String message) { HandShakerServer.LOGGER.warn(message); }
-                    @Override public void error(String message, Throwable error) { HandShakerServer.LOGGER.error(message, error); }
-                };
-
-                java.nio.file.Path listFile = ModListFiles.findListFile(config.getConfigDirPath(), listName);
-                if (listFile == null) {
+                var logger = LoggerAdapter.fromLoaderLogger(HandShakerServer.LOGGER);
+                var toggleResult = ModListToggler.toggleListDetailed(config.getConfigDirPath(), listName, enable, logger);
+                if (toggleResult.status() == ModListToggler.ToggleStatus.NOT_FOUND) {
                     ctx.getSource().sendFeedback(() -> Text.literal("✗ Unknown list file: " + listName + " (expected <name>.yml in config/HandShaker)").formatted(Formatting.RED), true);
                     return Command.SINGLE_SUCCESS;
                 }
 
-                if (!ModListFiles.setListEnabled(listFile, enable, logger)) {
-                    ctx.getSource().sendFeedback(() -> Text.literal("✗ Failed to update list file: " + listFile.getFileName()).formatted(Formatting.RED), true);
+                if (toggleResult.status() == ModListToggler.ToggleStatus.UPDATE_FAILED) {
+                    ctx.getSource().sendFeedback(() -> Text.literal("✗ Failed to update list file: " + toggleResult.listFile().getFileName()).formatted(Formatting.RED), true);
                     return Command.SINGLE_SUCCESS;
                 }
 
                 config.load();
-                ctx.getSource().sendFeedback(() -> Text.literal("✓ " + listFile.getFileName() + " enabled=" + (enable ? "true" : "false")).formatted(Formatting.GREEN), true);
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ " + toggleResult.listFile().getFileName() + " enabled=" + (enable ? "true" : "false")).formatted(Formatting.GREEN), true);
             }
         }
 
@@ -1138,30 +1134,13 @@ public class HandShakerCommand {
     }
 
     private static void registerModFingerprint(ConfigManager config, String modToken) {
-        if (!config.isHashMods()) {
-            return;
-        }
-        PlayerHistoryDatabase db = HandShakerServer.getInstance().getPlayerHistoryDb();
-        if (db == null) {
-            return;
-        }
-
-        ModEntry requested = ModEntry.parse(modToken);
-        if (requested == null) {
-            return;
-        }
-
-        String requestedVersion = config.isModVersioning() ? requested.version() : null;
-        String resolvedHash = CommandModUtil.normalizeHash(requested.hash());
-        if (resolvedHash == null) {
-            resolvedHash = CommandModUtil.resolveHashFromConnectedClients(
-                HandShakerServer.getInstance().getClients().values(),
-                requested.modId(),
-                requestedVersion
-            );
-        }
-
-        db.registerModFingerprint(requested.modId(), requestedVersion, resolvedHash);
+        ModFingerprintRegistrar.registerFromCommand(
+            modToken,
+            HandShakerServer.getInstance().getPlayerHistoryDb(),
+            config.isHashMods(),
+            config.isModVersioning(),
+            HandShakerServer.getInstance().getClients().values()
+        );
     }
 
     private static CompletableFuture<Suggestions> suggestIgnoredMods(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {

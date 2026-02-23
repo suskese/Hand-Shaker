@@ -1,13 +1,14 @@
 package me.mklv.handshaker.paper;
 
-import me.mklv.handshaker.paper.utils.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.commands.CommandModUtil;
+import me.mklv.handshaker.common.commands.ModFingerprintRegistrar;
+import me.mklv.handshaker.common.commands.ModListToggler;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
-import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
-import me.mklv.handshaker.common.configs.ModListFiles;
 import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -324,28 +325,13 @@ public class HandShakerCommand {
     }
 
     private void registerModFingerprint(ConfigManager config, String modToken) {
-        if (!config.isHashMods()) {
-            return;
-        }
-
-        PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
-        if (db == null) {
-            return;
-        }
-
-        ModEntry requested = ModEntry.parse(modToken);
-        if (requested == null) {
-            return;
-        }
-
-        String requestedVersion = config.isModVersioning() ? requested.version() : null;
-        String resolvedHash = CommandModUtil.normalizeHash(requested.hash());
-
-        if (resolvedHash == null) {
-            resolvedHash = CommandModUtil.resolveHashFromConnectedClients(plugin.getClients().values(), requested.modId(), requestedVersion);
-        }
-
-        db.registerModFingerprint(requested.modId(), requestedVersion, resolvedHash);
+        ModFingerprintRegistrar.registerFromCommand(
+            modToken,
+            plugin.getPlayerHistoryDb(),
+            config.isHashMods(),
+            config.isModVersioning(),
+            plugin.getClients().values()
+        );
     }
 
     private void handleIgnore(CommandSender sender, String[] args, ConfigManager config) {
@@ -822,26 +808,19 @@ public class HandShakerCommand {
                 plugin.checkAllPlayers();
             }
             default -> {
-                var logger = new ConfigFileBootstrap.Logger() {
-                    @Override public void info(String message) { plugin.getLogger().info(message); }
-                    @Override public void warn(String message) { plugin.getLogger().warning(message); }
-                    @Override public void error(String message, Throwable error) { plugin.getLogger().severe(message + ": " + error.getMessage()); }
-                };
-
-                java.nio.file.Path configDir = plugin.getDataFolder().toPath();
-                java.nio.file.Path listFile = ModListFiles.findListFile(configDir, listName);
-                if (listFile == null) {
+                var logger = LoggerAdapter.fromLoaderLogger(plugin.getLogger());
+                var toggleResult = ModListToggler.toggleListDetailed(plugin.getDataFolder().toPath(), listName, enable, logger);
+                if (toggleResult.status() == ModListToggler.ToggleStatus.NOT_FOUND) {
                     sender.sendMessage("§cUnknown list file: " + listName + " (expected <name>.yml in plugin folder)");
                     return;
                 }
-
-                if (!ModListFiles.setListEnabled(listFile, enable, logger)) {
-                    sender.sendMessage("§cFailed to update list file: " + listFile.getFileName());
+                if (toggleResult.status() == ModListToggler.ToggleStatus.UPDATE_FAILED) {
+                    sender.sendMessage("§cFailed to update list file: " + toggleResult.listFile().getFileName());
                     return;
                 }
 
                 config.load();
-                sender.sendMessage("§a" + listFile.getFileName() + " enabled=" + (enable ? "true" : "false"));
+                sender.sendMessage("§a" + toggleResult.listFile().getFileName() + " enabled=" + (enable ? "true" : "false"));
                 plugin.checkAllPlayers();
             }
         }

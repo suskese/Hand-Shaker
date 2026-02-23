@@ -12,10 +12,12 @@ import me.mklv.handshaker.common.configs.ConfigTypes.ConfigLoadOptions;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Behavior;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.IntegrityMode;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckEvaluator;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckInput;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckResult;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckEvaluator;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckInput;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
 import me.mklv.handshaker.fabric.server.HandShakerServer;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
 
@@ -38,22 +40,7 @@ public class ConfigManager extends CommonConfigManagerBase {
     public void load() {
         configDir.mkdirs();
 
-        ConfigFileBootstrap.Logger bootstrapLogger = new ConfigFileBootstrap.Logger() {
-            @Override
-            public void info(String message) {
-                HandShakerServer.LOGGER.info(message);
-            }
-
-            @Override
-            public void warn(String message) {
-                HandShakerServer.LOGGER.warn(message);
-            }
-
-            @Override
-            public void error(String message, Throwable error) {
-                HandShakerServer.LOGGER.error(message, error);
-            }
-        };
+        ConfigFileBootstrap.Logger bootstrapLogger = LoggerAdapter.fromLoaderLogger(HandShakerServer.LOGGER);
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, true, true, "kick", true);
         loadCommon(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
@@ -200,22 +187,7 @@ public class ConfigManager extends CommonConfigManagerBase {
 
 
     public void save() {
-        ConfigFileBootstrap.Logger saveLogger = new ConfigFileBootstrap.Logger() {
-            @Override
-            public void info(String message) {
-                HandShakerServer.LOGGER.info(message);
-            }
-
-            @Override
-            public void warn(String message) {
-                HandShakerServer.LOGGER.warn(message);
-            }
-
-            @Override
-            public void error(String message, Throwable error) {
-                HandShakerServer.LOGGER.error(message, error);
-            }
-        };
+        ConfigFileBootstrap.Logger saveLogger = LoggerAdapter.fromLoaderLogger(HandShakerServer.LOGGER);
 
         saveCommon(configDir.toPath(), saveLogger);
     }
@@ -376,12 +348,17 @@ public class ConfigManager extends CommonConfigManagerBase {
             return Collections.emptyMap();
         }
 
+        PlayerHistoryDatabase db = server.getPlayerHistoryDb();
+        if (db == null) {
+            return Collections.emptyMap();
+        }
+
         Set<String> ruleKeys = new LinkedHashSet<>();
         ruleKeys.addAll(requiredModsActive);
         ruleKeys.addAll(blacklistedModsActive);
         ruleKeys.addAll(whitelistedModsActive);
         ruleKeys.addAll(optionalModsActive);
-        return server.getPlayerHistoryDb().getRegisteredHashes(ruleKeys, modVersioning);
+        return db.getRegisteredHashes(ruleKeys, modVersioning);
     }
 
     public void playerLeft(ServerPlayerEntity player) {

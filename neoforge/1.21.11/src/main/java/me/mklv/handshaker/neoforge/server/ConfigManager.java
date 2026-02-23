@@ -8,10 +8,12 @@ import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Action;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Behavior;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.IntegrityMode;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckEvaluator;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckInput;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckResult;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckEvaluator;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckInput;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
 import net.neoforged.fml.loading.FMLPaths;
 import java.io.*;
 import java.util.*;
@@ -33,22 +35,7 @@ public class ConfigManager extends CommonConfigManagerBase {
     public void load() {
         configDir.mkdirs();
 
-        ConfigFileBootstrap.Logger bootstrapLogger = new ConfigFileBootstrap.Logger() {
-            @Override
-            public void info(String message) {
-                HandShakerServerMod.LOGGER.info(message);
-            }
-
-            @Override
-            public void warn(String message) {
-                HandShakerServerMod.LOGGER.warn(message);
-            }
-
-            @Override
-            public void error(String message, Throwable error) {
-                HandShakerServerMod.LOGGER.error(message, error);
-            }
-        };
+        ConfigFileBootstrap.Logger bootstrapLogger = LoggerAdapter.fromLoaderLogger(HandShakerServerMod.LOGGER);
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, true, true, "kick", true);
         loadCommon(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
@@ -145,22 +132,7 @@ public class ConfigManager extends CommonConfigManagerBase {
     }
 
     public void save() {
-        ConfigFileBootstrap.Logger saveLogger = new ConfigFileBootstrap.Logger() {
-            @Override
-            public void info(String message) {
-                HandShakerServerMod.LOGGER.info(message);
-            }
-
-            @Override
-            public void warn(String message) {
-                HandShakerServerMod.LOGGER.warn(message);
-            }
-
-            @Override
-            public void error(String message, Throwable error) {
-                HandShakerServerMod.LOGGER.error(message, error);
-            }
-        };
+        ConfigFileBootstrap.Logger saveLogger = LoggerAdapter.fromLoaderLogger(HandShakerServerMod.LOGGER);
 
         saveCommon(configDir.toPath(), saveLogger);
     }
@@ -231,11 +203,16 @@ public class ConfigManager extends CommonConfigManagerBase {
             return Collections.emptyMap();
         }
 
+        PlayerHistoryDatabase db = serverMod.getPlayerHistoryDb();
+        if (db == null) {
+            return Collections.emptyMap();
+        }
+
         Set<String> ruleKeys = new LinkedHashSet<>();
         ruleKeys.addAll(requiredModsActive);
         ruleKeys.addAll(blacklistedModsActive);
         ruleKeys.addAll(whitelistedModsActive);
         ruleKeys.addAll(optionalModsActive);
-        return serverMod.getPlayerHistoryDb().getRegisteredHashes(ruleKeys, modVersioning);
+        return db.getRegisteredHashes(ruleKeys, modVersioning);
     }
 }

@@ -6,9 +6,12 @@ import me.mklv.handshaker.common.configs.ConfigRuntime.MessagePlaceholderExpande
 import me.mklv.handshaker.common.configs.ConfigTypes.ActionDefinition;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigLoadOptions;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Behavior;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckEvaluator;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckInput;
-import me.mklv.handshaker.common.configs.ModChecks.ModCheckResult;
+import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckEvaluator;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckInput;
+import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
+
 import org.bukkit.entity.Player;
 
 import java.io.*;
@@ -25,22 +28,7 @@ public class ConfigManager extends CommonConfigManagerBase {
         File dataFolder = plugin.getDataFolder();
         dataFolder.mkdirs();
 
-        ConfigFileBootstrap.Logger bootstrapLogger = new ConfigFileBootstrap.Logger() {
-            @Override
-            public void info(String message) {
-                plugin.getLogger().info(message);
-            }
-
-            @Override
-            public void warn(String message) {
-                plugin.getLogger().warning(message);
-            }
-
-            @Override
-            public void error(String message, Throwable error) {
-                plugin.getLogger().severe(message + ": " + error.getMessage());
-            }
-        };
+        ConfigFileBootstrap.Logger bootstrapLogger = LoggerAdapter.fromLoaderLogger(plugin.getLogger());
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, false, true, "none", false);
         loadCommon(dataFolder.toPath(), plugin.getClass(), bootstrapLogger, options);
@@ -145,22 +133,7 @@ public class ConfigManager extends CommonConfigManagerBase {
     }
 
     public void save() {
-        ConfigFileBootstrap.Logger saveLogger = new ConfigFileBootstrap.Logger() {
-            @Override
-            public void info(String message) {
-                plugin.getLogger().info(message);
-            }
-
-            @Override
-            public void warn(String message) {
-                plugin.getLogger().warning(message);
-            }
-
-            @Override
-            public void error(String message, Throwable error) {
-                plugin.getLogger().severe(message + ": " + error.getMessage());
-            }
-        };
+        ConfigFileBootstrap.Logger saveLogger = LoggerAdapter.fromLoaderLogger(plugin.getLogger());
 
         saveCommon(plugin.getDataFolder().toPath(), saveLogger);
     }
@@ -170,7 +143,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             return Collections.emptyMap();
         }
 
-        me.mklv.handshaker.paper.utils.PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
+        PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
         if (db == null) {
             return Collections.emptyMap();
         }

@@ -2,12 +2,16 @@ package me.mklv.handshaker.neoforge.server;
 
 import com.mojang.logging.LogUtils;
 import io.netty.buffer.ByteBuf;
+import me.mklv.handshaker.common.database.H2PlayerHistoryDatabase;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;
+import me.mklv.handshaker.common.protocols.PayloadValidation;
+import me.mklv.handshaker.common.protocols.PayloadValidation.PayloadValidationCallbacks;
+import me.mklv.handshaker.common.protocols.PayloadValidation.ValidationResult;
 import me.mklv.handshaker.common.utils.ClientInfo;
-import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
+import me.mklv.handshaker.common.utils.DatabaseLoggerAdapter;
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.neoforge.NetworkSetup;
 import me.mklv.handshaker.common.configs.ConfigMigration.ConfigMigrator;
@@ -44,12 +48,12 @@ public class HandShakerServerMod {
     private static HandShakerServerMod instance;
 
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
-    private final Set<String> usedNonces = ConcurrentHashMap.newKeySet(); // Track used nonces for replay prevention
     private ConfigManager blacklistConfig;
     private PlayerHistoryDatabase playerHistoryDb;
     private MinecraftServer server;
     private PublicKey publicKey;
     private SignatureVerifier signatureVerifier;
+    private PayloadValidation payloadValidator;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     public HandShakerServerMod(IEventBus modEventBus) {
@@ -82,8 +86,46 @@ public class HandShakerServerMod {
         
         loadPublicCertificate();
 
-        // Initialize player history database with NeoForge logger adapter
-        playerHistoryDb = new PlayerHistoryDatabase(FMLPaths.CONFIGDIR.get().toFile(), new NeoForgeLoggerAdapter(LOGGER));
+        // Initialize player history database with common logger adapter
+        playerHistoryDb = new H2PlayerHistoryDatabase(FMLPaths.CONFIGDIR.get().toFile(), DatabaseLoggerAdapter.fromLoaderLogger(LOGGER));
+
+        // Initialize unified payload validator with NeoForge-specific callbacks
+        this.payloadValidator = new PayloadValidation(
+            new PayloadValidationCallbacks() {
+                @Override
+                public String getMessageOrDefault(String key, String defaultMessage) {
+                    return blacklistConfig.getMessageOrDefault(key, defaultMessage);
+                }
+
+                @Override
+                public void logInfo(String format, Object... args) {
+                    LOGGER.info(String.format(format, args));
+                }
+
+                @Override
+                public void logWarning(String format, Object... args) {
+                    LOGGER.warn(String.format(format, args));
+                }
+
+                @Override
+                public void syncPlayerMods(UUID playerId, String playerName, Set<String> mods) {
+                    if (playerHistoryDb != null) {
+                        playerHistoryDb.syncPlayerMods(playerId, playerName, mods);
+                    }
+                }
+
+                @Override
+                public void checkPlayer(UUID playerId, String playerName, ClientInfo info) {
+                    if (server == null) return;
+                    ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+                    if (player != null) {
+                        blacklistConfig.checkPlayer(player, info);
+                    }
+                }
+            },
+            signatureVerifier,
+            clients
+        );
 
         // Register payloads once via centralized NetworkSetup
         modEventBus.addListener(NetworkSetup::registerPayloads);
@@ -98,61 +140,14 @@ public class HandShakerServerMod {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
             try {
-                if (payload.nonce() == null || payload.nonce().isEmpty()) {
-                    LOGGER.warn("Received mod list from {} with invalid/missing nonce. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
-                        StandardMessages.HANDSHAKE_MISSING_NONCE)));
-                    return;
-                }
+                ValidationResult result = payloadValidator.validateModList(
+                    player.getUUID(), player.getName().getString(), payload.mods(), payload.modListHash(), payload.nonce());
                 
-                // Check for replay attack (nonce already used)
-                if (usedNonces.contains(payload.nonce())) {
-                    LOGGER.warn("Received mod list from {} with replay nonce. Kicking.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_HANDSHAKE_REPLAY,
-                        StandardMessages.HANDSHAKE_REPLAY)));
-                    return;
+                if (!result.success) {
+                    player.connection.disconnect(Component.literal(result.errorMessage));
                 }
-                
-                // Verify hash matches payload
-                String calculatedHash = HashUtils.sha256Hex(payload.mods());
-                if (!calculatedHash.equals(payload.modListHash())) {
-                    LOGGER.warn("Received mod list from {} with mismatched hash. Expected {} but got {}", 
-                        player.getName().getString(), calculatedHash, payload.modListHash());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_HANDSHAKE_HASH_MISMATCH,
-                        StandardMessages.HANDSHAKE_HASH_MISMATCH)));
-                    return;
-                }
-                
-                usedNonces.add(payload.nonce());
-                
-                if (payload.mods() == null || payload.mods().isEmpty()) {
-                    LOGGER.warn("Received empty mod list from {}. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_HANDSHAKE_EMPTY_MOD_LIST,
-                        StandardMessages.HANDSHAKE_EMPTY_MOD_LIST)));
-                    return;
-                }
-                Set<String> mods = new HashSet<>(Arrays.asList(payload.mods().split(",")));
-                if (isDebugMode()) {
-                    LOGGER.info("Received mod list from {} with nonce: {}", player.getName().getString(), payload.nonce());
-                }
-
-                if (playerHistoryDb != null) {
-                    playerHistoryDb.syncPlayerMods(player.getUUID(), player.getName().getString(), mods);
-                }
-
-                clients.compute(player.getUUID(), (uuid, oldInfo) ->
-                        new ClientInfo(mods,
-                                oldInfo != null && oldInfo.signatureVerified(),
-                                oldInfo != null && oldInfo.veltonVerified(),
-                                payload.nonce(),
-                                oldInfo != null ? oldInfo.integrityNonce() : null,
-                                oldInfo != null ? oldInfo.veltonNonce() : null));
             } catch (Exception e) {
-                LOGGER.error("Failed to decode mod list from {}. Terminating connection.", player.getName().getString(), e);
+                LOGGER.error("Failed to process mod list from {}. Terminating connection.", player.getName().getString(), e);
                 player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
                     StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED)));
@@ -164,113 +159,14 @@ public class HandShakerServerMod {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
             try {
-                if (payload.nonce() == null || payload.nonce().isEmpty()) {
-                    LOGGER.warn("Received integrity payload from {} with invalid/missing nonce. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
-                        StandardMessages.HANDSHAKE_MISSING_NONCE)));
-                    return;
-                }
+                ValidationResult result = payloadValidator.validateIntegrity(
+                    player.getUUID(), player.getName().getString(), payload.signature(), payload.jarHash(), payload.nonce());
                 
-                byte[] clientSignature = payload.signature();
-                String jarHash = payload.jarHash();
-                if (clientSignature == null || clientSignature.length == 0) {
-                    LOGGER.warn("Received integrity payload from {} with invalid/missing signature. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
-                        StandardMessages.HANDSHAKE_MISSING_SIGNATURE)));
-                    return;
+                if (!result.success) {
+                    player.connection.disconnect(Component.literal(result.errorMessage));
                 }
-                if (clientSignature.length == 1) {
-                    LOGGER.warn("Received legacy integrity payload from {}. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_OUTDATED_CLIENT,
-                        StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE)));
-                    return;
-                }
-                if (jarHash == null || jarHash.isEmpty()) {
-                    LOGGER.warn("Received integrity payload from {} with invalid/missing jar hash. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
-                        StandardMessages.HANDSHAKE_MISSING_JAR_HASH)));
-                    return;
-                }
-                if (clientSignature == null || clientSignature.length == 0) {
-                    LOGGER.warn("Received integrity payload from {} with invalid/missing signature. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(StandardMessages.HANDSHAKE_MISSING_SIGNATURE));
-                    return;
-                }
-                if (jarHash == null || jarHash.isEmpty()) {
-                    LOGGER.warn("Received integrity payload from {} with invalid/missing jar hash. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(StandardMessages.HANDSHAKE_MISSING_JAR_HASH));
-                    return;
-                }
-                boolean verified = false;
-                
-                // Verification logic (matching Fabric/Paper):
-                // Check if client sent a signature and jar hash
-                if (jarHash != null && !jarHash.isEmpty() && clientSignature != null && clientSignature.length > 0) {
-                    // Check if this is a 1-byte verification flag from the client (backward compatibility)
-                    // or an actual RSA signature for server-side verification
-                    if (clientSignature.length == 1) {
-                        // Client sent a local verification flag: {1} = verified, {0} = not verified
-                        boolean signatureVerified = clientSignature[0] == 1;
-                        if (signatureVerified) {
-                            if (isDebugMode()) {
-                                LOGGER.info("Integrity check for {}: JAR signature VERIFIED locally by client (hash: {})", 
-                                    player.getName().getString(), jarHash.substring(0, Math.min(8, jarHash.length())));
-                            }
-                            verified = true;
-                        } else {
-                            LOGGER.warn("Integrity check for {}: client reported signature NOT verified", player.getName().getString());
-                            verified = false;
-                        }
-                    } else {
-                        // Client sent an actual RSA signature for server-side verification
-                        if (publicKey == null) {
-                            LOGGER.warn("Cannot verify signature for {}: public key not loaded", player.getName().getString());
-                            verified = false;
-                        } else {
-                            try {
-                                verified = verifySignatureWithPublicKey(jarHash, clientSignature);
-                                if (verified) {
-                                    if (isDebugMode()) {
-                                        LOGGER.info("Integrity check for {}: JAR SIGNED with VALID SIGNATURE (hash: {})", player.getName().getString(), jarHash.substring(0, Math.min(8, jarHash.length())));
-                                    }
-                                } else {
-                                    LOGGER.warn("Integrity check for {}: signature verification FAILED - signature was not created with our key", player.getName().getString());
-                                }
-                            } catch (Exception e) {
-                                LOGGER.warn("Integrity check for {}: error verifying signature: {}", player.getName().getString(), e.getMessage());
-                                verified = false;
-                            }
-                        }
-                    }
-                } else if (clientSignature == null || clientSignature.length == 0) {
-                    LOGGER.warn("Integrity check for {}: no signature data received - client not signed", player.getName().getString());
-                    verified = false;
-                } else if (jarHash == null || jarHash.isEmpty()) {
-                    LOGGER.warn("Integrity check for {}: no JAR hash received", player.getName().getString());
-                    verified = false;
-                }
-                
-                if (isDebugMode()) {
-                    LOGGER.info("Integrity check for {} with nonce {}: {}", player.getName().getString(), payload.nonce(), verified ? "PASSED" : "FAILED");
-                } else {
-                    LOGGER.info("{} - Integrity: {}", player.getName().getString(), verified ? "PASSED" : "FAILED");
-                }
-
-                final boolean finalVerified = verified;
-                clients.compute(player.getUUID(), (uuid, oldInfo) ->
-                        new ClientInfo(oldInfo != null ? oldInfo.mods() : Collections.emptySet(),
-                                finalVerified,
-                                oldInfo != null && oldInfo.veltonVerified(),
-                                oldInfo != null ? oldInfo.modListNonce() : null,
-                                payload.nonce(),
-                                oldInfo != null ? oldInfo.veltonNonce() : null));
-                blacklistConfig.checkPlayer(player, clients.get(player.getUUID()));
             } catch (Exception e) {
-                LOGGER.error("Failed to decode integrity payload from {}. Terminating connection.", player.getName().getString(), e);
+                LOGGER.error("Failed to process integrity payload from {}. Terminating connection.", player.getName().getString(), e);
                 player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
                     StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED)));
@@ -282,41 +178,14 @@ public class HandShakerServerMod {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
             try {
-                if (payload.nonce() == null || payload.nonce().isEmpty()) {
-                    LOGGER.warn("Received Velton payload from {} with invalid/missing nonce. Rejecting.", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
-                        StandardMessages.HANDSHAKE_MISSING_NONCE)));
-                    return;
+                ValidationResult result = payloadValidator.validateVelton(
+                    player.getUUID(), player.getName().getString(), payload.signatureHash(), payload.nonce());
+                
+                if (!result.success) {
+                    player.connection.disconnect(Component.literal(result.errorMessage));
                 }
-                String signatureHash = payload.signatureHash();
-                boolean verified = signatureHash != null && !signatureHash.isEmpty();
-
-                if (isDebugMode()) {
-                    LOGGER.info("Velton check for {} with nonce {}: {}", player.getName().getString(), payload.nonce(), verified ? "PASSED" : "FAILED");
-                } else {
-                    LOGGER.info("{} - Velton: {}", player.getName().getString(), verified ? "PASSED" : "FAILED");
-                }
-
-                if (!verified) {
-                    LOGGER.warn("Kicking {} - Velton signature verification failed", player.getName().getString());
-                    player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
-                        StandardMessages.KEY_VELTON_FAILED,
-                        StandardMessages.VELTON_VERIFICATION_FAILED)));
-                    return;
-                }
-
-                final boolean finalVerified = verified;
-                clients.compute(player.getUUID(), (uuid, oldInfo) ->
-                        new ClientInfo(oldInfo != null ? oldInfo.mods() : Collections.emptySet(),
-                                oldInfo != null && oldInfo.signatureVerified(),
-                                finalVerified,
-                                oldInfo != null ? oldInfo.modListNonce() : null,
-                                oldInfo != null ? oldInfo.integrityNonce() : null,
-                                payload.nonce()));
-                blacklistConfig.checkPlayer(player, clients.get(player.getUUID()));
             } catch (Exception e) {
-                LOGGER.error("Failed to decode Velton payload from {}. Terminating connection.", player.getName().getString(), e);
+                LOGGER.error("Failed to process Velton payload from {}. Terminating connection.", player.getName().getString(), e);
                 player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
                     StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED)));
@@ -447,14 +316,6 @@ public class HandShakerServerMod {
         return blacklistConfig != null && blacklistConfig.isDebug();
     }
 
-    private boolean verifySignatureWithPublicKey(String jarHash, byte[] signatureBytes) throws Exception {
-        if (signatureVerifier == null || !signatureVerifier.isKeyLoaded()) {
-            return false;
-        }
-
-        return signatureVerifier.verifySignature(jarHash, signatureBytes);
-    }
-
     public record IntegrityPayload(byte[] signature, String jarHash, String nonce) implements CustomPacketPayload {
         public static final CustomPacketPayload.Type<IntegrityPayload> TYPE = new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath("hand-shaker", "integrity"));
         public static final StreamCodec<ByteBuf, IntegrityPayload> CODEC = StreamCodec.composite(
@@ -474,31 +335,4 @@ public class HandShakerServerMod {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    private static class NeoForgeLoggerAdapter implements PlayerHistoryDatabase.Logger {
-        private final Logger logger;
-
-        NeoForgeLoggerAdapter(Logger logger) {
-            this.logger = logger;
-        }
-
-        @Override
-        public void info(String message, Object... args) {
-            logger.info(message, args);
-        }
-
-        @Override
-        public void warn(String message, Object... args) {
-            logger.warn(message, args);
-        }
-
-        @Override
-        public void error(String message, Throwable e) {
-            logger.error(message, e);
-        }
-
-        @Override
-        public void debug(String message) {
-            logger.debug(message);
-        }
-    }
 }
