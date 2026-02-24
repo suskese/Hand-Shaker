@@ -47,10 +47,15 @@ playerdb-enabled: false
 # Requires "playerdb-enabled:true" to store and track mod hashes
 hash-mods: true
 
+# Runtime Cache (experimental):
+# true = cache known mod hashes in memory instead of querying on every player join
+# cache is refreshed on config reload
+Runtime_cache: false
+
 # Mod Versioning:
 # true = mod config format is mod_id:version:action, allowing for specific version control
 # false = mod config format is mod_id:action
-# Requires "playerdb-enabled:true" to store and track mod versions
+# Optional "playerdb-enabled:true" to store and track mod versions
 mod-versioning: true
 
 # Core List Toggles: 
@@ -61,6 +66,9 @@ mod-versioning: true
 mods-required-enabled: true
 mods-blacklisted-enabled: true
 mods-whitelisted-enabled: true
+
+# Phase 1 Modpack Mode: set SHA-256 of normalized client mod list payload, or "off" to disable
+required-modpack-hash: off
 
 
 # ========================

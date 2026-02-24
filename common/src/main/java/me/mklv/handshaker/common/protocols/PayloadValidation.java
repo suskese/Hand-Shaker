@@ -110,7 +110,7 @@ public class PayloadValidation {
             nonce,
             oldInfo != null ? oldInfo.integrityNonce() : null,
             oldInfo != null ? oldInfo.veltonNonce() : null,
-            oldInfo != null && oldInfo.checked()  // preserve checked flag
+            false
         );
         clients.put(playerId, newInfo);
 
@@ -174,7 +174,7 @@ public class PayloadValidation {
             oldInfo != null ? oldInfo.modListNonce() : null,
             nonce,
             oldInfo != null ? oldInfo.veltonNonce() : null,
-            oldInfo != null && oldInfo.checked()  // preserve checked flag
+            false
         );
         clients.put(playerId, newInfo);
 
@@ -224,7 +224,7 @@ public class PayloadValidation {
             oldInfo != null ? oldInfo.modListNonce() : null,
             oldInfo != null ? oldInfo.integrityNonce() : null,
             nonce,
-            oldInfo != null && oldInfo.checked()  // preserve checked flag
+            false
         );
         clients.put(playerId, newInfo);
 

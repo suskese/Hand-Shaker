@@ -91,10 +91,7 @@ public class PluginProtocolHandler {
                 public void checkPlayer(UUID playerId, String playerName, ClientInfo info) {
                     Player player = Bukkit.getPlayer(playerId);
                     if (player != null) {
-                        // Mark info as checked and update in clients map
-                        ClientInfo checkedInfo = info.withChecked(true);
-                        clients.put(playerId, checkedInfo);
-                        // Call the checkPlayer logic
+                        clients.put(playerId, info);
                         PluginProtocolHandler.this.checkPlayer(player, clients);
                     }
                 }
@@ -337,6 +334,16 @@ public class PluginProtocolHandler {
 
         // Mark as checked to prevent double execution
         clients.put(player.getUniqueId(), info.withChecked(true));
+        
+        // Log timing in debug mode
+        if (HandShakerPlugin.DEBUG) {
+            Long joinTime = plugin.getJoinTimestamp(player.getUniqueId());
+            if (joinTime != null) {
+                long elapsed = System.currentTimeMillis() - joinTime;
+                logger.info("[TIMER] Player " + player.getName() + " fully checked in " + elapsed + "ms");
+                plugin.removeJoinTimestamp(player.getUniqueId());
+            }
+        }
     }
 
     private void executeAction(Player player, String actionName, Set<String> mods) {

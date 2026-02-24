@@ -23,6 +23,9 @@ public class HandShakerListener implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        
+        // Record join time for debug timing
+        plugin.recordPlayerJoin(player.getUniqueId());
 
         int timeoutSeconds = plugin.getConfigManager().getHandshakeTimeoutSeconds();
         long delayTicks = Math.max(1, timeoutSeconds) * 20L;
@@ -32,6 +35,8 @@ public class HandShakerListener implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        clients.remove(event.getPlayer().getUniqueId());
+        UUID uuid = event.getPlayer().getUniqueId();
+        clients.remove(uuid);
+        plugin.removeJoinTimestamp(uuid);
     }
 }

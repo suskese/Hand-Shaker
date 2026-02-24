@@ -1,5 +1,7 @@
 package me.mklv.handshaker.common.configs;
 
+import me.mklv.handshaker.common.utils.ModCache;
+
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
@@ -32,7 +34,9 @@ public final class ConfigRuntime {
                                                          boolean modsBlacklistedEnabled,
                                                          boolean modsWhitelistedEnabled,
                                                          boolean hashMods,
+                                                         boolean runtimeCache,
                                                          boolean modVersioning,
+                                                         String requiredModpackHash,
                                                          boolean whitelist,
                                                          int handshakeTimeoutSeconds,
                                                          Map<String, String> messages,
@@ -57,7 +61,9 @@ public final class ConfigRuntime {
             snapshot.setModsBlacklistedEnabled(modsBlacklistedEnabled);
             snapshot.setModsWhitelistedEnabled(modsWhitelistedEnabled);
             snapshot.setHashMods(hashMods);
+            snapshot.setRuntimeCache(runtimeCache);
             snapshot.setModVersioning(modVersioning);
+            snapshot.setRequiredModpackHash(requiredModpackHash);
             snapshot.setWhitelist(whitelist);
             snapshot.setHandshakeTimeoutSeconds(handshakeTimeoutSeconds);
 
@@ -279,7 +285,9 @@ public final class ConfigRuntime {
         protected boolean modsBlacklistedEnabled = true;
         protected boolean modsWhitelistedEnabled = true;
         protected boolean hashMods = true;
+        protected boolean runtimeCache = false;
         protected boolean modVersioning = true;
+        protected String requiredModpackHash;
 
         protected final Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap = new LinkedHashMap<>();
         protected boolean whitelist = false;
@@ -327,7 +335,9 @@ public final class ConfigRuntime {
             modsBlacklistedEnabled = result.areModsBlacklistedEnabled();
             modsWhitelistedEnabled = result.areModsWhitelistedEnabled();
             hashMods = result.isHashMods();
+            runtimeCache = result.isRuntimeCache();
             modVersioning = result.isModVersioning();
+            requiredModpackHash = result.getRequiredModpackHash();
             whitelist = result.isWhitelist();
 
             customMessages.clear();
@@ -371,7 +381,9 @@ public final class ConfigRuntime {
                 modsBlacklistedEnabled,
                 modsWhitelistedEnabled,
                 hashMods,
+                runtimeCache,
                 modVersioning,
+                requiredModpackHash,
                 whitelist,
                 handshakeTimeoutSeconds,
                 customMessages,
@@ -471,8 +483,16 @@ public final class ConfigRuntime {
             return hashMods;
         }
 
+        public boolean isRuntimeCache() {
+            return runtimeCache;
+        }
+
         public boolean isModVersioning() {
             return modVersioning;
+        }
+
+        public String getRequiredModpackHash() {
+            return requiredModpackHash;
         }
 
         public ConfigTypes.ActionDefinition getAction(String actionName) {
@@ -566,10 +586,26 @@ public final class ConfigRuntime {
 
         public void setHashMods(boolean enabled) {
             this.hashMods = enabled;
+            ModCache.invalidate();
+        }
+
+        public void setRuntimeCache(boolean enabled) {
+            this.runtimeCache = enabled;
+            ModCache.invalidate();
         }
 
         public void setModVersioning(boolean enabled) {
             this.modVersioning = enabled;
+            ModCache.invalidate();
+        }
+
+        public void setRequiredModpackHash(String hash) {
+            if (hash == null) {
+                this.requiredModpackHash = null;
+            } else {
+                String normalized = hash.trim().toLowerCase(Locale.ROOT);
+                this.requiredModpackHash = normalized.isEmpty() ? null : normalized;
+            }
         }
 
         public boolean addIgnoredMod(String modId) {

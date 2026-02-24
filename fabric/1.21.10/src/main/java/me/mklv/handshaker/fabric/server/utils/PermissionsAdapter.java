@@ -4,11 +4,6 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import java.lang.reflect.Method;
 
-/**
- * Adapter for handling permissions with fallback support.
- * Attempts to use fabric-permissions-api if available, otherwise falls back to vanilla permission levels.
- * This allows the mod to work whether or not fabric-permissions-api is installed.
- */
 public class PermissionsAdapter {
     private static final Method PERMISSIONS_CHECK;
     private static final boolean HAS_FABRIC_PERMISSIONS;
@@ -30,11 +25,6 @@ public class PermissionsAdapter {
         HAS_FABRIC_PERMISSIONS = hasFabricPermissions;
     }
 
-    /**
-     * Check if a player has a specific permission.
-     * If fabric-permissions-api is available, uses it.
-     * Otherwise, falls back to vanilla permission level check.
-     */
     public static boolean checkPermission(ServerCommandSource source, String permission, int minimumLevel) {
         if (HAS_FABRIC_PERMISSIONS) {
             try {
@@ -49,14 +39,6 @@ public class PermissionsAdapter {
         return source.hasPermissionLevel(minimumLevel);
     }
 
-    /**
-     * Check if a ServerPlayerEntity has a specific permission (for older Minecraft versions).
-     * Only checks if fabric-permissions-api is available. OPs do NOT automatically bypass.
-     * 
-     * @param player The player to check
-     * @param permission The permission node to check
-     * @return true if the player has the permission (via permission manager), false otherwise
-     */
     public static boolean checkPermission(ServerPlayerEntity player, String permission) {
         if (HAS_FABRIC_PERMISSIONS) {
             try {
@@ -75,9 +57,6 @@ public class PermissionsAdapter {
         return false;
     }
 
-    /**
-     * Check if fabric-permissions-api is available.
-     */
     public static boolean hasFabricPermissions() {
         return HAS_FABRIC_PERMISSIONS;
     }

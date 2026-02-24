@@ -23,6 +23,9 @@ mods-required-enabled: true
 mods-blacklisted-enabled: true
 mods-whitelisted-enabled: true
 
+# Phase 1 Modpack Mode: set SHA-256 of normalized client mod list payload, or "off" to disable
+required-modpack-hash: off
+
 # Kick Messages - customize as needed (use {mod} for mod name)
 messages:
   kick: "You are using a blacklisted mod: {mod}. Please remove it to join this server."

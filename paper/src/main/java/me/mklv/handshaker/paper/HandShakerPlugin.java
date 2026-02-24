@@ -7,6 +7,7 @@ import me.mklv.handshaker.common.database.SQLitePlayerHistoryDatabase;
 import me.mklv.handshaker.paper.utils.PluginProtocolHandler;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.DatabaseLoggerAdapter;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -23,13 +24,14 @@ public class HandShakerPlugin extends JavaPlugin {
     public static final String VELTON_CHANNEL = "velton:signature";
 
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> joinTimestamps = new ConcurrentHashMap<>();
     private ConfigManager configManager;
     private PlayerHistoryDatabase playerHistoryDb;
     private PluginProtocolHandler protocolHandler;
 
     @Override
-    public void onEnable() {
-        loadConfiguration();
+    public void onEnable()
+ {        loadConfiguration();
         loadDatabase();
         
         // Initialize protocol handler (handles plugin channels and certificate loading)
@@ -39,7 +41,7 @@ public class HandShakerPlugin extends JavaPlugin {
         // Register event listeners
         getServer().getPluginManager().registerEvents(new HandShakerListener(this, clients), this);
         
-        // Register commands (Paper doesn't use YAML command declarations)
+        // Register commands (original Bukkit-style commands)
         HandShakerCommand.register(this);
         
         getLogger().info("HandShaker plugin enabled (Paper/Folia compatible)");
@@ -47,6 +49,15 @@ public class HandShakerPlugin extends JavaPlugin {
         if (HandShakerPlugin.DEBUG){
             getLogger().warning("YOU ARE RUNNING A DEVELOPMENT BUILD OF HANDSHAKER - EXPECT BUGS AND ISSUES");
         }
+    }
+
+    @Override
+    public void onLoad() {
+        // Register Brigadier commands via LifecycleEvent
+        this.getLifecycleManager().registerEventHandler(
+            LifecycleEvents.COMMANDS,
+            event -> HandShakerCommandV2.register(this, event.registrar())
+        );
     }
 
     private void loadConfiguration() {
@@ -134,5 +145,28 @@ public class HandShakerPlugin extends JavaPlugin {
 
     public Map<UUID, ClientInfo> getClients() {
         return clients;
+    }
+    
+    /**
+     * Record join timestamp for timing purposes (debug mode)
+     */
+    public void recordPlayerJoin(UUID uuid) {
+        if (DEBUG) {
+            joinTimestamps.put(uuid, System.currentTimeMillis());
+        }
+    }
+    
+    /**
+     * Get join timestamp for a player
+     */
+    public Long getJoinTimestamp(UUID uuid) {
+        return joinTimestamps.get(uuid);
+    }
+    
+    /**
+     * Remove and return join timestamp
+     */
+    public Long removeJoinTimestamp(UUID uuid) {
+        return joinTimestamps.remove(uuid);
     }
 }

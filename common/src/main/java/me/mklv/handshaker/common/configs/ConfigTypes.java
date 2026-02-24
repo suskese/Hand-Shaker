@@ -264,7 +264,9 @@ public final class ConfigTypes {
         private boolean modsBlacklistedEnabled = true;
         private boolean modsWhitelistedEnabled = true;
         private boolean hashMods = true;
+        private boolean runtimeCache = false;
         private boolean modVersioning = true;
+        private String requiredModpackHash;
         private boolean whitelist = false;
         private int handshakeTimeoutSeconds = 5;
 
@@ -381,12 +383,28 @@ public final class ConfigTypes {
             this.hashMods = hashMods;
         }
 
+        public boolean isRuntimeCache() {
+            return runtimeCache;
+        }
+
+        public void setRuntimeCache(boolean runtimeCache) {
+            this.runtimeCache = runtimeCache;
+        }
+
         public boolean isModVersioning() {
             return modVersioning;
         }
 
         public void setModVersioning(boolean modVersioning) {
             this.modVersioning = modVersioning;
+        }
+
+        public String getRequiredModpackHash() {
+            return requiredModpackHash;
+        }
+
+        public void setRequiredModpackHash(String requiredModpackHash) {
+            this.requiredModpackHash = requiredModpackHash;
         }
 
         public boolean isWhitelist() {

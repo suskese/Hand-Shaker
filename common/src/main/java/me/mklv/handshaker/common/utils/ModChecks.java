@@ -25,6 +25,7 @@ public final class ModChecks {
         private final boolean modsWhitelistedEnabled;
         private final boolean hashMods;
         private final boolean modVersioning;
+        private final String requiredModpackHash;
         private final Map<String, String> knownModHashes;
         private final Set<String> ignoredMods;
         private final Set<String> whitelistedModsActive;
@@ -41,6 +42,7 @@ public final class ModChecks {
                              boolean modsWhitelistedEnabled,
                              boolean hashMods,
                              boolean modVersioning,
+                             String requiredModpackHash,
                              Map<String, String> knownModHashes,
                              Set<String> ignoredMods,
                              Set<String> whitelistedModsActive,
@@ -56,6 +58,7 @@ public final class ModChecks {
             this.modsWhitelistedEnabled = modsWhitelistedEnabled;
             this.hashMods = hashMods;
             this.modVersioning = modVersioning;
+            this.requiredModpackHash = requiredModpackHash;
             this.knownModHashes = knownModHashes;
             this.ignoredMods = ignoredMods;
             this.whitelistedModsActive = whitelistedModsActive;
@@ -89,6 +92,10 @@ public final class ModChecks {
 
         public boolean isModVersioning() {
             return modVersioning;
+        }
+
+        public String getRequiredModpackHash() {
+            return requiredModpackHash;
         }
 
         public Map<String, String> getKnownModHashes() {
@@ -314,6 +321,16 @@ public final class ModChecks {
                 }
             }
 
+            if (input.getRequiredModpackHash() != null && !input.getRequiredModpackHash().isBlank()) {
+                String computedHash = computeModpackHash(clientMods);
+                if (!input.getRequiredModpackHash().equalsIgnoreCase(computedHash)) {
+                    Set<String> mismatch = new LinkedHashSet<>();
+                    mismatch.add("modpack");
+                    String message = replaceModList(input.getKickMessage(), mismatch);
+                    return ModCheckResult.violation(message, "kick", mismatch, false, true, false);
+                }
+            }
+
             return ModCheckResult.empty();
         }
 
@@ -436,6 +453,22 @@ public final class ModChecks {
             }
             String modList = String.join(", ", mods);
             return message.replace("{mod}", modList);
+        }
+
+        private static String computeModpackHash(Set<String> clientMods) {
+            if (clientMods == null || clientMods.isEmpty()) {
+                return HashUtils.sha256Hex("");
+            }
+
+            List<String> sorted = new ArrayList<>();
+            for (String mod : clientMods) {
+                if (mod == null || mod.isBlank()) {
+                    continue;
+                }
+                sorted.add(mod.trim().toLowerCase(Locale.ROOT));
+            }
+            Collections.sort(sorted);
+            return HashUtils.sha256Hex(String.join(",", sorted));
         }
     }
     // endregion

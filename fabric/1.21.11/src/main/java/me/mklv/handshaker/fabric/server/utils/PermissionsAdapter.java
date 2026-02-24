@@ -4,13 +4,6 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import java.lang.reflect.Method;
 
-/**
- * Adapter for handling permissions with fallback support.
- * Attempts to use fabric-permissions-api if available, otherwise falls back to default behavior.
- * This allows the mod to work whether or not fabric-permissions-api is installed.
- * 
- * For 1.21.11+, supports both ServerCommandSource and ServerPlayerEntity for permission checks.
- */
 public class PermissionsAdapter {
     private static final Method PERMISSIONS_CHECK_COMMAND_SOURCE;
     private static final Method PERMISSIONS_CHECK_PLAYER;
@@ -59,11 +52,6 @@ public class PermissionsAdapter {
         HAS_FABRIC_PERMISSIONS = hasFabricPermissions;
     }
 
-    /**
-     * Check if a ServerCommandSource has a specific permission.
-     * If fabric-permissions-api is available, uses it.
-     * Otherwise, returns true (no permission checking without the API).
-     */
     public static boolean checkPermission(ServerCommandSource source, String permission, int minimumLevel) {
         if (HAS_FABRIC_PERMISSIONS && PERMISSIONS_CHECK_COMMAND_SOURCE != null) {
             try {
@@ -84,15 +72,6 @@ public class PermissionsAdapter {
         return true;
     }
 
-    /**
-     * Check if a ServerPlayerEntity has a specific permission.
-     * If fabric-permissions-api is available, uses it.
-     * Otherwise, returns true (no permission checking without the API).
-     * 
-     * @param player The player to check
-     * @param permission The permission node to check
-     * @return true if the player has the permission, false otherwise
-     */
     public static boolean checkPermission(ServerPlayerEntity player, String permission) {
         if (HAS_FABRIC_PERMISSIONS && PERMISSIONS_CHECK_PLAYER != null) {
             try {
@@ -107,9 +86,6 @@ public class PermissionsAdapter {
         return true;
     }
 
-    /**
-     * Check if fabric-permissions-api is available.
-     */
     public static boolean hasFabricPermissions() {
         return HAS_FABRIC_PERMISSIONS;
     }

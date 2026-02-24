@@ -17,11 +17,13 @@ import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.*;
 import net.minecraft.util.Formatting;
+import net.minecraft.server.world.ServerWorld;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -88,7 +90,15 @@ public class HandShakerCommand {
                 .then(literal("mod_versioning")
                     .then(argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                    .executes(ctx -> setConfigValue(ctx, "mod_versioning")))))
+                    .executes(ctx -> setConfigValue(ctx, "mod_versioning"))))
+                .then(literal("runtime_cache")
+                    .then(argument("value", StringArgumentType.word())
+                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
+                    .executes(ctx -> setConfigValue(ctx, "runtime_cache"))))
+                .then(literal("required_modpack_hash")
+                    .then(argument("value", StringArgumentType.word())
+                        .suggests((ctx, builder) -> builder.suggest("off").suggest("current").buildFuture())
+                    .executes(ctx -> setConfigValue(ctx, "required_modpack_hash")))))
             .then(literal("mode")
                 .then(argument("list", StringArgumentType.word())
                     .suggests(HandShakerCommand::suggestModeLists)
@@ -215,6 +225,9 @@ public class HandShakerCommand {
             .append(Text.literal(config.areModsBlacklistedEnabled() ? "ON" : "OFF").formatted(Formatting.WHITE)));
         ctx.getSource().sendMessage(Text.literal("Whitelisted Mods Enabled: ").formatted(Formatting.YELLOW)
             .append(Text.literal(config.areModsWhitelistedEnabled() ? "ON" : "OFF").formatted(Formatting.WHITE)));
+        String requiredModpackHash = config.getRequiredModpackHash();
+        ctx.getSource().sendMessage(Text.literal("Required Modpack Hash: ").formatted(Formatting.YELLOW)
+            .append(Text.literal(requiredModpackHash != null ? requiredModpackHash : "OFF").formatted(Formatting.WHITE)));
         
         return Command.SINGLE_SUCCESS;
     }
@@ -287,6 +300,46 @@ public class HandShakerCommand {
                 boolean enable = value.equalsIgnoreCase("true");
                 config.setModVersioning(enable);
                 ctx.getSource().sendFeedback(() -> Text.literal("✓ mod_versioning " + (enable ? "enabled" : "disabled")).formatted(Formatting.GREEN), true);
+            }
+            case "runtime_cache" -> {
+                if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+                    ctx.getSource().sendError(Text.literal("runtime_cache must be true or false"));
+                    return 0;
+                }
+                boolean enable = value.equalsIgnoreCase("true");
+                config.setRuntimeCache(enable);
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ runtime_cache " + (enable ? "enabled" : "disabled")).formatted(Formatting.GREEN), true);
+            }
+            case "required_modpack_hash" -> {
+                if (value.equalsIgnoreCase("current")) {
+                    ServerPlayerEntity player = ctx.getSource().getEntity() instanceof ServerPlayerEntity serverPlayer
+                        ? serverPlayer
+                        : null;
+                    if (player == null) {
+                        ctx.getSource().sendError(Text.literal("'current' can only be used by an in-game player"));
+                        return 0;
+                    }
+                    ClientInfo info = HandShakerServer.getInstance().getClients().get(player.getUuid());
+                    if (info == null || info.mods() == null || info.mods().isEmpty()) {
+                        ctx.getSource().sendError(Text.literal("No client mod list available. Join with HandShaker client first."));
+                        return 0;
+                    }
+
+                    String computed = computeModpackHash(info.mods());
+                    config.setRequiredModpackHash(computed);
+                    ctx.getSource().sendFeedback(() -> Text.literal("✓ required_modpack_hash set to current client hash: " + computed).formatted(Formatting.GREEN), true);
+                    HandShakerServer.getInstance().checkAllPlayers();
+                    break;
+                }
+
+                String normalized = normalizeRequiredModpackHash(value);
+                if (normalized == null && !value.equalsIgnoreCase("off") && !value.equalsIgnoreCase("none") && !value.equalsIgnoreCase("null")) {
+                    ctx.getSource().sendError(Text.literal("required_modpack_hash must be 64-char SHA-256, 'off', or 'current'"));
+                    return 0;
+                }
+                config.setRequiredModpackHash(normalized);
+                ctx.getSource().sendFeedback(() -> Text.literal("✓ required_modpack_hash " + (normalized == null ? "disabled" : "set")).formatted(Formatting.GREEN), true);
+                HandShakerServer.getInstance().checkAllPlayers();
             }
             default -> {
                 ctx.getSource().sendError(Text.literal("Unknown config parameter: " + param));
@@ -791,6 +844,39 @@ public class HandShakerCommand {
         return CommandModUtil.defaultActionForMode(mode);
     }
 
+    private static String normalizeRequiredModpackHash(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty() || normalized.equals("off") || normalized.equals("none") || normalized.equals("null")) {
+            return null;
+        }
+
+        if (!normalized.matches("[0-9a-f]{64}")) {
+            return null;
+        }
+
+        return normalized;
+    }
+
+    private static String computeModpackHash(Set<String> mods) {
+        if (mods == null || mods.isEmpty()) {
+            return HashUtils.sha256Hex("");
+        }
+
+        List<String> sorted = new ArrayList<>();
+        for (String mod : mods) {
+            if (mod == null || mod.isBlank()) {
+                continue;
+            }
+            sorted.add(mod.trim().toLowerCase(Locale.ROOT));
+        }
+        Collections.sort(sorted);
+        return HashUtils.sha256Hex(String.join(",", sorted));
+    }
+
     private static boolean isValidAction(String action) {
         ConfigManager config = HandShakerServer.getInstance().getConfigManager();
         Set<String> availableActions = config.getAvailableActions();
@@ -916,7 +1002,7 @@ public class HandShakerCommand {
     }
 
     private static CompletableFuture<Suggestions> suggestPlayers(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
-        if (!(ctx.getSource().getWorld() instanceof net.minecraft.server.world.ServerWorld world)) {
+        if (!(ctx.getSource().getWorld() instanceof ServerWorld world)) {
             return Suggestions.empty();
         }
         for (ServerPlayerEntity player : world.getPlayers()) {

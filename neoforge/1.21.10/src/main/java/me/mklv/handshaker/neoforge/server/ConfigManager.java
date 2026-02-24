@@ -11,6 +11,8 @@ import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
+import me.mklv.handshaker.common.protocols.CollectKnownHashes;
+import me.mklv.handshaker.common.utils.ModCache;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckEvaluator;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckInput;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
@@ -40,6 +42,7 @@ public class ConfigManager extends CommonConfigManagerBase {
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, true, true, "kick", true);
         loadCommon(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
+        ModCache.invalidate();
     }
 
     public Map<String, String> getMessages() { return Collections.unmodifiableMap(messagesMap); }
@@ -178,6 +181,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             modsWhitelistedEnabled,
             hashMods,
             modVersioning,
+            getRequiredModpackHash(),
             collectKnownHashes(),
             ignoredMods,
             whitelistedModsActive,
@@ -205,15 +209,15 @@ public class ConfigManager extends CommonConfigManagerBase {
         }
 
         PlayerHistoryDatabase db = serverMod.getPlayerHistoryDb();
-        if (db == null) {
-            return Collections.emptyMap();
-        }
-
-        Set<String> ruleKeys = new LinkedHashSet<>();
-        ruleKeys.addAll(requiredModsActive);
-        ruleKeys.addAll(blacklistedModsActive);
-        ruleKeys.addAll(whitelistedModsActive);
-        ruleKeys.addAll(optionalModsActive);
-        return db.getRegisteredHashes(ruleKeys, modVersioning);
+        return CollectKnownHashes.collect(
+            hashMods,
+            runtimeCache,
+            db,
+            modVersioning,
+            requiredModsActive,
+            blacklistedModsActive,
+            whitelistedModsActive,
+            optionalModsActive
+        );
     }
 }

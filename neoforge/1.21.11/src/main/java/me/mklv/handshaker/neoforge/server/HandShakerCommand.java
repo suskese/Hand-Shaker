@@ -14,6 +14,7 @@ import me.mklv.handshaker.common.commands.ModListToggler;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
+import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -84,7 +85,15 @@ public class HandShakerCommand {
                 .then(Commands.literal("mod_versioning")
                     .then(Commands.argument("value", StringArgumentType.word())
                         .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "mod_versioning")))))
+                        .executes(ctx -> setConfigValue(ctx, "mod_versioning"))))
+                .then(Commands.literal("runtime_cache")
+                    .then(Commands.argument("value", StringArgumentType.word())
+                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
+                        .executes(ctx -> setConfigValue(ctx, "runtime_cache"))))
+                .then(Commands.literal("required_modpack_hash")
+                    .then(Commands.argument("value", StringArgumentType.word())
+                        .suggests((ctx, builder) -> builder.suggest("off").suggest("current").buildFuture())
+                        .executes(ctx -> setConfigValue(ctx, "required_modpack_hash")))))
             .then(Commands.literal("mode")
                 .then(Commands.argument("list", StringArgumentType.word())
                     .suggests(HandShakerCommand::suggestModeLists)
@@ -426,6 +435,8 @@ public class HandShakerCommand {
         ctx.getSource().sendSystemMessage(Component.literal("  Whitelist Mode: ").withColor(0xFFFF55).append(Component.literal(config.isWhitelist() ? "ON" : "OFF").withColor(0xFFFFFF)));
         ctx.getSource().sendSystemMessage(Component.literal("  Bedrock Players: ").withColor(0xFFFF55).append(Component.literal(config.isAllowBedrockPlayers() ? "Allowed" : "Blocked").withColor(0xFFFFFF)));
         ctx.getSource().sendSystemMessage(Component.literal("  Player Database: ").withColor(0xFFFF55).append(Component.literal(config.isPlayerdbEnabled() ? "Enabled" : "Disabled").withColor(0xFFFFFF)));
+        String requiredModpackHash = config.getRequiredModpackHash();
+        ctx.getSource().sendSystemMessage(Component.literal("  Required Modpack Hash: ").withColor(0xFFFF55).append(Component.literal(requiredModpackHash != null ? requiredModpackHash : "OFF").withColor(0xFFFFFF)));
         return Command.SINGLE_SUCCESS;
     }
 
@@ -477,6 +488,44 @@ public class HandShakerCommand {
                 boolean enabled = value.equalsIgnoreCase("true") || value.equalsIgnoreCase("on");
                 config.setModVersioning(enabled);
                 ctx.getSource().sendSuccess(() -> Component.literal("✓ mod_versioning " + (enabled ? "enabled" : "disabled")), true);
+            }
+            case "runtime_cache" -> {
+                boolean enabled = value.equalsIgnoreCase("true") || value.equalsIgnoreCase("on");
+                config.setRuntimeCache(enabled);
+                ctx.getSource().sendSuccess(() -> Component.literal("✓ runtime_cache " + (enabled ? "enabled" : "disabled")), true);
+            }
+            case "required_modpack_hash" -> {
+                if (value.equalsIgnoreCase("current")) {
+                    ServerPlayer player = ctx.getSource().getEntity() instanceof ServerPlayer serverPlayer
+                        ? serverPlayer
+                        : null;
+                    if (player == null) {
+                        ctx.getSource().sendFailure(Component.literal("'current' can only be used by an in-game player"));
+                        return 0;
+                    }
+
+                    Set<String> mods = HandShakerServerMod.getInstance().getClientMods(player.getUUID());
+                    if (mods == null || mods.isEmpty()) {
+                        ctx.getSource().sendFailure(Component.literal("No client mod list available. Join with HandShaker client first."));
+                        return 0;
+                    }
+
+                    String computed = computeModpackHash(mods);
+                    config.setRequiredModpackHash(computed);
+                    ctx.getSource().sendSuccess(() -> Component.literal("✓ required_modpack_hash set to current client hash: " + computed), true);
+                    HandShakerServerMod.getInstance().checkAllPlayers();
+                    break;
+                }
+
+                String normalized = normalizeRequiredModpackHash(value);
+                if (normalized == null && !value.equalsIgnoreCase("off") && !value.equalsIgnoreCase("none") && !value.equalsIgnoreCase("null")) {
+                    ctx.getSource().sendFailure(Component.literal("required_modpack_hash must be 64-char SHA-256, 'off', or 'current'"));
+                    return 0;
+                }
+
+                config.setRequiredModpackHash(normalized);
+                ctx.getSource().sendSuccess(() -> Component.literal("✓ required_modpack_hash " + (normalized == null ? "disabled" : "set")), true);
+                HandShakerServerMod.getInstance().checkAllPlayers();
             }
             default -> ctx.getSource().sendFailure(Component.literal("Unknown config parameter: " + param));
         }
@@ -732,6 +781,39 @@ public class HandShakerCommand {
             }
         }
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static String normalizeRequiredModpackHash(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty() || normalized.equals("off") || normalized.equals("none") || normalized.equals("null")) {
+            return null;
+        }
+
+        if (!normalized.matches("[0-9a-f]{64}")) {
+            return null;
+        }
+
+        return normalized;
+    }
+
+    private static String computeModpackHash(Set<String> mods) {
+        if (mods == null || mods.isEmpty()) {
+            return HashUtils.sha256Hex("");
+        }
+
+        List<String> sorted = new ArrayList<>();
+        for (String mod : mods) {
+            if (mod == null || mod.isBlank()) {
+                continue;
+            }
+            sorted.add(mod.trim().toLowerCase(Locale.ROOT));
+        }
+        Collections.sort(sorted);
+        return HashUtils.sha256Hex(String.join(",", sorted));
     }
 
     private static MutableComponent formatModLine(String modId, ConfigState.ModConfig modCfg, Integer count, ConfigState.Action action) {

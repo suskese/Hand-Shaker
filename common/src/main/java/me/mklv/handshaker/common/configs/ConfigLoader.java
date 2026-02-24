@@ -117,8 +117,23 @@ public final class ConfigLoader {
                 result.setHashMods(Boolean.parseBoolean(data.get("hash-mods").toString()));
             }
 
+            if (data.containsKey("Runtime_cache")) {
+                result.setRuntimeCache(Boolean.parseBoolean(data.get("Runtime_cache").toString()));
+            } else if (data.containsKey("runtime_cache")) {
+                result.setRuntimeCache(Boolean.parseBoolean(data.get("runtime_cache").toString()));
+            }
+
             if (data.containsKey("mod-versioning")) {
                 result.setModVersioning(Boolean.parseBoolean(data.get("mod-versioning").toString()));
+            }
+
+            if (data.containsKey("required-modpack-hash")) {
+                String hash = String.valueOf(data.get("required-modpack-hash")).trim().toLowerCase(Locale.ROOT);
+                if (hash.isEmpty() || "off".equals(hash) || "null".equals(hash)) {
+                    result.setRequiredModpackHash(null);
+                } else {
+                    result.setRequiredModpackHash(hash);
+                }
             }
 
             seedDefaultMessages(result);

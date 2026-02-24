@@ -11,9 +11,13 @@ import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
+import me.mklv.handshaker.common.protocols.CollectKnownHashes;
+import me.mklv.handshaker.common.utils.ModCache;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckEvaluator;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckInput;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
 import net.neoforged.fml.loading.FMLPaths;
 import java.io.*;
 import java.util.*;
@@ -39,6 +43,7 @@ public class ConfigManager extends CommonConfigManagerBase {
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, true, true, "kick", true);
         loadCommon(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
+        ModCache.invalidate();
     }
 
     public Map<String, String> getMessages() { return Collections.unmodifiableMap(messagesMap); }
@@ -137,7 +142,7 @@ public class ConfigManager extends CommonConfigManagerBase {
         saveCommon(configDir.toPath(), saveLogger);
     }
 
-    public void checkPlayer(net.minecraft.server.level.ServerPlayer player, ClientInfo info) {
+    public void checkPlayer(ServerPlayer player, ClientInfo info) {
         if (info == null) return;
 
         boolean hasMod = !info.mods().isEmpty();
@@ -149,11 +154,11 @@ public class ConfigManager extends CommonConfigManagerBase {
                 // CRITICAL: If IntegrityPayload hasn't been received yet, KICK
                 if (info.integrityNonce() == null) {
                     HandShakerServerMod.LOGGER.warn("Kicking {} - mod client but no integrity data sent in SIGNED mode", player.getName().getString());
-                    player.connection.disconnect(net.minecraft.network.chat.Component.literal(invalidSignatureKickMessage));
+                    player.connection.disconnect(Component.literal(invalidSignatureKickMessage));
                     return;
                 } else if (!info.signatureVerified()) {
                     HandShakerServerMod.LOGGER.warn("Kicking {} - integrity check FAILED in SIGNED mode", player.getName().getString());
-                    player.connection.disconnect(net.minecraft.network.chat.Component.literal(invalidSignatureKickMessage));
+                    player.connection.disconnect(Component.literal(invalidSignatureKickMessage));
                     return;
                 }
             }
@@ -166,7 +171,7 @@ public class ConfigManager extends CommonConfigManagerBase {
         
         // If behavior is STRICT and client doesn't have the mod, kick
         if (behavior == Behavior.STRICT && !hasMod) {
-            player.connection.disconnect(net.minecraft.network.chat.Component.literal(noHandshakeKickMessage));
+            player.connection.disconnect(Component.literal(noHandshakeKickMessage));
             return;
         }
 
@@ -177,6 +182,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             modsWhitelistedEnabled,
             hashMods,
             modVersioning,
+            getRequiredModpackHash(),
             collectKnownHashes(),
             ignoredMods,
             whitelistedModsActive,
@@ -189,7 +195,7 @@ public class ConfigManager extends CommonConfigManagerBase {
         );
         ModCheckResult result = ModCheckEvaluator.evaluate(input, info.mods());
         if (result.isViolation() && result.getMessage() != null) {
-            player.connection.disconnect(net.minecraft.network.chat.Component.literal(result.getMessage()));
+            player.connection.disconnect(Component.literal(result.getMessage()));
         }
     }
 
@@ -204,15 +210,15 @@ public class ConfigManager extends CommonConfigManagerBase {
         }
 
         PlayerHistoryDatabase db = serverMod.getPlayerHistoryDb();
-        if (db == null) {
-            return Collections.emptyMap();
-        }
-
-        Set<String> ruleKeys = new LinkedHashSet<>();
-        ruleKeys.addAll(requiredModsActive);
-        ruleKeys.addAll(blacklistedModsActive);
-        ruleKeys.addAll(whitelistedModsActive);
-        ruleKeys.addAll(optionalModsActive);
-        return db.getRegisteredHashes(ruleKeys, modVersioning);
+        return CollectKnownHashes.collect(
+            hashMods,
+            runtimeCache,
+            db,
+            modVersioning,
+            requiredModsActive,
+            blacklistedModsActive,
+            whitelistedModsActive,
+            optionalModsActive
+        );
     }
 }

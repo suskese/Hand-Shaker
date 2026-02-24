@@ -3,6 +3,7 @@ package me.mklv.handshaker.fabric.server.configs;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
 import me.mklv.handshaker.common.configs.ConfigFileBootstrap;
 import me.mklv.handshaker.common.configs.ConfigRuntime.CommonConfigManagerBase;
 import me.mklv.handshaker.common.configs.ConfigRuntime.MessagePlaceholderExpander;
@@ -13,8 +14,10 @@ import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Behavior;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.IntegrityMode;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.protocols.CollectKnownHashes;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
+import me.mklv.handshaker.common.utils.ModCache;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckEvaluator;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckInput;
 import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
@@ -44,6 +47,7 @@ public class ConfigManager extends CommonConfigManagerBase {
 
         ConfigLoadOptions options = new ConfigLoadOptions(true, true, true, "kick", true);
         loadCommon(configDir.toPath(), ConfigManager.class, bootstrapLogger, options);
+        ModCache.invalidate();
 
         HandShakerServer.DEBUG_MODE = isDebug();
     }
@@ -192,11 +196,11 @@ public class ConfigManager extends CommonConfigManagerBase {
         saveCommon(configDir.toPath(), saveLogger);
     }
 
-    public void checkPlayer(net.minecraft.server.network.ServerPlayerEntity player, ClientInfo info) {
+    public void checkPlayer(ServerPlayerEntity player, ClientInfo info) {
         checkPlayer(player, info, true); // Execute actions by default
     }
     
-    public void checkPlayer(net.minecraft.server.network.ServerPlayerEntity player, ClientInfo info, boolean executeActions) {
+    public void checkPlayer(ServerPlayerEntity player, ClientInfo info, boolean executeActions) {
         if (info == null) return;
 
         // Check for bypass permission - allows players to bypass all mod checks
@@ -215,12 +219,12 @@ public class ConfigManager extends CommonConfigManagerBase {
                 if (info.integrityNonce() == null) {
                     // Client has mod but never sent integrity payload - this is a security violation
                     HandShakerServer.LOGGER.warn("Kicking {} - mod client but no integrity data sent in SIGNED mode", player.getName().getString());
-                    player.networkHandler.disconnect(net.minecraft.text.Text.literal(invalidSignatureKickMessage));
+                    player.networkHandler.disconnect(Text.literal(invalidSignatureKickMessage));
                     return;
                 } else if (!info.signatureVerified()) {
                     // Client sent integrity data but verification FAILED
                     HandShakerServer.LOGGER.warn("Kicking {} - integrity check FAILED in SIGNED mode", player.getName().getString());
-                    player.networkHandler.disconnect(net.minecraft.text.Text.literal(invalidSignatureKickMessage));
+                    player.networkHandler.disconnect(Text.literal(invalidSignatureKickMessage));
                     return;
                 }
             }
@@ -233,7 +237,7 @@ public class ConfigManager extends CommonConfigManagerBase {
         
         // If behavior is STRICT and client doesn't have the mod, kick
         if (behavior == Behavior.STRICT && !hasMod) {
-            player.networkHandler.disconnect(net.minecraft.text.Text.literal(noHandshakeKickMessage));
+            player.networkHandler.disconnect(Text.literal(noHandshakeKickMessage));
             return;
         }
 
@@ -244,6 +248,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             modsWhitelistedEnabled,
             hashMods,
             modVersioning,
+            getRequiredModpackHash(),
             collectKnownHashes(),
             ignoredMods,
             whitelistedModsActive,
@@ -292,7 +297,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             }
 
             if (result.getMessage() != null) {
-                player.networkHandler.disconnect(net.minecraft.text.Text.literal(result.getMessage()));
+                player.networkHandler.disconnect(Text.literal(result.getMessage()));
             }
             return;
         }
@@ -349,16 +354,16 @@ public class ConfigManager extends CommonConfigManagerBase {
         }
 
         PlayerHistoryDatabase db = server.getPlayerHistoryDb();
-        if (db == null) {
-            return Collections.emptyMap();
-        }
-
-        Set<String> ruleKeys = new LinkedHashSet<>();
-        ruleKeys.addAll(requiredModsActive);
-        ruleKeys.addAll(blacklistedModsActive);
-        ruleKeys.addAll(whitelistedModsActive);
-        ruleKeys.addAll(optionalModsActive);
-        return db.getRegisteredHashes(ruleKeys, modVersioning);
+        return CollectKnownHashes.collect(
+            hashMods,
+            runtimeCache,
+            db,
+            modVersioning,
+            requiredModsActive,
+            blacklistedModsActive,
+            whitelistedModsActive,
+            optionalModsActive
+        );
     }
 
     public void playerLeft(ServerPlayerEntity player) {

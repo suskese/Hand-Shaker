@@ -68,7 +68,9 @@ public final class ConfigWriter {
             root.put("mods-blacklisted-enabled", data.areModsBlacklistedEnabled());
             root.put("mods-whitelisted-enabled", data.areModsWhitelistedEnabled());
             root.put("hash-mods", data.isHashMods());
+            root.put("Runtime_cache", data.isRuntimeCache());
             root.put("mod-versioning", data.isModVersioning());
+            root.put("required-modpack-hash", data.getRequiredModpackHash() != null ? data.getRequiredModpackHash() : "off");
 
             Map<String, Object> messages = asObjectMap(root.get("messages"));
             if (data.getKickMessage() != null) {
@@ -125,7 +127,16 @@ public final class ConfigWriter {
             changed |= updateRootKey(lines, "mods-blacklisted-enabled", String.valueOf(data.areModsBlacklistedEnabled()));
             changed |= updateRootKey(lines, "mods-whitelisted-enabled", String.valueOf(data.areModsWhitelistedEnabled()));
             changed |= updateRootKey(lines, "hash-mods", String.valueOf(data.isHashMods()));
+            changed |= updateRootKey(lines, "Runtime_cache", String.valueOf(data.isRuntimeCache()));
             changed |= updateRootKey(lines, "mod-versioning", String.valueOf(data.isModVersioning()));
+            String requiredModpackHashValue = data.getRequiredModpackHash() != null ? data.getRequiredModpackHash() : "off";
+            boolean updatedRequiredHash = updateRootKey(lines, "required-modpack-hash", requiredModpackHashValue);
+            if (!updatedRequiredHash) {
+                lines.add("required-modpack-hash: " + formatYamlValue(requiredModpackHashValue));
+                changed = true;
+            } else {
+                changed = true;
+            }
 
             Map<String, String> messageUpdates = new LinkedHashMap<>();
             if (data.getKickMessage() != null) {
