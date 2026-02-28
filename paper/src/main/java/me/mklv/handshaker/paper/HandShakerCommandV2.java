@@ -15,8 +15,8 @@ import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.utils.ClientInfo;
-import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
+import me.mklv.handshaker.common.utils.ModpackHashing;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -574,6 +574,16 @@ public class HandShakerCommandV2 {
                 config.setRuntimeCache(enabled);
                 source.getSender().sendMessage(Component.text("✓ Set runtime-cache to " + enabled).color(NamedTextColor.GREEN));
             }
+            case "handshake_timeout" -> {
+                try {
+                    int seconds = Integer.parseInt(value.trim());
+                    config.setHandshakeTimeoutSeconds(seconds);
+                    source.getSender().sendMessage(Component.text("✓ Set handshake timeout to " + Math.max(1, seconds) + " seconds").color(NamedTextColor.GREEN));
+                } catch (NumberFormatException e) {
+                    source.getSender().sendMessage(Component.text("Handshake timeout must be a number of seconds").color(NamedTextColor.RED));
+                    return 0;
+                }
+            }
             case "required_modpack_hash" -> {
                 if (value.equalsIgnoreCase("current")) {
                     if (!(source.getSender() instanceof Player player)) {
@@ -587,7 +597,7 @@ public class HandShakerCommandV2 {
                         return 0;
                     }
 
-                    String computed = computeModpackHash(info.mods());
+                    String computed = computeModpackHash(info.mods(), config.isHashMods());
                     config.setRequiredModpackHash(computed);
                     source.getSender().sendMessage(Component.text("✓ Set required_modpack_hash to current client hash: " + computed).color(NamedTextColor.GREEN));
                     plugin.checkAllPlayers();
@@ -1129,20 +1139,8 @@ public class HandShakerCommandV2 {
         return normalized;
     }
 
-    private static String computeModpackHash(Set<String> mods) {
-        if (mods == null || mods.isEmpty()) {
-            return HashUtils.sha256Hex("");
-        }
-
-        List<String> sorted = new ArrayList<>();
-        for (String mod : mods) {
-            if (mod == null || mod.isBlank()) {
-                continue;
-            }
-            sorted.add(mod.trim().toLowerCase(Locale.ROOT));
-        }
-        Collections.sort(sorted);
-        return HashUtils.sha256Hex(String.join(",", sorted));
+    private static String computeModpackHash(Set<String> mods, boolean includeFileHashes) {
+        return ModpackHashing.compute(mods, includeFileHashes);
     }
 
     private static String getModToken(CommandContext<CommandSourceStack> ctx, String argumentName) {

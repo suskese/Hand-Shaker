@@ -35,6 +35,7 @@ public final class ModChecks {
         private final Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap;
         private final String kickMessage;
         private final String missingWhitelistModMessage;
+        private final String modpackHashMismatchMessage;
 
         public ModCheckInput(boolean whitelist,
                              boolean modsRequiredEnabled,
@@ -51,7 +52,8 @@ public final class ModChecks {
                              Set<String> requiredModsActive,
                              Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
                              String kickMessage,
-                             String missingWhitelistModMessage) {
+                             String missingWhitelistModMessage,
+                             String modpackHashMismatchMessage) {
             this.whitelist = whitelist;
             this.modsRequiredEnabled = modsRequiredEnabled;
             this.modsBlacklistedEnabled = modsBlacklistedEnabled;
@@ -68,6 +70,7 @@ public final class ModChecks {
             this.modConfigMap = modConfigMap;
             this.kickMessage = kickMessage;
             this.missingWhitelistModMessage = missingWhitelistModMessage;
+            this.modpackHashMismatchMessage = modpackHashMismatchMessage;
         }
 
         public boolean isWhitelist() {
@@ -132,6 +135,10 @@ public final class ModChecks {
 
         public String getMissingWhitelistModMessage() {
             return missingWhitelistModMessage;
+        }
+
+        public String getModpackHashMismatchMessage() {
+            return modpackHashMismatchMessage;
         }
     }
     // endregion
@@ -322,11 +329,14 @@ public final class ModChecks {
             }
 
             if (input.getRequiredModpackHash() != null && !input.getRequiredModpackHash().isBlank()) {
-                String computedHash = computeModpackHash(clientMods);
+                String computedHash = computeModpackHash(clientMods, input.isHashMods());
                 if (!input.getRequiredModpackHash().equalsIgnoreCase(computedHash)) {
                     Set<String> mismatch = new LinkedHashSet<>();
                     mismatch.add("modpack");
-                    String message = replaceModList(input.getKickMessage(), mismatch);
+                    String baseMessage = input.getModpackHashMismatchMessage() != null
+                        ? input.getModpackHashMismatchMessage()
+                        : input.getKickMessage();
+                    String message = replaceModList(baseMessage, mismatch);
                     return ModCheckResult.violation(message, "kick", mismatch, false, true, false);
                 }
             }
@@ -451,24 +461,27 @@ public final class ModChecks {
             if (message == null) {
                 return null;
             }
-            String modList = String.join(", ", mods);
-            return message.replace("{mod}", modList);
+            // Limit to ~10 mods to avoid spam
+            final int MOD_DISPLAY_LIMIT = 10;
+            StringBuilder modList = new StringBuilder();
+            int count = 0;
+            for (String mod : mods) {
+                if (count >= MOD_DISPLAY_LIMIT) {
+                    int remaining = mods.size() - MOD_DISPLAY_LIMIT;
+                    modList.append(", and ").append(remaining).append(" more");
+                    break;
+                }
+                if (count > 0) {
+                    modList.append(", ");
+                }
+                modList.append(mod);
+                count++;
+            }
+            return message.replace("{mod}", modList.toString());
         }
 
-        private static String computeModpackHash(Set<String> clientMods) {
-            if (clientMods == null || clientMods.isEmpty()) {
-                return HashUtils.sha256Hex("");
-            }
-
-            List<String> sorted = new ArrayList<>();
-            for (String mod : clientMods) {
-                if (mod == null || mod.isBlank()) {
-                    continue;
-                }
-                sorted.add(mod.trim().toLowerCase(Locale.ROOT));
-            }
-            Collections.sort(sorted);
-            return HashUtils.sha256Hex(String.join(",", sorted));
+        private static String computeModpackHash(Set<String> clientMods, boolean includeFileHashes) {
+            return ModpackHashing.compute(clientMods, includeFileHashes);
         }
     }
     // endregion

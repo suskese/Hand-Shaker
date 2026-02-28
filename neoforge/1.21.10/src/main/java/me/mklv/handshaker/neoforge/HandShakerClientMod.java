@@ -59,21 +59,57 @@ public class HandShakerClientMod {
     }
 
     private void sendSignature(ClientPlayerNetworkEvent.LoggingIn event) {
+        Optional<byte[]> jarSignature = getJarSignature();
         Optional<String> jarContentHash = computeJarContentHash();
         String nonce = generateNonce();
         Optional<Boolean> isSignatureValid = verifyJarSignatureLocally();
-        
-        // Send the jarHash. If signature verification failed locally, send empty bytes as indicator
-        byte[] signatureIndicator = (isSignatureValid.isPresent() && isSignatureValid.get()) ? new byte[]{1} : new byte[0];
-        
-        if (jarContentHash.isPresent()) {
-            sendPacket(event, new HandShakerServerMod.IntegrityPayload(signatureIndicator, jarContentHash.get(), nonce));
-            String status = (isSignatureValid.isPresent() && isSignatureValid.get()) ? "VERIFIED" : "UNVERIFIED";
-            LOGGER.info("Sent JAR content hash {} [{}] with nonce: {}", jarContentHash.get().substring(0, 8), status, nonce);
+
+        if (jarSignature.isPresent() && jarContentHash.isPresent()) {
+            if (isSignatureValid.isPresent() && isSignatureValid.get()) {
+                sendPacket(event, new HandShakerServerMod.IntegrityPayload(jarSignature.get(), jarContentHash.get(), nonce));
+                LOGGER.info("Sent JAR signature ({} bytes) with content hash {} and nonce: {}", jarSignature.get().length, jarContentHash.get().substring(0, 8), nonce);
+            } else {
+                LOGGER.error("JAR signature verification FAILED on client side - rejecting!");
+                sendPacket(event, new HandShakerServerMod.IntegrityPayload(new byte[0], "", nonce));
+            }
         } else {
-            LOGGER.warn("Could not compute JAR content hash. Sending empty payload.");
+            LOGGER.warn("Could not find JAR signature or hash. Sending empty payload.");
             sendPacket(event, new HandShakerServerMod.IntegrityPayload(new byte[0], "", nonce));
         }
+    }
+
+    private Optional<byte[]> getJarSignature() {
+        try {
+            var classPath = HandShakerClientMod.class.getProtectionDomain()
+                .getCodeSource()
+                .getLocation()
+                .toURI();
+            var path = java.nio.file.Paths.get(classPath);
+
+            if (!java.nio.file.Files.isRegularFile(path)) {
+                LOGGER.warn("Not running from JAR file: {}", path);
+                return Optional.empty();
+            }
+
+            try (var zipFile = new java.util.zip.ZipFile(path.toFile())) {
+                var entries = zipFile.entries();
+                while (entries.hasMoreElements()) {
+                    var entry = entries.nextElement();
+                    String name = entry.getName().toUpperCase();
+                    if (name.startsWith("META-INF/") && name.endsWith(".RSA")) {
+                        try (var is = zipFile.getInputStream(entry)) {
+                            byte[] signature = is.readAllBytes();
+                            LOGGER.info("Found RSA signature file in JAR: {}", entry.getName());
+                            return Optional.of(signature);
+                        }
+                    }
+                }
+                LOGGER.warn("No .RSA signature file found in META-INF");
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Could not read signature from JAR: {}", e.getMessage());
+        }
+        return Optional.empty();
     }
 
     @SuppressWarnings("null")

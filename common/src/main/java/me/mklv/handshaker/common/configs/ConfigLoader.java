@@ -170,6 +170,7 @@ public final class ConfigLoader {
             messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE, ConfigTypes.StandardMessages.HANDSHAKE_MISSING_SIGNATURE);
             messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_REPLAY, ConfigTypes.StandardMessages.HANDSHAKE_REPLAY);
             messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_VELTON_FAILED, ConfigTypes.StandardMessages.VELTON_VERIFICATION_FAILED);
+            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_MODPACK_HASH_MISMATCH, ConfigTypes.StandardMessages.MODPACK_HASH_MISMATCH);
             result.setKickMessage(messages.get("kick"));
             result.setNoHandshakeKickMessage(messages.get("no-handshake"));
             result.setMissingWhitelistModMessage(messages.get("missing-whitelist"));

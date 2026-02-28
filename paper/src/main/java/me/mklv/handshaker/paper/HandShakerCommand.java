@@ -567,7 +567,7 @@ public class HandShakerCommand {
         int startIdx = (pageNum - 1) * PAGE_SIZE;
         int endIdx = Math.min(startIdx + PAGE_SIZE, sortedMods.size());
         
-        sender.sendMessage("§6=== All Detected Mods (Page " + pageNum + "/" + totalPages + ") ===");
+        sender.sendMessage("§6=== All Mods (Page " + pageNum + "/" + totalPages + ") ===");
         
         if (!(sender instanceof Player player)) {
             for (int i = startIdx; i < endIdx; i++) {

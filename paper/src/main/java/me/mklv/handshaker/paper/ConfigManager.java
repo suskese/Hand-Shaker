@@ -6,6 +6,7 @@ import me.mklv.handshaker.common.configs.ConfigRuntime.MessagePlaceholderExpande
 import me.mklv.handshaker.common.configs.ConfigTypes.ActionDefinition;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigLoadOptions;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Behavior;
+import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.protocols.CollectKnownHashes;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
@@ -116,7 +117,8 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             modConfigMap,
             kickMessage,
-            missingWhitelistModMessage
+            missingWhitelistModMessage,
+            getMessageOrDefault(StandardMessages.KEY_MODPACK_HASH_MISMATCH, StandardMessages.MODPACK_HASH_MISMATCH)
         );
         ModCheckResult result = ModCheckEvaluator.evaluate(input, clientMods);
         if (!result.isViolation() && !result.hasAllowedActions()) {

@@ -8,6 +8,7 @@ import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Action;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.Behavior;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.IntegrityMode;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
+import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
@@ -142,9 +143,7 @@ public class ConfigManager extends CommonConfigManagerBase {
     }
 
     public void checkPlayer(net.minecraft.server.level.ServerPlayer player, ClientInfo info) {
-        if (info == null) return;
-
-        boolean hasMod = !info.mods().isEmpty();
+        boolean hasMod = info != null && !info.mods().isEmpty();
         
         // Integrity Check - if mode is SIGNED, enforce signature verification
         if (integrityMode == IntegrityMode.SIGNED) {
@@ -174,6 +173,10 @@ public class ConfigManager extends CommonConfigManagerBase {
             return;
         }
 
+        if (!hasMod) {
+            return;
+        }
+
         ModCheckInput input = new ModCheckInput(
             whitelist,
             modsRequiredEnabled,
@@ -190,7 +193,8 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             modConfigMap,
             kickMessage,
-            missingWhitelistModMessage
+            missingWhitelistModMessage,
+            getMessageOrDefault(StandardMessages.KEY_MODPACK_HASH_MISMATCH, StandardMessages.MODPACK_HASH_MISMATCH)
         );
         ModCheckResult result = ModCheckEvaluator.evaluate(input, info.mods());
         if (result.isViolation() && result.getMessage() != null) {

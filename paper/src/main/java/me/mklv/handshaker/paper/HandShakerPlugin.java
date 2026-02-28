@@ -58,6 +58,10 @@ public class HandShakerPlugin extends JavaPlugin {
             LifecycleEvents.COMMANDS,
             event -> HandShakerCommandV2.register(this, event.registrar())
         );
+        this.getLifecycleManager().registerEventHandler(
+            LifecycleEvents.COMMANDS,
+            event -> HandShakerCommandV3.register(this, event.registrar())
+        );
     }
 
     private void loadConfiguration() {

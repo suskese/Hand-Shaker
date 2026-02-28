@@ -67,7 +67,8 @@ mods-required-enabled: true
 mods-blacklisted-enabled: true
 mods-whitelisted-enabled: true
 
-# Phase 1 Modpack Mode: set SHA-256 of normalized client mod list payload, or "off" to disable
+# Modpack Mode: set SHA-256 of normalized client mod list or "off" to disable.
+# Its the last line of defense
 required-modpack-hash: off
 
 
@@ -96,6 +97,7 @@ messages:
   handshake-missing-signature: "Invalid handshake: missing signature"
   handshake-replay: "Replay attack detected"
   velton-verification-failed: "Anti-cheat verification failed"
+  modpack-hash-mismatch: "Your modpack does not match this server's required modpack."
 
 
   # custom messages for actions can be added here

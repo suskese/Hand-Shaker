@@ -15,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import me.mklv.handshaker.common.utils.HashUtils;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -52,10 +54,12 @@ public class HandShaker implements ClientModInitializer {
 				.map(m -> {
 					String id = m.getMetadata().getId();
 					String normalizedId = MOD_ID.equals(id) ? MOD_ID : id;
+					String displayName = m.getMetadata().getName();
+					String encodedDisplayName = encodeDisplayName(displayName);
 					String version = m.getMetadata().getVersion().getFriendlyString();
 					Path modPath = safeFirstOriginPath(m).orElse(null);
 					String modHash = computeModFileHash(modPath).orElse("null");
-					return normalizedId + ":" + version + ":" + modHash;
+					return normalizedId + "~" + encodedDisplayName + ":" + version + ":" + modHash;
 				})
 				.sorted()
 				.reduce((a,b) -> a + "," + b)
@@ -64,6 +68,13 @@ public class HandShaker implements ClientModInitializer {
 		String nonce = generateNonce();
 		ClientPlayNetworking.send(new ModsListPayload(payload, modListHash, nonce));
 		LOGGER.info("Sent mod list ({} chars, hash: {}) with nonce: {}", payload.length(), modListHash.substring(0, 8), nonce);
+	}
+
+	private String encodeDisplayName(String name) {
+		if (name == null || name.isBlank()) {
+			return "null";
+		}
+		return URLEncoder.encode(name, StandardCharsets.UTF_8);
 	}
 
 	private Optional<Path> safeFirstOriginPath(net.fabricmc.loader.api.ModContainer modContainer) {

@@ -4,6 +4,8 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
+import java.net.URLDecoder;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -74,6 +76,7 @@ public final class ConfigTypes {
         public static final String KEY_HANDSHAKE_MISSING_SIGNATURE = "handshake-missing-signature";
         public static final String KEY_HANDSHAKE_REPLAY = "handshake-replay";
         public static final String KEY_VELTON_FAILED = "velton-verification-failed";
+        public static final String KEY_MODPACK_HASH_MISMATCH = "modpack-hash-mismatch";
 
         public static final String DEFAULT_KICK_MESSAGE =
             "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
@@ -96,28 +99,37 @@ public final class ConfigTypes {
         public static final String HANDSHAKE_REPLAY = "Replay attack detected";
 
         public static final String VELTON_VERIFICATION_FAILED = "Anti-cheat verification failed";
+        public static final String MODPACK_HASH_MISMATCH = "Your modpack does not match this server's required modpack.";
     }
 
-    public record ModEntry(String modId, String version, String hash) {
+    public record ModEntry(String modId, String version, String hash, String displayName) {
         public static ModEntry parse(String raw) {
             if (raw == null) {
                 return null;
             }
 
-            String trimmed = raw.trim().toLowerCase(Locale.ROOT);
+            String trimmed = raw.trim();
             if (trimmed.isEmpty()) {
                 return null;
             }
 
             String[] parts = trimmed.split(":", 3);
-            String modId = normalizePart(parts[0]);
+            String modIdToken = parts[0];
+            String displayName = null;
+            int displaySeparator = modIdToken.indexOf('~');
+            if (displaySeparator >= 0) {
+                displayName = decodeDisplayName(modIdToken.substring(displaySeparator + 1));
+                modIdToken = modIdToken.substring(0, displaySeparator);
+            }
+
+            String modId = normalizePart(modIdToken);
             if (modId == null) {
                 return null;
             }
 
             String version = parts.length > 1 ? normalizePart(parts[1]) : null;
             String hash = parts.length > 2 ? normalizePart(parts[2]) : null;
-            return new ModEntry(modId, version, hash);
+            return new ModEntry(modId, version, hash, displayName);
         }
 
         public String toRuleKey(boolean versioningEnabled) {
@@ -143,6 +155,22 @@ public final class ConfigTypes {
                 return null;
             }
             return trimmed.toLowerCase(Locale.ROOT);
+        }
+
+        private static String decodeDisplayName(String encoded) {
+            if (encoded == null) {
+                return null;
+            }
+            String trimmed = encoded.trim();
+            if (trimmed.isEmpty() || "null".equalsIgnoreCase(trimmed)) {
+                return null;
+            }
+            try {
+                String decoded = URLDecoder.decode(trimmed, StandardCharsets.UTF_8);
+                return decoded.isBlank() ? null : decoded;
+            } catch (Exception ignored) {
+                return trimmed;
+            }
         }
     }
 
