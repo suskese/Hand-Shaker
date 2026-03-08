@@ -9,12 +9,11 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 
 import me.mklv.handshaker.fabric.server.configs.ConfigManager;
 import me.mklv.handshaker.fabric.server.utils.PermissionsAdapter;
-import me.mklv.handshaker.common.commands.CommandSuggestionData;
 import me.mklv.handshaker.common.commands.CommandSuggestionOperations;
 import me.mklv.handshaker.common.commands.CommandHelper;
 import me.mklv.handshaker.common.commands.InfoCommandOperations;
 import me.mklv.handshaker.common.commands.CommandVisualOperations;
-import me.mklv.handshaker.common.commands.ModFingerprintRegistrar;
+import me.mklv.handshaker.common.commands.CommandModUtil;
 import me.mklv.handshaker.common.commands.ModListToggler;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
@@ -65,41 +64,53 @@ public class HandShakerCommand {
                         .executes(HandShakerCommand::showModInfo))))
             .then(literal("config")
                 .executes(HandShakerCommand::showConfig)
-                .then(literal("behavior")
+                .then(literal("force_handshaker_mod")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("STRICT").suggest("VANILLA").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "behavior"))))
-                .then(literal("integrity")
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                        .executes(ctx -> setConfigValue(ctx, "force_handshaker_mod"))))
+                .then(literal("compat_modern")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("SIGNED").suggest("DEV").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "integrity"))))
-                .then(literal("whitelist")
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                        .executes(ctx -> setConfigValue(ctx, "compat_modern"))))
+                .then(literal("compat_hybrid")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                        .executes(ctx -> setConfigValue(ctx, "whitelist"))))
-                .then(literal("allow_bedrock")
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                        .executes(ctx -> setConfigValue(ctx, "compat_hybrid"))))
+                .then(literal("compat_legacy")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                    .executes(ctx -> setConfigValue(ctx, "allow_bedrock"))))
-                .then(literal("playerdb_enabled")
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                        .executes(ctx -> setConfigValue(ctx, "compat_legacy"))))
+                .then(literal("compat_unsigned")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                    .executes(ctx -> setConfigValue(ctx, "playerdb_enabled"))))
-                .then(literal("hash_mods")
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                        .executes(ctx -> setConfigValue(ctx, "compat_unsigned"))))
+                .then(literal("enforce_whitelisted_mod_list")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
-                    .executes(ctx -> setConfigValue(ctx, "hash_mods"))))
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                        .executes(ctx -> setConfigValue(ctx, "enforce_whitelisted_mod_list"))))
+                .then(literal("allow_bedrock_players")
+                    .then(argument("value", StringArgumentType.word())
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                    .executes(ctx -> setConfigValue(ctx, "allow_bedrock_players"))))
+                .then(literal("player_database_enabled")
+                    .then(argument("value", StringArgumentType.word())
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                    .executes(ctx -> setConfigValue(ctx, "player_database_enabled"))))
+                .then(literal("use_hash_for_mods")
+                    .then(argument("value", StringArgumentType.word())
+                        .suggests(HandShakerCommand::suggestBooleanValues)
+                    .executes(ctx -> setConfigValue(ctx, "use_hash_for_mods"))))
                 .then(literal("mod_versioning")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
+                        .suggests(HandShakerCommand::suggestBooleanValues)
                     .executes(ctx -> setConfigValue(ctx, "mod_versioning"))))
                 .then(literal("runtime_cache")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("true").suggest("false").buildFuture())
+                        .suggests(HandShakerCommand::suggestBooleanValues)
                     .executes(ctx -> setConfigValue(ctx, "runtime_cache"))))
                 .then(literal("required_modpack_hash")
                     .then(argument("value", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("off").suggest("current").buildFuture())
+                        .suggests(HandShakerCommand::suggestRequiredModpackHashValues)
                     .executes(ctx -> setConfigValue(ctx, "required_modpack_hash")))))
             .then(literal("mode")
                 .then(argument("list", StringArgumentType.word())
@@ -169,7 +180,7 @@ public class HandShakerCommand {
     }
 
     private static int showHelp(CommandContext<ServerCommandSource> ctx) {
-        String title = "HandShaker v6 Commands";
+        String title = "HandShaker v7 Commands";
         ctx.getSource().sendMessage(sectionHeader(title));
         
         // Loop through help sections and render with Fabric Text API
@@ -374,7 +385,7 @@ public class HandShakerCommand {
             int added = 0;
             for (String mod : info.mods()) {
                 if (!config.isIgnored(mod)) {
-                    config.setModConfig(mod, mode, CommandHelper.defaultActionForMode(mode), null);
+                    config.setModConfig(mod, mode, config.getDefaultActionForMode(mode), null);
                     registerModFingerprint(config, mod);
                     added++;
                 }
@@ -385,7 +396,7 @@ public class HandShakerCommand {
         } else {
             final String finalModId = modId;
             final String finalMode = mode;
-            config.setModConfig(modId, mode, CommandHelper.defaultActionForMode(mode), null);
+            config.setModConfig(modId, mode, config.getDefaultActionForMode(mode), null);
             registerModFingerprint(config, modId);
             ctx.getSource().sendFeedback(() -> Text.literal("✓ Added " + finalModId + " as " + finalMode).formatted(Formatting.GREEN), true);
         }
@@ -935,12 +946,24 @@ public class HandShakerCommand {
     }
 
     // Suggestion methods
+    private static CompletableFuture<Suggestions> suggestBooleanValues(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
+        for (String value : CommandSuggestionOperations.booleanSuggestions(builder.getRemaining())) {
+            builder.suggest(value);
+        }
+        return builder.buildFuture();
+    }
+
+    private static CompletableFuture<Suggestions> suggestRequiredModpackHashValues(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
+        List<String> values = CommandSuggestionOperations.configValueSuggestions("required_modpack_hash", null);
+        for (String value : CommandSuggestionOperations.filterByPrefix(values, builder.getRemaining())) {
+            builder.suggest(value);
+        }
+        return builder.buildFuture();
+    }
+
     private static CompletableFuture<Suggestions> suggestModes(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
-        String remaining = builder.getRemaining().toLowerCase();
-        for (String mode : CommandSuggestionData.MOD_MODES) {
-            if (mode.startsWith(remaining)) {
-                builder.suggest(mode);
-            }
+        for (String mode : CommandSuggestionOperations.modeSuggestions(builder.getRemaining())) {
+            builder.suggest(mode);
         }
         return builder.buildFuture();
     }
@@ -951,17 +974,14 @@ public class HandShakerCommand {
         
         if (availableActions.isEmpty()) {
             // Fall back to default actions if none are configured
-            for (String action : CommandSuggestionData.DEFAULT_ACTIONS) {
+            for (String action : CommandSuggestionOperations.actionSuggestions(null, true, true)) {
                 builder.suggest(action);
             }
             return builder.buildFuture();
         }
         
-        String remaining = builder.getRemaining().toLowerCase();
-        for (String action : availableActions) {
-            if (action.toLowerCase().startsWith(remaining)) {
-                builder.suggest(action);
-            }
+        for (String action : CommandSuggestionOperations.filterByPrefix(availableActions, builder.getRemaining())) {
+            builder.suggest(action);
         }
         return builder.buildFuture();
     }
@@ -1019,11 +1039,8 @@ public class HandShakerCommand {
     }
 
     private static CompletableFuture<Suggestions> suggestModeLists(CommandContext<ServerCommandSource> ctx, SuggestionsBuilder builder) {
-        String remaining = builder.getRemaining().toLowerCase();
-        for (String list : CommandSuggestionData.MODE_LISTS) {
-            if (list.startsWith(remaining)) {
-                builder.suggest(list);
-            }
+        for (String list : CommandSuggestionOperations.modeListSuggestions(builder.getRemaining())) {
+            builder.suggest(list);
         }
         return builder.buildFuture();
     }
@@ -1222,7 +1239,7 @@ public class HandShakerCommand {
             int updated = 0;
             for (String mod : info.mods()) {
                 if (!config.isIgnored(mod)) {
-                    config.setModConfig(mod, mode, CommandHelper.defaultActionForMode(mode), null);
+                    config.setModConfig(mod, mode, config.getDefaultActionForMode(mode), null);
                     registerModFingerprint(config, mod);
                     updated++;
                 }
@@ -1234,7 +1251,7 @@ public class HandShakerCommand {
                 ctx.getSource().sendError(Text.literal("Player " + playerName + " does not have mod: " + modId));
                 return 0;
             }
-            config.setModConfig(modId, mode, CommandHelper.defaultActionForMode(mode), null);
+            config.setModConfig(modId, mode, config.getDefaultActionForMode(mode), null);
             registerModFingerprint(config, modId);
             ctx.getSource().sendFeedback(() -> Text.literal("✓ Set " + modId + " to " + mode + " for " + playerName).formatted(Formatting.GREEN), true);
         }
@@ -1323,7 +1340,7 @@ public class HandShakerCommand {
     }
 
     private static void registerModFingerprint(ConfigManager config, String modToken) {
-        ModFingerprintRegistrar.registerFromCommand(
+        CommandModUtil.registerFromCommand(
             modToken,
             HandShakerServer.getInstance().getPlayerHistoryDb(),
             config.isHashMods(),

@@ -47,30 +47,50 @@ public final class ConfigWriter {
         private static void writeConfigYml(Path configPath,
                                            ConfigFileBootstrap.Logger logger,
                                            ConfigTypes.ConfigLoadResult data) {
-            // Try to update existing file in-place to preserve order/comments.
-            if (updateConfigFileInPlace(configPath, data, logger)) {
-                return;
-            }
-
             Map<String, Object> root = readYamlObject(configPath, logger);
-            root.put("config", "v4");
+            Map<String, Object> settings = new LinkedHashMap<>();
+            settings.put("config-version", 7);
+            settings.put("debug", data.isDebug());
+            settings.put("force-handshaker-mod", data.isForceHandshakerMod());
+            settings.put("allow-bedrock-players", data.isAllowBedrockPlayers());
+            settings.put("handshake-timeout-seconds", data.getHandshakeTimeoutSeconds());
+            settings.put("enforce-whitelisted-mod-list", data.isWhitelist());
+            settings.put("mod-versioning", data.isModVersioning());
+            settings.put("required-modpack-hash", data.getRequiredModpackHash() != null ? data.getRequiredModpackHash() : "off");
 
-            // Debug logging / verbosity toggle
-            root.put("debug", data.isDebug());
+            Map<String, Object> compatibility = new LinkedHashMap<>();
+            compatibility.put("modern-7.0+", data.isModernCompatibility());
+            compatibility.put("hybrid-6.0", data.isHybridCompatibility());
+            compatibility.put("legacy-3.0+", data.isLegacyCompatibility());
+            compatibility.put("unsigned", data.isUnsignedCompatibility());
+            settings.put("handshaker-version-compatibility", compatibility);
 
-            root.put("behavior", data.getBehavior().toString().toLowerCase(Locale.ROOT));
-            root.put("integrity-mode", data.getIntegrityMode().toString().toLowerCase(Locale.ROOT));
-            root.put("whitelist", data.isWhitelist());
-            root.put("allow-bedrock-players", data.isAllowBedrockPlayers());
-            root.put("handshake-timeout-seconds", data.getHandshakeTimeoutSeconds());
-            root.put("playerdb-enabled", data.isPlayerdbEnabled());
-            root.put("mods-required-enabled", data.areModsRequiredEnabled());
-            root.put("mods-blacklisted-enabled", data.areModsBlacklistedEnabled());
-            root.put("mods-whitelisted-enabled", data.areModsWhitelistedEnabled());
-            root.put("hash-mods", data.isHashMods());
-            root.put("Runtime_cache", data.isRuntimeCache());
-            root.put("mod-versioning", data.isModVersioning());
-            root.put("required-modpack-hash", data.getRequiredModpackHash() != null ? data.getRequiredModpackHash() : "off");
+            Map<String, Object> playerDatabase = new LinkedHashMap<>();
+            playerDatabase.put("enabled", data.isPlayerdbEnabled());
+            playerDatabase.put("use-hash-for-mods", data.isHashMods());
+            playerDatabase.put("runtime-cache", data.isRuntimeCache());
+            settings.put("player-database", playerDatabase);
+
+            Map<String, Object> customLists = new LinkedHashMap<>();
+            customLists.put("mods-required-enabled", data.areModsRequiredEnabled());
+            customLists.put("mods-blacklisted-enabled", data.areModsBlacklistedEnabled());
+            customLists.put("mods-whitelisted-enabled", data.areModsWhitelistedEnabled());
+            settings.put("custom-lists", customLists);
+
+            settings.put("default-action", data.getDefaultAction() != null ? data.getDefaultAction() : "kick");
+            root.put("settings", settings);
+            root.remove("config");
+            root.remove("debug");
+            root.remove("behavior");
+            root.remove("integrity-mode");
+            root.remove("whitelist");
+            root.remove("playerdb-enabled");
+            root.remove("mods-required-enabled");
+            root.remove("mods-blacklisted-enabled");
+            root.remove("mods-whitelisted-enabled");
+            root.remove("hash-mods");
+            root.remove("Runtime_cache");
+            root.remove("runtime_cache");
 
             Map<String, Object> messages = asObjectMap(root.get("messages"));
             if (data.getKickMessage() != null) {
@@ -96,184 +116,189 @@ public final class ConfigWriter {
             writeYamlObject(configPath, root, logger, "config.yml");
         }
 
-        private static boolean updateConfigFileInPlace(Path configPath,
-                                                       ConfigTypes.ConfigLoadResult data,
-                                                       ConfigFileBootstrap.Logger logger) {
-            File file = configPath.toFile();
-            if (!file.exists()) {
-                return false;
-            }
+        // private static boolean updateConfigFileInPlace(Path configPath,
+        //                                                ConfigTypes.ConfigLoadResult data,
+        //                                                ConfigFileBootstrap.Logger logger) {
+        //     File file = configPath.toFile();
+        //     if (!file.exists()) {
+        //         return false;
+        //     }
 
-            List<String> lines;
-            try {
-                lines = Files.readAllLines(configPath);
-            } catch (IOException e) {
-                if (logger != null) {
-                    logger.warn("Failed to read config.yml for in-place update: " + e.getMessage());
-                }
-                return false;
-            }
+        //     List<String> lines;
+        //     try {
+        //         lines = Files.readAllLines(configPath);
+        //     } catch (IOException e) {
+        //         if (logger != null) {
+        //             logger.warn("Failed to read config.yml for in-place update: " + e.getMessage());
+        //         }
+        //         return false;
+        //     }
 
-            boolean changed = false;
-            changed |= updateRootKey(lines, "config", "v4");
-            changed |= updateRootKey(lines, "debug", String.valueOf(data.isDebug()));
-            changed |= updateRootKey(lines, "behavior", data.getBehavior().toString().toLowerCase(Locale.ROOT));
-            changed |= updateRootKey(lines, "integrity-mode", data.getIntegrityMode().toString().toLowerCase(Locale.ROOT));
-            changed |= updateRootKey(lines, "whitelist", String.valueOf(data.isWhitelist()));
-            changed |= updateRootKey(lines, "allow-bedrock-players", String.valueOf(data.isAllowBedrockPlayers()));
-            changed |= updateRootKey(lines, "handshake-timeout-seconds", String.valueOf(data.getHandshakeTimeoutSeconds()));
-            changed |= updateRootKey(lines, "playerdb-enabled", String.valueOf(data.isPlayerdbEnabled()));
-            changed |= updateRootKey(lines, "mods-required-enabled", String.valueOf(data.areModsRequiredEnabled()));
-            changed |= updateRootKey(lines, "mods-blacklisted-enabled", String.valueOf(data.areModsBlacklistedEnabled()));
-            changed |= updateRootKey(lines, "mods-whitelisted-enabled", String.valueOf(data.areModsWhitelistedEnabled()));
-            changed |= updateRootKey(lines, "hash-mods", String.valueOf(data.isHashMods()));
-            changed |= updateRootKey(lines, "Runtime_cache", String.valueOf(data.isRuntimeCache()));
-            changed |= updateRootKey(lines, "mod-versioning", String.valueOf(data.isModVersioning()));
-            String requiredModpackHashValue = data.getRequiredModpackHash() != null ? data.getRequiredModpackHash() : "off";
-            boolean updatedRequiredHash = updateRootKey(lines, "required-modpack-hash", requiredModpackHashValue);
-            if (!updatedRequiredHash) {
-                lines.add("required-modpack-hash: " + formatYamlValue(requiredModpackHashValue));
-                changed = true;
-            } else {
-                changed = true;
-            }
+        //     boolean changed = false;
+        //     changed |= updateRootKey(lines, "config", "v5");
+        //     changed |= updateRootKey(lines, "debug", String.valueOf(data.isDebug()));
+        //     changed |= updateRootKey(lines, "behavior", data.getBehavior().toString().toLowerCase(Locale.ROOT));
+        //     changed |= updateRootKey(lines, "integrity-mode", data.getIntegrityMode().toString().toLowerCase(Locale.ROOT));
+        //     changed |= updateRootKey(lines, "whitelist", String.valueOf(data.isWhitelist()));
+        //     changed |= updateRootKey(lines, "allow-bedrock-players", String.valueOf(data.isAllowBedrockPlayers()));
+        //     changed |= updateRootKey(lines, "handshake-timeout-seconds", String.valueOf(data.getHandshakeTimeoutSeconds()));
+        //     changed |= updateRootKey(lines, "playerdb-enabled", String.valueOf(data.isPlayerdbEnabled()));
+        //     changed |= updateRootKey(lines, "mods-required-enabled", String.valueOf(data.areModsRequiredEnabled()));
+        //     changed |= updateRootKey(lines, "mods-blacklisted-enabled", String.valueOf(data.areModsBlacklistedEnabled()));
+        //     changed |= updateRootKey(lines, "mods-whitelisted-enabled", String.valueOf(data.areModsWhitelistedEnabled()));
+        //     changed |= updateRootKey(lines, "hash-mods", String.valueOf(data.isHashMods()));
+        //     changed |= updateRootKey(lines, "Runtime_cache", String.valueOf(data.isRuntimeCache()));
+        //     changed |= updateRootKey(lines, "mod-versioning", String.valueOf(data.isModVersioning()));
+        //     String requiredModpackHashValue = data.getRequiredModpackHash() != null ? data.getRequiredModpackHash() : "off";
+        //     boolean updatedRequiredHash = updateRootKey(lines, "required-modpack-hash", requiredModpackHashValue);
+        //     if (!updatedRequiredHash) {
+        //         lines.add("required-modpack-hash: " + formatYamlValue(requiredModpackHashValue));
+        //         changed = true;
+        //     } else {
+        //         changed = true;
+        //     }
+        //     String defaultActionValue = data.getDefaultAction() != null ? data.getDefaultAction() : "kick";
+        //     if (!updateRootKey(lines, "default-action", defaultActionValue)) {
+        //         lines.add("default-action: " + formatYamlValue(defaultActionValue));
+        //     }
+        //     changed = true;
 
-            Map<String, String> messageUpdates = new LinkedHashMap<>();
-            if (data.getKickMessage() != null) {
-                messageUpdates.put("kick", data.getKickMessage());
-            }
-            if (data.getNoHandshakeKickMessage() != null) {
-                messageUpdates.put("no-handshake", data.getNoHandshakeKickMessage());
-            }
-            if (data.getMissingWhitelistModMessage() != null) {
-                messageUpdates.put("missing-whitelist", data.getMissingWhitelistModMessage());
-            }
-            if (data.getInvalidSignatureKickMessage() != null) {
-                messageUpdates.put("invalid-signature", data.getInvalidSignatureKickMessage());
-            }
-            for (Map.Entry<String, String> entry : data.getMessages().entrySet()) {
-                if (entry.getValue() != null) {
-                    messageUpdates.put(entry.getKey(), entry.getValue());
-                }
-            }
-            changed |= updateMessageKeys(lines, messageUpdates);
+        //     Map<String, String> messageUpdates = new LinkedHashMap<>();
+        //     if (data.getKickMessage() != null) {
+        //         messageUpdates.put("kick", data.getKickMessage());
+        //     }
+        //     if (data.getNoHandshakeKickMessage() != null) {
+        //         messageUpdates.put("no-handshake", data.getNoHandshakeKickMessage());
+        //     }
+        //     if (data.getMissingWhitelistModMessage() != null) {
+        //         messageUpdates.put("missing-whitelist", data.getMissingWhitelistModMessage());
+        //     }
+        //     if (data.getInvalidSignatureKickMessage() != null) {
+        //         messageUpdates.put("invalid-signature", data.getInvalidSignatureKickMessage());
+        //     }
+        //     for (Map.Entry<String, String> entry : data.getMessages().entrySet()) {
+        //         if (entry.getValue() != null) {
+        //             messageUpdates.put(entry.getKey(), entry.getValue());
+        //         }
+        //     }
+        //     changed |= updateMessageKeys(lines, messageUpdates);
 
-            if (!changed) {
-                return true; // Nothing to change, but no need to rewrite.
-            }
+        //     if (!changed) {
+        //         return true; // Nothing to change, but no need to rewrite.
+        //     }
 
-            try {
-                Files.write(configPath, lines);
-                return true;
-            } catch (IOException e) {
-                if (logger != null) {
-                    logger.warn("Failed to update config.yml in place: " + e.getMessage());
-                }
-                return false;
-            }
-        }
+        //     try {
+        //         Files.write(configPath, lines);
+        //         return true;
+        //     } catch (IOException e) {
+        //         if (logger != null) {
+        //             logger.warn("Failed to update config.yml in place: " + e.getMessage());
+        //         }
+        //         return false;
+        //     }
+        // }
 
-        private static boolean updateRootKey(List<String> lines, String key, String value) {
-            String prefix = key + ":";
-            String replacement = prefix + " " + formatYamlValue(value);
-            for (int i = 0; i < lines.size(); i++) {
-                String line = lines.get(i);
-                if (line == null) {
-                    continue;
-                }
-                if (!line.startsWith(" ") && line.trim().startsWith(prefix)) {
-                    lines.set(i, replacement);
-                    return true;
-                }
-            }
-            return false;
-        }
+        // private static boolean updateRootKey(List<String> lines, String key, String value) {
+        //     String prefix = key + ":";
+        //     String replacement = prefix + " " + formatYamlValue(value);
+        //     for (int i = 0; i < lines.size(); i++) {
+        //         String line = lines.get(i);
+        //         if (line == null) {
+        //             continue;
+        //         }
+        //         if (!line.startsWith(" ") && line.trim().startsWith(prefix)) {
+        //             lines.set(i, replacement);
+        //             return true;
+        //         }
+        //     }
+        //     return false;
+        // }
 
-        private static boolean updateMessageKeys(List<String> lines, Map<String, String> messageUpdates) {
-            if (messageUpdates == null || messageUpdates.isEmpty()) {
-                return false;
-            }
+        // private static boolean updateMessageKeys(List<String> lines, Map<String, String> messageUpdates) {
+        //     if (messageUpdates == null || messageUpdates.isEmpty()) {
+        //         return false;
+        //     }
 
-            int messagesLine = -1;
-            for (int i = 0; i < lines.size(); i++) {
-                String line = lines.get(i);
-                if (line == null) {
-                    continue;
-                }
-                if (!line.startsWith(" ") && line.trim().startsWith("messages:")) {
-                    messagesLine = i;
-                    break;
-                }
-            }
+        //     int messagesLine = -1;
+        //     for (int i = 0; i < lines.size(); i++) {
+        //         String line = lines.get(i);
+        //         if (line == null) {
+        //             continue;
+        //         }
+        //         if (!line.startsWith(" ") && line.trim().startsWith("messages:")) {
+        //             messagesLine = i;
+        //             break;
+        //         }
+        //     }
 
-            if (messagesLine == -1) {
-                return false;
-            }
+        //     if (messagesLine == -1) {
+        //         return false;
+        //     }
 
-            int end = lines.size();
-            for (int i = messagesLine + 1; i < lines.size(); i++) {
-                String line = lines.get(i);
-                if (line == null) {
-                    continue;
-                }
-                if (!line.startsWith(" ") && !line.trim().isEmpty() && !line.trim().startsWith("#")) {
-                    end = i;
-                    break;
-                }
-            }
+        //     int end = lines.size();
+        //     for (int i = messagesLine + 1; i < lines.size(); i++) {
+        //         String line = lines.get(i);
+        //         if (line == null) {
+        //             continue;
+        //         }
+        //         if (!line.startsWith(" ") && !line.trim().isEmpty() && !line.trim().startsWith("#")) {
+        //             end = i;
+        //             break;
+        //         }
+        //     }
 
-            boolean changed = false;
-            for (Map.Entry<String, String> entry : messageUpdates.entrySet()) {
-                String key = entry.getKey();
-                String prefix = "  " + key + ":";
-                String replacement = prefix + " " + formatYamlValue(entry.getValue());
-                boolean updated = false;
-                for (int i = messagesLine + 1; i < end; i++) {
-                    String line = lines.get(i);
-                    if (line == null) {
-                        continue;
-                    }
-                    if (line.startsWith("  ") && line.trim().startsWith(key + ":")) {
-                        lines.set(i, replacement);
-                        updated = true;
-                        changed = true;
-                        break;
-                    }
-                }
-                if (!updated) {
-                    lines.add(end, replacement);
-                    end++;
-                    changed = true;
-                }
-            }
-            return changed;
-        }
+        //     boolean changed = false;
+        //     for (Map.Entry<String, String> entry : messageUpdates.entrySet()) {
+        //         String key = entry.getKey();
+        //         String prefix = "  " + key + ":";
+        //         String replacement = prefix + " " + formatYamlValue(entry.getValue());
+        //         boolean updated = false;
+        //         for (int i = messagesLine + 1; i < end; i++) {
+        //             String line = lines.get(i);
+        //             if (line == null) {
+        //                 continue;
+        //             }
+        //             if (line.startsWith("  ") && line.trim().startsWith(key + ":")) {
+        //                 lines.set(i, replacement);
+        //                 updated = true;
+        //                 changed = true;
+        //                 break;
+        //             }
+        //         }
+        //         if (!updated) {
+        //             lines.add(end, replacement);
+        //             end++;
+        //             changed = true;
+        //         }
+        //     }
+        //     return changed;
+        // }
 
-        private static String formatYamlValue(String value) {
-            if (value == null) {
-                return "null";
-            }
+        // private static String formatYamlValue(String value) {
+        //     if (value == null) {
+        //         return "null";
+        //     }
 
-            String trimmed = value.trim();
-            if (trimmed.equalsIgnoreCase("true") || trimmed.equalsIgnoreCase("false")) {
-                return trimmed.toLowerCase(Locale.ROOT);
-            }
+        //     String trimmed = value.trim();
+        //     if (trimmed.equalsIgnoreCase("true") || trimmed.equalsIgnoreCase("false")) {
+        //         return trimmed.toLowerCase(Locale.ROOT);
+        //     }
 
-            boolean isNumber = true;
-            for (int i = 0; i < trimmed.length(); i++) {
-                char c = trimmed.charAt(i);
-                if (!Character.isDigit(c)) {
-                    isNumber = false;
-                    break;
-                }
-            }
-            if (isNumber && !trimmed.isEmpty()) {
-                return trimmed;
-            }
+        //     boolean isNumber = true;
+        //     for (int i = 0; i < trimmed.length(); i++) {
+        //         char c = trimmed.charAt(i);
+        //         if (!Character.isDigit(c)) {
+        //             isNumber = false;
+        //             break;
+        //         }
+        //     }
+        //     if (isNumber && !trimmed.isEmpty()) {
+        //         return trimmed;
+        //     }
 
-            String escaped = trimmed.replace("\\", "\\\\").replace("\"", "\\\"");
-            return "\"" + escaped + "\"";
-        }
+        //     String escaped = trimmed.replace("\\", "\\\\").replace("\"", "\\\"");
+        //     return "\"" + escaped + "\"";
+        // }
 
         private static void writeModsYamlFiles(Path configDir,
                                                ConfigFileBootstrap.Logger logger,

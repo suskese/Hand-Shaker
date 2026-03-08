@@ -26,6 +26,20 @@ public class PermissionsAdapter {
     }
 
     public static boolean checkPermission(ServerCommandSource source, String permission, int minimumLevel) {
+        // Special handling for "handshaker.bypass": OPs should NOT have this permission by default
+        if ("handshaker.bypass".equals(permission)) {
+            if (HAS_FABRIC_PERMISSIONS) {
+                try {
+                    return (boolean) PERMISSIONS_CHECK.invoke(null, source, permission, minimumLevel);
+                } catch (Exception e) {
+                    // Fallback: deny bypass if explicit check fails
+                    return false;
+                }
+            }
+            // No fabric-permissions-api: deny bypass by default
+            return false;
+        }
+        
         if (HAS_FABRIC_PERMISSIONS) {
             try {
                 return (boolean) PERMISSIONS_CHECK.invoke(null, source, permission, minimumLevel);
@@ -40,6 +54,27 @@ public class PermissionsAdapter {
     }
 
     public static boolean checkPermission(ServerPlayerEntity player, String permission) {
+        // Special handling for "handshaker.bypass": OPs should NOT have this permission by default
+        // It must be explicitly assigned via the permission system to bypass HandShaker checks
+        if ("handshaker.bypass".equals(permission)) {
+            if (HAS_FABRIC_PERMISSIONS) {
+                try {
+                    // For older versions, try to use the ServerCommandSource approach
+                    ServerCommandSource source = player.getCommandSource();
+                    if (source != null) {
+                        // For handshaker.bypass, use checkPermission which explicitly denies OPs
+                        return checkPermission(source, permission, 0);
+                    }
+                } catch (Exception e) {
+                    // Fallback if that doesn't work
+                }
+            }
+            
+            // No explicit permission - deny bypass by default (OPs don't auto-get this)
+            return false;
+        }
+        
+        // For other permissions, use standard permission check
         if (HAS_FABRIC_PERMISSIONS) {
             try {
                 // For older versions, try to use the ServerCommandSource approach

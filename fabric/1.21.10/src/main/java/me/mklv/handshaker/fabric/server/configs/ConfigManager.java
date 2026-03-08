@@ -15,6 +15,7 @@ import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.IntegrityMode;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CollectKnownHashes;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
@@ -198,12 +199,32 @@ public class ConfigManager extends CommonConfigManagerBase {
     }
 
     public void checkPlayer(ServerPlayerEntity player, ClientInfo info) {
-        checkPlayer(player, info, true); // Execute actions by default
+        checkPlayer(player, info, true, false); // Execute actions by default, not a timeout check
     }
     
     public void checkPlayer(ServerPlayerEntity player, ClientInfo info, boolean executeActions) {
+        checkPlayer(player, info, executeActions, false); // Not a timeout check
+    }
+    
+    public void checkPlayer(ServerPlayerEntity player, ClientInfo info, boolean executeActions, boolean isTimeoutCheck) {
         // Check for bypass permission - allows players to bypass all mod checks
         if (PermissionsAdapter.checkPermission(player, "handshaker.bypass")) {
+            return;
+        }
+        
+        boolean bedrockPlayer = BedrockPlayer.isBedrockPlayer(
+            player.getUuid(),
+            player.getName().getString(),
+            message -> HandShakerServer.LOGGER.warn(message)
+        );
+        if (bedrockPlayer) {
+            if (allowBedrockPlayers) {
+                return;
+            }
+            player.networkHandler.disconnect(Text.literal(getMessageOrDefault(
+                StandardMessages.KEY_BEDROCK,
+                StandardMessages.DEFAULT_BEDROCK_MESSAGE
+            )));
             return;
         }
 
@@ -214,13 +235,16 @@ public class ConfigManager extends CommonConfigManagerBase {
         if (integrityMode == IntegrityMode.SIGNED) {
             // If client has the handshaker mod, they MUST send valid integrity data
             if (hasMod) {
-                // CRITICAL: If IntegrityPayload hasn't been received yet, KICK
-                if (info.integrityNonce() == null) {
-                    // Client has mod but never sent integrity payload - this is a security violation
-                    HandShakerServer.LOGGER.warn("Kicking {} - mod client but no integrity data sent in SIGNED mode", player.getName().getString());
+                // Only enforce integrityNonce requirement if:
+                // 1. This is a timeout check (player has had time to send integrity), OR
+                // 2. IntegrityNonce was already received (client sent both payloads)
+                // During initial mod list reception, we allow time for integrity payload to arrive
+                if (info.integrityNonce() == null && isTimeoutCheck) {
+                    // Timeout check and no integrity data received - this is a security violation
+                    HandShakerServer.LOGGER.warn("Kicking {} - mod client but no integrity data sent in SIGNED mode after waiting", player.getName().getString());
                     player.networkHandler.disconnect(Text.literal(invalidSignatureKickMessage));
                     return;
-                } else if (!info.signatureVerified()) {
+                } else if (info.integrityNonce() != null && !info.signatureVerified()) {
                     // Client sent integrity data but verification FAILED
                     HandShakerServer.LOGGER.warn("Kicking {} - integrity check FAILED in SIGNED mode", player.getName().getString());
                     player.networkHandler.disconnect(Text.literal(invalidSignatureKickMessage));
@@ -251,6 +275,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             modsWhitelistedEnabled,
             hashMods,
             modVersioning,
+            isHybridCompatibilityEnabled(),
             getRequiredModpackHash(),
             collectKnownHashes(),
             ignoredMods,

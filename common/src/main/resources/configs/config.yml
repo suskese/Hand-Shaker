@@ -1,32 +1,27 @@
-config: v4
+# HandShaker Configuration File
 
-# Behavior: "strict" - Force requires client-side mod or "vanilla" allow also non-mod clients
-behavior: strict
-
-# Integrity Mode: "signed" or "dev" - allow unsigned mods (if you are building own client/server fork)
-integrity-mode: signed
-
-# Whitelist mode: true = only allowed mods (inside whitelisted.yml), false = allowed by default
-whitelist: false
-
-# Allow Bedrock players
-allow-bedrock-players: false
-
-# Handshake timeout in seconds (how long to wait for client payloads)
-handshake-timeout-seconds: 5
-
-# Player Database: Store and track player mod history (requires playerdb to be enabled)
-playerdb-enabled: false
-
-# Mod List Toggles: Enable/disable each mod list without losing configuration
-mods-required-enabled: true
-mods-blacklisted-enabled: true
-mods-whitelisted-enabled: true
-
-# Phase 1 Modpack Mode: set SHA-256 of normalized client mod list payload, or "off" to disable
-required-modpack-hash: off
-
-# Kick Messages - customize as needed (use {mod} for mod name)
+settings:
+  config-version: 7
+  debug: false
+  force-handshaker-mod: true
+  allow-bedrock-players: false
+  handshake-timeout-seconds: 5
+  enforce-whitelisted-mod-list: false
+  mod-versioning: true
+  required-modpack-hash: off
+  handshaker-version-compatibility:
+    modern-7.0+: true
+    hybrid-6.0: false
+    legacy-3.0+: false
+    unsigned: false  
+  player-database:
+    enabled: false
+    use-hash-for-mods: true
+    runtime-cache: false
+  custom-lists:
+    mods-required-enabled: true
+    mods-blacklisted-enabled: true
+    mods-whitelisted-enabled: true
 messages:
   kick: "You are using a blacklisted mod: {mod}. Please remove it to join this server."
   no-handshake: "To connect to this server please download 'Hand-shaker' mod."
@@ -43,7 +38,9 @@ messages:
   handshake-missing-signature: "Invalid handshake: missing signature"
   handshake-replay: "Replay attack detected"
   velton-verification-failed: "Anti-cheat verification failed"
-
+  modpack-hash-mismatch: "Your modpack does not match this server's required modpack."
+  outdated-client: "Your HandShaker mod is outdated. Please update to the latest version to join this server."
 
   # custom messages for actions can be added here
+  placeholder_examples: "{player}, {mod}, {messages.test_action} for mods-actions.yml"
   test_action: "Hi, {player}! You are using {mod}! Thanks for using it!"

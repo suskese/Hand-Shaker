@@ -19,11 +19,15 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 import java.security.PublicKey;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.logging.Logger;
 
 public class PluginProtocolHandler {
+    private static final Pattern SHA256_HEX = Pattern.compile("^[a-f0-9]{64}$");
+
     private final HandShakerPlugin plugin;
     private final Map<UUID, ClientInfo> clients;
     private final Logger logger;
@@ -61,6 +65,26 @@ public class PluginProtocolHandler {
                 @Override
                 public String getMessageOrDefault(String key, String defaultMessage) {
                     return configManager.getMessageOrDefault(key, defaultMessage);
+                }
+
+                @Override
+                public boolean isModernCompatibilityEnabled() {
+                    return configManager.isModernCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isHybridCompatibilityEnabled() {
+                    return configManager.isHybridCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isLegacyCompatibilityEnabled() {
+                    return configManager.isLegacyCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isUnsignedCompatibilityEnabled() {
+                    return configManager.isUnsignedCompatibilityEnabled();
                 }
 
                 @Override
@@ -123,6 +147,10 @@ public class PluginProtocolHandler {
         Bukkit.getMessenger().unregisterIncomingPluginChannel(plugin, HandShakerPlugin.VELTON_CHANNEL);
     }
 
+    public void clearNonceHistory(UUID playerId) {
+        payloadValidator.clearNonceHistory(playerId);
+    }
+
 
     private PublicKey loadPublicCertificate() {
         return CertLoader.loadPublicKey(plugin.getClass(), "/public.cer", new CertLoader.LogSink() {
@@ -142,33 +170,62 @@ public class PluginProtocolHandler {
 
     private void handleModList(Player player, byte[] data) {
         try {
-            String payload = payloadDecoder.decodeString(data);
-            if (payload == null || payload.isBlank()) {
+            PayloadDecoder.DecodeResult payloadResult = payloadDecoder.decodeStringWithOffset(data, 0);
+            if (payloadResult == null || payloadResult.value == null) {
+                logger.warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
+                kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
+                return;
+            }
+            String payload = (String) payloadResult.value;
+            if (payload.isBlank()) {
                 logger.warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
                 kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
 
-            // Decode hash
-            PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, calculateOffset(data, payload.length()));
-            if (hashResult == null || hashResult.value == null || ((String) hashResult.value).isEmpty()) {
+            PayloadDecoder.DecodeResult secondResult = payloadDecoder.decodeStringWithOffset(data, payloadResult.offset);
+            if (secondResult == null || secondResult.value == null || ((String) secondResult.value).isEmpty()) {
                 logger.warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
                 kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
-            String modListHash = (String) hashResult.value;
+            String secondValue = (String) secondResult.value;
 
-            // Decode nonce
-            PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
-            if (nonceResult == null || nonceResult.value == null || ((String) nonceResult.value).isEmpty()) {
+            // Modern: mods + hash + nonce
+            // Legacy (3-5): mods + nonce
+            PayloadDecoder.DecodeResult thirdResult = payloadDecoder.decodeStringWithOffset(data, secondResult.offset);
+
+            String modListHash;
+            String nonce;
+            if (thirdResult != null && thirdResult.value != null && !((String) thirdResult.value).isEmpty()) {
+                modListHash = secondValue;
+                nonce = (String) thirdResult.value;
+                if (HandShakerPlugin.DEBUG) {
+                    logger.info("[DEBUG] Decoded mod list payload from " + player.getName() + " using MODERN format (mods+hash+nonce)");
+                }
+            } else {
+                if (isSha256Hex(secondValue)) {
+                    logger.warning("Failed to decode mod list from " + player.getName() + ": modern payload missing nonce.");
+                    kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                        StandardMessages.HANDSHAKE_CORRUPTED));
+                    return;
+                }
+                modListHash = "";
+                nonce = secondValue;
+                if (HandShakerPlugin.DEBUG) {
+                    logger.info("[DEBUG] Decoded mod list payload from " + player.getName() + " using LEGACY format (mods+nonce)");
+                }
+            }
+
+            if (nonce == null || nonce.isEmpty()) {
                 logger.warning("Failed to decode mod list from " + player.getName() + ". Rejecting.");
                 kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
-            String nonce = (String) nonceResult.value;
 
             // Ensure fabric flag is set for this player
             clients.putIfAbsent(player.getUniqueId(), new ClientInfo(
@@ -199,25 +256,47 @@ public class PluginProtocolHandler {
             }
             byte[] clientSignature = (byte[]) sigResult.value;
 
-            // Decode jar hash (string)
-            PayloadDecoder.DecodeResult hashResult = payloadDecoder.decodeStringWithOffset(data, sigResult.offset);
-            if (hashResult == null || hashResult.value == null) {
+            PayloadDecoder.DecodeResult secondResult = payloadDecoder.decodeStringWithOffset(data, sigResult.offset);
+            if (secondResult == null || secondResult.value == null) {
                 logger.warning("Failed to decode integrity payload from " + player.getName() + ". Rejecting.");
                 kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
-            String jarHash = (String) hashResult.value;
+            String secondValue = (String) secondResult.value;
 
-            // Decode nonce (string)
-            PayloadDecoder.DecodeResult nonceResult = payloadDecoder.decodeStringWithOffset(data, hashResult.offset);
-            if (nonceResult == null || nonceResult.value == null) {
+            // Modern/hybrid: signature + jarHash + nonce
+            // Legacy (3-5): signature + nonce
+            PayloadDecoder.DecodeResult thirdResult = payloadDecoder.decodeStringWithOffset(data, secondResult.offset);
+
+            String jarHash;
+            String nonce;
+            if (thirdResult != null && thirdResult.value != null && !((String) thirdResult.value).isEmpty()) {
+                jarHash = secondValue;
+                nonce = (String) thirdResult.value;
+                if (HandShakerPlugin.DEBUG) {
+                    logger.info("[DEBUG] Decoded integrity payload from " + player.getName() + " using MODERN format (signature+jarHash+nonce)");
+                }
+            } else {
+                if (isSha256Hex(secondValue)) {
+                    logger.warning("Failed to decode integrity payload from " + player.getName() + ": modern payload missing nonce.");
+                    kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                        StandardMessages.HANDSHAKE_CORRUPTED));
+                    return;
+                }
+                jarHash = "";
+                nonce = secondValue;
+                if (HandShakerPlugin.DEBUG) {
+                    logger.info("[DEBUG] Decoded integrity payload from " + player.getName() + " using LEGACY format (signature+nonce)");
+                }
+            }
+
+            if (nonce == null || nonce.isEmpty()) {
                 logger.warning("Failed to decode integrity payload from " + player.getName() + ". Rejecting.");
                 kickPlayer(player, configManager.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED));
                 return;
             }
-            String nonce = (String) nonceResult.value;
 
             // Ensure fabric flag is set for this player
             clients.putIfAbsent(player.getUniqueId(), new ClientInfo(
@@ -276,9 +355,21 @@ public class PluginProtocolHandler {
     }
 
     public void checkPlayer(Player player, Map<UUID, ClientInfo> clients) {
-        // Check if Bedrock players are allowed
-        if (configManager.isAllowBedrockPlayers() && isBedrockPlayer(player)) {
-            logger.info("Bedrock player " + player.getName() + " allowed to join without mod checks");
+        checkPlayer(player, clients, false); // Not a timeout check by default
+    }
+
+    public void checkPlayer(Player player, Map<UUID, ClientInfo> clients, boolean isTimeoutCheck) {
+        boolean bedrockPlayer = isBedrockPlayer(player);
+        if (bedrockPlayer) {
+            if (configManager.isAllowBedrockPlayers()) {
+                logger.info("Bedrock player " + player.getName() + " allowed to join without mod checks");
+                return;
+            }
+
+            kickPlayer(player, configManager.getMessageOrDefault(
+                StandardMessages.KEY_BEDROCK,
+                StandardMessages.DEFAULT_BEDROCK_MESSAGE
+            ));
             return;
         }
 
@@ -302,8 +393,15 @@ public class PluginProtocolHandler {
         }
 
         // Integrity Check (only if client has the mod or behavior is STRICT)
+        // Only enforce signature verification if this is a timeout check (player has had time to send integrity)
+        // During initial mod list reception, allow time for integrity payload to arrive
         if (info.fabric() && configManager.getIntegrityMode() == ConfigState.IntegrityMode.SIGNED) {
-            if (!info.signatureVerified()) {
+            if (info.integrityNonce() != null && !info.signatureVerified()) {
+                // Integrity payload was received but verification FAILED
+                kickPlayer(player, configManager.getInvalidSignatureKickMessage());
+                return;
+            } else if (info.integrityNonce() == null && isTimeoutCheck) {
+                // Timeout check and no integrity data received - this is a security violation
                 kickPlayer(player, configManager.getInvalidSignatureKickMessage());
                 return;
             }
@@ -321,7 +419,8 @@ public class PluginProtocolHandler {
         if (status != null) {
             // Execute action first (if any), then kick if this is a violation.
             // This allows blacklist/required/whitelist actions (ban, log, custom commands) to run.
-            if (player.isOnline()) {
+            boolean shouldRunAction = !(status.isViolation() && "kick".equalsIgnoreCase(status.getActionName()));
+            if (player.isOnline() && shouldRunAction) {
                 if (HandShakerPlugin.DEBUG) {
                     logger.info("[DEBUG] Executing action for " + player.getName() + ": " + status.getActionName());
                 }
@@ -394,7 +493,8 @@ public class PluginProtocolHandler {
             });
         } catch (Exception e) {
             logger.warning("Failed to schedule command execution for action '" + actionName + "': " + e.getMessage());
-            e.printStackTrace();
+            logger.log(java.util.logging.Level.WARNING,
+                "Action execution scheduling failed for '" + actionName + "'", e);
         }
     }
 
@@ -402,28 +502,58 @@ public class PluginProtocolHandler {
         player.kick(Component.text(message).color(NamedTextColor.RED));
     }
 
-    private int calculateOffset(byte[] data, int stringLength) {
-        // Skip the varint prefix
-        int offset = 0;
-        int numRead = 0;
-        byte read;
-        do {
-            if (offset >= data.length) return offset;
-            read = data[offset++];
-            numRead++;
-            if (numRead > 5) return offset;
-        } while ((read & 0b10000000) != 0);
+    // private int calculateOffset(byte[] data, int stringLength) {
+    //     // Skip the varint prefix
+    //     int offset = 0;
+    //     int numRead = 0;
+    //     byte read;
+    //     do {
+    //         if (offset >= data.length) return offset;
+    //         read = data[offset++];
+    //         numRead++;
+    //         if (numRead > 5) return offset;
+    //     } while ((read & 0b10000000) != 0);
         
-        return offset + stringLength;
+    //     return offset + stringLength;
+    // }
+
+    private boolean isSha256Hex(String value) {
+        if (value == null) {
+            return false;
+        }
+        return SHA256_HEX.matcher(value.trim().toLowerCase(Locale.ROOT)).matches();
     }
 
     private boolean isBedrockPlayer(Player player) {
-        return BedrockPlayer.isBedrockPlayer(player.getUniqueId(), player.getName(), new BedrockPlayer.LogSink() {
-            @Override
-            public void warn(String message) {
-                logger.warning(message);
-            }
-        });
+        List<ClassLoader> classLoaders = new ArrayList<>(2);
+
+        Plugin floodgate = Bukkit.getPluginManager().getPlugin("floodgate");
+        if (floodgate == null || !floodgate.isEnabled()) {
+            floodgate = Bukkit.getPluginManager().getPlugin("Floodgate");
+        }
+        if (floodgate != null && floodgate.isEnabled()) {
+            classLoaders.add(floodgate.getClass().getClassLoader());
+        }
+
+        Plugin geyser = Bukkit.getPluginManager().getPlugin("Geyser-Spigot");
+        if (geyser == null || !geyser.isEnabled()) {
+            geyser = Bukkit.getPluginManager().getPlugin("Geyser");
+        }
+        if (geyser != null && geyser.isEnabled()) {
+            classLoaders.add(geyser.getClass().getClassLoader());
+        }
+
+        return BedrockPlayer.isBedrockPlayer(
+            player.getUniqueId(),
+            player.getName(),
+            new BedrockPlayer.LogSink() {
+                @Override
+                public void warn(String message) {
+                    logger.warning(message);
+                }
+            },
+            classLoaders
+        );
     }
 
 }

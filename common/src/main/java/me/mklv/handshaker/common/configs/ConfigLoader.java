@@ -1,16 +1,9 @@
 package me.mklv.handshaker.common.configs;
 
-import org.yaml.snakeyaml.Yaml;
-
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -70,69 +63,129 @@ public final class ConfigLoader {
                 seedDefaultMessages(result);
                 return;
             }
+            Map<String, Object> settings = asMap(data.get("settings"));
+            boolean hasSettings = settings != null && !settings.isEmpty();
+            Map<String, Object> root = hasSettings ? settings : data;
 
-            if (data.containsKey("debug")) {
-                result.setDebug(Boolean.parseBoolean(String.valueOf(data.get("debug"))));
+            if (!hasSettings) {
+                result.setRewriteToV7(true);
             }
 
-            if (data.containsKey("behavior")) {
-                String behaviorStr = data.get("behavior").toString().toLowerCase(Locale.ROOT);
-                result.setBehavior(behaviorStr.startsWith("strict")
-                    ? ConfigTypes.ConfigState.Behavior.STRICT
-                    : ConfigTypes.ConfigState.Behavior.VANILLA);
+            Integer configVersion = readInteger(root.get("config-version"));
+            if (configVersion == null) {
+                String legacyConfigTag = readString(data.get("config"));
+                if (legacyConfigTag != null && legacyConfigTag.toLowerCase(Locale.ROOT).startsWith("v")) {
+                    configVersion = readInteger(legacyConfigTag.substring(1));
+                }
+            }
+            if (configVersion == null || configVersion < 7) {
+                result.setRewriteToV7(true);
             }
 
-            if (data.containsKey("integrity-mode")) {
-                String integrityStr = data.get("integrity-mode").toString().toLowerCase(Locale.ROOT);
-                result.setIntegrityMode("dev".equals(integrityStr)
-                    ? ConfigTypes.ConfigState.IntegrityMode.DEV
-                    : ConfigTypes.ConfigState.IntegrityMode.SIGNED);
+            if (root.containsKey("debug")) {
+                result.setDebug(readBoolean(root.get("debug"), false));
             }
 
-            if (data.containsKey("whitelist")) {
-                result.setWhitelist(Boolean.parseBoolean(data.get("whitelist").toString()));
+            if (root.containsKey("force-handshaker-mod")) {
+                result.setForceHandshakerMod(readBoolean(root.get("force-handshaker-mod"), true));
+            } else if (root.containsKey("behavior")) {
+                String behaviorStr = String.valueOf(root.get("behavior")).toLowerCase(Locale.ROOT);
+                result.setForceHandshakerMod(behaviorStr.startsWith("strict"));
+                result.setRewriteToV7(true);
             }
 
-            if (data.containsKey("allow-bedrock-players")) {
-                result.setAllowBedrockPlayers(Boolean.parseBoolean(data.get("allow-bedrock-players").toString()));
+            Map<String, Object> compatibility = asMap(root.get("handshaker-version-compatibility"));
+            if (compatibility != null && !compatibility.isEmpty()) {
+                result.setModernCompatibility(readBoolean(compatibility.get("modern-7.0+"), true));
+                result.setHybridCompatibility(readBoolean(compatibility.get("hybrid-6.0"), false));
+                result.setLegacyCompatibility(readBoolean(compatibility.get("legacy-3.0+"), false));
+                result.setUnsignedCompatibility(readBoolean(compatibility.get("unsigned"), false));
+            } else if (root.containsKey("integrity-mode")) {
+                String integrityStr = String.valueOf(root.get("integrity-mode")).toLowerCase(Locale.ROOT);
+                boolean unsigned = "dev".equals(integrityStr);
+                result.setModernCompatibility(true);
+                result.setHybridCompatibility(false);
+                result.setLegacyCompatibility(false);
+                result.setUnsignedCompatibility(unsigned);
+                result.setRewriteToV7(true);
             }
 
-            if (data.containsKey("playerdb-enabled")) {
-                result.setPlayerdbEnabled(Boolean.parseBoolean(data.get("playerdb-enabled").toString()));
+            if (root.containsKey("enforce-whitelisted-mod-list")) {
+                result.setWhitelist(readBoolean(root.get("enforce-whitelisted-mod-list"), false));
+            } else if (root.containsKey("whitelist")) {
+                result.setWhitelist(readBoolean(root.get("whitelist"), false));
+                result.setRewriteToV7(true);
             }
 
-            if (data.containsKey("mods-required-enabled")) {
-                result.setModsRequiredEnabled(Boolean.parseBoolean(data.get("mods-required-enabled").toString()));
+            if (root.containsKey("allow-bedrock-players")) {
+                result.setAllowBedrockPlayers(readBoolean(root.get("allow-bedrock-players"), false));
             }
 
-            if (data.containsKey("mods-blacklisted-enabled")) {
-                result.setModsBlacklistedEnabled(Boolean.parseBoolean(data.get("mods-blacklisted-enabled").toString()));
+            if (root.containsKey("handshake-timeout-seconds")) {
+                Integer timeout = readInteger(root.get("handshake-timeout-seconds"));
+                result.setHandshakeTimeoutSeconds(timeout != null ? Math.max(1, timeout) : 5);
             }
 
-            if (data.containsKey("mods-whitelisted-enabled")) {
-                result.setModsWhitelistedEnabled(Boolean.parseBoolean(data.get("mods-whitelisted-enabled").toString()));
+            Map<String, Object> playerDatabase = asMap(root.get("player-database"));
+            if (playerDatabase != null && !playerDatabase.isEmpty()) {
+                result.setPlayerdbEnabled(readBoolean(playerDatabase.get("enabled"), false));
+                result.setHashMods(readBoolean(playerDatabase.get("use-hash-for-mods"), true));
+                result.setRuntimeCache(readBoolean(playerDatabase.get("runtime-cache"), false));
+            } else {
+                if (root.containsKey("playerdb-enabled")) {
+                    result.setPlayerdbEnabled(readBoolean(root.get("playerdb-enabled"), false));
+                    result.setRewriteToV7(true);
+                }
+                if (root.containsKey("hash-mods")) {
+                    result.setHashMods(readBoolean(root.get("hash-mods"), true));
+                    result.setRewriteToV7(true);
+                }
+                if (root.containsKey("Runtime_cache")) {
+                    result.setRuntimeCache(readBoolean(root.get("Runtime_cache"), false));
+                    result.setRewriteToV7(true);
+                } else if (root.containsKey("runtime_cache")) {
+                    result.setRuntimeCache(readBoolean(root.get("runtime_cache"), false));
+                    result.setRewriteToV7(true);
+                }
             }
 
-            if (data.containsKey("hash-mods")) {
-                result.setHashMods(Boolean.parseBoolean(data.get("hash-mods").toString()));
+            Map<String, Object> customLists = asMap(root.get("custom-lists"));
+            if (customLists != null && !customLists.isEmpty()) {
+                result.setModsRequiredEnabled(readBoolean(customLists.get("mods-required-enabled"), true));
+                result.setModsBlacklistedEnabled(readBoolean(customLists.get("mods-blacklisted-enabled"), true));
+                result.setModsWhitelistedEnabled(readBoolean(customLists.get("mods-whitelisted-enabled"), true));
+            } else {
+                if (root.containsKey("mods-required-enabled")) {
+                    result.setModsRequiredEnabled(readBoolean(root.get("mods-required-enabled"), true));
+                    result.setRewriteToV7(true);
+                }
+                if (root.containsKey("mods-blacklisted-enabled")) {
+                    result.setModsBlacklistedEnabled(readBoolean(root.get("mods-blacklisted-enabled"), true));
+                    result.setRewriteToV7(true);
+                }
+                if (root.containsKey("mods-whitelisted-enabled")) {
+                    result.setModsWhitelistedEnabled(readBoolean(root.get("mods-whitelisted-enabled"), true));
+                    result.setRewriteToV7(true);
+                }
             }
 
-            if (data.containsKey("Runtime_cache")) {
-                result.setRuntimeCache(Boolean.parseBoolean(data.get("Runtime_cache").toString()));
-            } else if (data.containsKey("runtime_cache")) {
-                result.setRuntimeCache(Boolean.parseBoolean(data.get("runtime_cache").toString()));
+            if (root.containsKey("mod-versioning")) {
+                result.setModVersioning(readBoolean(root.get("mod-versioning"), true));
             }
 
-            if (data.containsKey("mod-versioning")) {
-                result.setModVersioning(Boolean.parseBoolean(data.get("mod-versioning").toString()));
-            }
-
-            if (data.containsKey("required-modpack-hash")) {
-                String hash = String.valueOf(data.get("required-modpack-hash")).trim().toLowerCase(Locale.ROOT);
-                if (hash.isEmpty() || "off".equals(hash) || "null".equals(hash)) {
+            if (root.containsKey("required-modpack-hash")) {
+                String hash = String.valueOf(root.get("required-modpack-hash")).trim().toLowerCase(Locale.ROOT);
+                if (hash.isEmpty() || "off".equals(hash) || "null".equals(hash) || "false".equals(hash)) {
                     result.setRequiredModpackHash(null);
                 } else {
                     result.setRequiredModpackHash(hash);
+                }
+            }
+
+            if (root.containsKey("default-action")) {
+                String defaultAction = String.valueOf(root.get("default-action")).trim().toLowerCase(Locale.ROOT);
+                if (!defaultAction.isEmpty()) {
+                    result.setDefaultAction(defaultAction);
                 }
             }
 
@@ -155,26 +208,14 @@ public final class ConfigLoader {
         }
 
         private static void seedDefaultMessages(ConfigTypes.ConfigLoadResult result) {
-            Map<String, String> messages = result.getMessages();
-            messages.putIfAbsent("kick", DEFAULT_KICK_MESSAGE);
-            messages.putIfAbsent("no-handshake", DEFAULT_NO_HANDSHAKE_MESSAGE);
-            messages.putIfAbsent("missing-whitelist", DEFAULT_MISSING_WHITELIST_MESSAGE);
-            messages.putIfAbsent("invalid-signature", DEFAULT_INVALID_SIGNATURE_MESSAGE);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_OUTDATED_CLIENT, DEFAULT_OUTDATED_CLIENT_MESSAGE);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_CORRUPTED, ConfigTypes.StandardMessages.HANDSHAKE_CORRUPTED);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_EMPTY_MOD_LIST, ConfigTypes.StandardMessages.HANDSHAKE_EMPTY_MOD_LIST);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_HASH_MISMATCH, ConfigTypes.StandardMessages.HANDSHAKE_HASH_MISMATCH);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_MISSING_HASH, ConfigTypes.StandardMessages.HANDSHAKE_MISSING_HASH);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH, ConfigTypes.StandardMessages.HANDSHAKE_MISSING_JAR_HASH);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_MISSING_NONCE, ConfigTypes.StandardMessages.HANDSHAKE_MISSING_NONCE);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE, ConfigTypes.StandardMessages.HANDSHAKE_MISSING_SIGNATURE);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_HANDSHAKE_REPLAY, ConfigTypes.StandardMessages.HANDSHAKE_REPLAY);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_VELTON_FAILED, ConfigTypes.StandardMessages.VELTON_VERIFICATION_FAILED);
-            messages.putIfAbsent(ConfigTypes.StandardMessages.KEY_MODPACK_HASH_MISMATCH, ConfigTypes.StandardMessages.MODPACK_HASH_MISMATCH);
-            result.setKickMessage(messages.get("kick"));
-            result.setNoHandshakeKickMessage(messages.get("no-handshake"));
-            result.setMissingWhitelistModMessage(messages.get("missing-whitelist"));
-            result.setInvalidSignatureKickMessage(messages.get("invalid-signature"));
+            ConfigLoaderSupport.seedDefaultMessages(
+                result,
+                DEFAULT_KICK_MESSAGE,
+                DEFAULT_NO_HANDSHAKE_MESSAGE,
+                DEFAULT_MISSING_WHITELIST_MESSAGE,
+                DEFAULT_INVALID_SIGNATURE_MESSAGE,
+                DEFAULT_OUTDATED_CLIENT_MESSAGE
+            );
         }
 
         private static void loadModsYamlFiles(Path configDir,
@@ -375,43 +416,11 @@ public final class ConfigLoader {
         }
 
         private static List<Path> listYamlFiles(Path configDir, ConfigFileBootstrap.Logger logger) {
-            if (configDir == null) {
-                return Collections.emptyList();
-            }
-            try (var stream = Files.list(configDir)) {
-                List<Path> out = new ArrayList<>();
-                stream
-                    .filter(Files::isRegularFile)
-                    .filter(p -> {
-                        String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
-                        return name.endsWith(".yml") || name.endsWith(".yaml");
-                    })
-                    .forEach(out::add);
-                return out;
-            } catch (IOException e) {
-                if (logger != null) {
-                    logger.warn("Failed to list YAML files in config directory: " + e.getMessage());
-                }
-                return Collections.emptyList();
-            }
+            return ConfigLoaderSupport.listYamlFiles(configDir, logger);
         }
 
         private static boolean readEnabledFlag(Map<String, Object> data, boolean defaultValue) {
-            if (data == null || !data.containsKey("enabled")) {
-                return defaultValue;
-            }
-            Object enabledObj = data.get("enabled");
-            if (enabledObj instanceof Boolean) {
-                return (Boolean) enabledObj;
-            }
-            if (enabledObj == null) {
-                return defaultValue;
-            }
-            String s = enabledObj.toString().trim().toLowerCase(Locale.ROOT);
-            if (s.isEmpty()) {
-                return defaultValue;
-            }
-            return s.equals("true") || s.equals("on") || s.equals("yes") || s.equals("1");
+            return ConfigLoaderSupport.readEnabledFlag(data, defaultValue);
         }
 
         private static boolean loadIgnoredSection(Object ignoredObj,
@@ -550,35 +559,26 @@ public final class ConfigLoader {
         }
 
         private static void createWhitelistedTemplate(File file, ConfigFileBootstrap.Logger logger) {
-            try (FileWriter writer = new FileWriter(file)) {
-                writer.write("# Whitelisted mods which are allowed but not required,\n");
-                writer.write("# but if in config.yml whitelist: true, only these mods are allowed\n");
-                writer.write("# Format: modname: action (where action is from mods-actions.yml or default 'none')\n\n");
-                writer.write("whitelisted:\n");
-                writer.write("\n# Optional mods are allowed when whitelist is enabled but not required\n");
-                writer.write("optional:\n");
-                if (logger != null) {
-                    logger.info("Created mods-whitelisted.yml file (whitelisted mode enabled)");
-                }
-            } catch (IOException e) {
-                if (logger != null) {
-                    logger.warn("Failed to create mods-whitelisted.yml: " + e.getMessage());
-                }
-            }
+            ConfigLoaderSupport.createWhitelistedTemplate(file, logger);
         }
 
         private static Map<String, Object> readYaml(File file, ConfigFileBootstrap.Logger logger) {
-            if (file == null || !file.exists()) {
-                return null;
-            }
-            try (FileReader reader = new FileReader(file)) {
-                Yaml yaml = new Yaml();
-                return yaml.load(reader);
-            } catch (IOException e) {
-                if (logger != null) {
-                    logger.warn("Failed to load " + file.getName() + ": " + e.getMessage());
-                }
-                return null;
-            }
+            return ConfigLoaderSupport.readYaml(file, logger);
+        }
+
+        private static Map<String, Object> asMap(Object value) {
+            return ConfigLoaderSupport.asMap(value);
+        }
+
+        private static boolean readBoolean(Object value, boolean fallback) {
+            return ConfigLoaderSupport.readBoolean(value, fallback);
+        }
+
+        private static Integer readInteger(Object value) {
+            return ConfigLoaderSupport.readInteger(value);
+        }
+
+        private static String readString(Object value) {
+            return ConfigLoaderSupport.readString(value);
         }
     }

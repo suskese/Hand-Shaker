@@ -63,6 +63,7 @@ public final class ConfigTypes {
         }
 
         public static final String KEY_KICK = "kick";
+        public static final String KEY_BEDROCK = "bedrock";
         public static final String KEY_NO_HANDSHAKE = "no-handshake";
         public static final String KEY_MISSING_WHITELIST = "missing-whitelist";
         public static final String KEY_INVALID_SIGNATURE = "invalid-signature";
@@ -80,6 +81,8 @@ public final class ConfigTypes {
 
         public static final String DEFAULT_KICK_MESSAGE =
             "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
+        public static final String DEFAULT_BEDROCK_MESSAGE =
+            "Bedrock players are not allowed on this server.";
         public static final String DEFAULT_NO_HANDSHAKE_MESSAGE =
             "To connect to this server please download 'Hand-shaker' mod.";
         public static final String DEFAULT_MISSING_WHITELIST_MESSAGE =
@@ -282,6 +285,12 @@ public final class ConfigTypes {
         private boolean debug = false;
         private ConfigState.Behavior behavior = ConfigState.Behavior.STRICT;
         private ConfigState.IntegrityMode integrityMode = ConfigState.IntegrityMode.SIGNED;
+        private boolean forceHandshakerMod = true;
+        private boolean modernCompatibility = true;
+        private boolean hybridCompatibility = false;
+        private boolean legacyCompatibility = false;
+        private boolean unsignedCompatibility = false;
+        private boolean rewriteToV7 = false;
         private String kickMessage = StandardMessages.DEFAULT_KICK_MESSAGE;
         private String noHandshakeKickMessage = StandardMessages.DEFAULT_NO_HANDSHAKE_MESSAGE;
         private String missingWhitelistModMessage = StandardMessages.DEFAULT_MISSING_WHITELIST_MESSAGE;
@@ -295,6 +304,7 @@ public final class ConfigTypes {
         private boolean runtimeCache = false;
         private boolean modVersioning = true;
         private String requiredModpackHash;
+        private String defaultAction = "kick";
         private boolean whitelist = false;
         private int handshakeTimeoutSeconds = 5;
 
@@ -321,6 +331,7 @@ public final class ConfigTypes {
 
         public void setBehavior(ConfigState.Behavior behavior) {
             this.behavior = behavior;
+            this.forceHandshakerMod = behavior == ConfigState.Behavior.STRICT;
         }
 
         public ConfigState.IntegrityMode getIntegrityMode() {
@@ -329,6 +340,58 @@ public final class ConfigTypes {
 
         public void setIntegrityMode(ConfigState.IntegrityMode integrityMode) {
             this.integrityMode = integrityMode;
+            this.unsignedCompatibility = integrityMode == ConfigState.IntegrityMode.DEV;
+            this.modernCompatibility = true;
+        }
+
+        public boolean isForceHandshakerMod() {
+            return forceHandshakerMod;
+        }
+
+        public void setForceHandshakerMod(boolean forceHandshakerMod) {
+            this.forceHandshakerMod = forceHandshakerMod;
+            this.behavior = forceHandshakerMod ? ConfigState.Behavior.STRICT : ConfigState.Behavior.VANILLA;
+        }
+
+        public boolean isModernCompatibility() {
+            return modernCompatibility;
+        }
+
+        public void setModernCompatibility(boolean modernCompatibility) {
+            this.modernCompatibility = modernCompatibility;
+        }
+
+        public boolean isHybridCompatibility() {
+            return hybridCompatibility;
+        }
+
+        public void setHybridCompatibility(boolean hybridCompatibility) {
+            this.hybridCompatibility = hybridCompatibility;
+        }
+
+        public boolean isLegacyCompatibility() {
+            return legacyCompatibility;
+        }
+
+        public void setLegacyCompatibility(boolean legacyCompatibility) {
+            this.legacyCompatibility = legacyCompatibility;
+        }
+
+        public boolean isUnsignedCompatibility() {
+            return unsignedCompatibility;
+        }
+
+        public void setUnsignedCompatibility(boolean unsignedCompatibility) {
+            this.unsignedCompatibility = unsignedCompatibility;
+            this.integrityMode = unsignedCompatibility ? ConfigState.IntegrityMode.DEV : ConfigState.IntegrityMode.SIGNED;
+        }
+
+        public boolean isRewriteToV7() {
+            return rewriteToV7;
+        }
+
+        public void setRewriteToV7(boolean rewriteToV7) {
+            this.rewriteToV7 = rewriteToV7;
         }
 
         public String getKickMessage() {
@@ -433,6 +496,14 @@ public final class ConfigTypes {
 
         public void setRequiredModpackHash(String requiredModpackHash) {
             this.requiredModpackHash = requiredModpackHash;
+        }
+
+        public String getDefaultAction() {
+            return defaultAction;
+        }
+
+        public void setDefaultAction(String defaultAction) {
+            this.defaultAction = defaultAction;
         }
 
         public boolean isWhitelist() {

@@ -1,0 +1,9 @@
+# Approved HandShaker hashes used for discontinued compatibility modes.
+#
+# This file is loaded from inside the plugin/mod JAR (not extracted to config).
+# On server boot, HandShaker also attempts to refresh this list from:
+# - https://github.com/suskese/Hand-Shaker/blob/dev/common/src/main/resources/configs/hash-list.yml
+# - https://github.com/suskese/Hand-Shaker/blob/main/common/src/main/resources/configs/hash-list.yml
+
+hybrid-v6-approved-hashes:
+	- 450d9c4fc47792fbe94475d19e18a35af2a99d5b4e797bf405521746bfe39717

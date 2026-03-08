@@ -7,12 +7,13 @@ import me.mklv.handshaker.common.database.H2PlayerHistoryDatabase;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;
+import me.mklv.handshaker.common.protocols.LegacyVersion;
 import me.mklv.handshaker.common.protocols.PayloadValidation;
 import me.mklv.handshaker.common.protocols.PayloadValidation.PayloadValidationCallbacks;
 import me.mklv.handshaker.common.protocols.PayloadValidation.ValidationResult;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
-import me.mklv.handshaker.common.utils.DatabaseLoggerAdapter;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.configs.ConfigMigration.ConfigMigrator;
 import net.minecraft.network.chat.Component;
@@ -84,11 +85,23 @@ public class HandShakerServerMod {
 
         blacklistConfig = new ConfigManager();
         blacklistConfig.load();
+
+        LegacyVersion.initializeTrustedHybridHashes(getClass(), new LegacyVersion.LogSink() {
+            @Override
+            public void info(String message) {
+                LOGGER.info(message);
+            }
+
+            @Override
+            public void warn(String message) {
+                LOGGER.warn(message);
+            }
+        }, blacklistConfig.isDebug());
         
         loadPublicCertificate();
 
         // Initialize player history database with common logger adapter
-        playerHistoryDb = new H2PlayerHistoryDatabase(FMLPaths.CONFIGDIR.get().toFile(), DatabaseLoggerAdapter.fromLoaderLogger(LOGGER));
+        playerHistoryDb = new H2PlayerHistoryDatabase(FMLPaths.CONFIGDIR.get().toFile(), LoggerAdapter.fromLoaderDatabaseLogger(LOGGER));
 
         // Initialize unified payload validator with NeoForge-specific callbacks
         this.payloadValidator = new PayloadValidation(
@@ -96,6 +109,26 @@ public class HandShakerServerMod {
                 @Override
                 public String getMessageOrDefault(String key, String defaultMessage) {
                     return blacklistConfig.getMessageOrDefault(key, defaultMessage);
+                }
+
+                @Override
+                public boolean isModernCompatibilityEnabled() {
+                    return blacklistConfig.isModernCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isHybridCompatibilityEnabled() {
+                    return blacklistConfig.isHybridCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isLegacyCompatibilityEnabled() {
+                    return blacklistConfig.isLegacyCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isUnsignedCompatibilityEnabled() {
+                    return blacklistConfig.isUnsignedCompatibilityEnabled();
                 }
 
                 @Override
@@ -223,6 +256,7 @@ public class HandShakerServerMod {
 
     @SubscribeEvent
     public void onPlayerLeave(PlayerEvent.PlayerLoggedOutEvent event) {
+        payloadValidator.clearNonceHistory(event.getEntity().getUUID());
         clients.remove(event.getEntity().getUUID());
     }
 

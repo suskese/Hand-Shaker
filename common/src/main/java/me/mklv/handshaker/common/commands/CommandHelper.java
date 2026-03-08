@@ -48,9 +48,9 @@ public class CommandHelper {
 
     public static List<String> getConfigFields() {
         return List.of(
-            "Behavior",
-            "Integrity Mode",
-            "Whitelist Mode",
+            "Force HandShaker Mod",
+            "Compatibility",
+            "Enforce Whitelisted Mod List",
             "Bedrock Players",
             "Player Database",
             "Required Modpack Hash"
@@ -88,7 +88,7 @@ public class CommandHelper {
     }
 
     public static boolean isValidMode(String mode) {
-        return CommandSuggestionData.MOD_MODES.contains(mode);
+        return CommandSuggestionOperations.MOD_MODES.contains(mode);
     }
 
     public static String defaultActionForMode(String mode) {
@@ -108,7 +108,7 @@ public class CommandHelper {
     }
 
     public static <T> Page<T> paginate(List<T> items, int pageNum, int pageSize) {
-        int totalPages = (int) Math.ceil((double) items.size() / pageSize);
+        int totalPages = totalPages(items.size(), pageSize);
         if (pageNum < 1 || pageNum > totalPages) {
             return null;
         }
@@ -118,7 +118,7 @@ public class CommandHelper {
     }
 
     public static int totalPages(int itemCount, int pageSize) {
-        return (int) Math.ceil((double) itemCount / pageSize);
+        return Math.max(1, (int) Math.ceil((double) itemCount / pageSize));
     }
 
     public static PagedList<Map.Entry<String, ConfigState.ModConfig>> configuredModsPage(

@@ -1,12 +1,14 @@
 package me.mklv.handshaker.common.protocols;
 
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
+import me.mklv.handshaker.common.protocols.LegacyVersion.ClientProfile;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.HashUtils;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * Unified payload validation system for all platforms (Paper, Fabric, NeoForge).
@@ -14,9 +16,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * Provides callback interface for platform-specific actions.
  */
 public class PayloadValidation {
+    private static final Pattern SHA256_HEX = Pattern.compile("^[a-f0-9]{64}$");
+    private static final long NONCE_TTL_MILLIS = 10 * 60 * 1000L;
     private final PayloadValidationCallbacks callbacks;
     private final SignatureVerifier signatureVerifier;
-    private final Set<String> usedNonces = ConcurrentHashMap.newKeySet();
+    private final Map<String, Long> usedNonces = new ConcurrentHashMap<>();
     private final Map<UUID, ClientInfo> clients;
     private boolean debugMode = false;
 
@@ -46,7 +50,7 @@ public class PayloadValidation {
         }
 
         // 2. Check for replay attack
-        if (usedNonces.contains(nonce)) {
+        if (!markNonceUsed(playerId, nonce)) {
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_REPLAY,
                 StandardMessages.HANDSHAKE_REPLAY);
             callbacks.logWarning("Received mod list from %s with replay nonce. Kicking.", playerName);
@@ -62,29 +66,47 @@ public class PayloadValidation {
         }
 
         // 4. Validate hash exists
+        boolean hashMissingOrInvalid = false;
         if (modListHash == null || modListHash.isEmpty()) {
-            String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_HASH,
-                StandardMessages.HANDSHAKE_MISSING_HASH);
-            callbacks.logWarning("Received mod list from {} with invalid/missing hash. Rejecting.", playerName);
+            hashMissingOrInvalid = true;
+        }
+
+        // 5. Verify hash matches payload (modern/hybrid path)
+        if (!hashMissingOrInvalid) {
+            String calculatedHash = HashUtils.sha256Hex(modListPayload);
+            if (!calculatedHash.equals(modListHash)) {
+                hashMissingOrInvalid = true;
+                if (debugMode) {
+                    callbacks.logWarning("Received mod list from %s with mismatched hash. Expected %s but got %s",
+                        playerName, calculatedHash, modListHash);
+                }
+            }
+        }
+
+        ClientProfile profile = LegacyVersion.detectByPayload(modListPayload, modListHash, hashMissingOrInvalid);
+        if (debugMode) {
+            callbacks.logInfo("Detected mod-list profile for %s: %s", playerName, profile.name().toLowerCase(Locale.ROOT));
+        }
+        if (!LegacyVersion.isAllowed(
+            profile,
+            callbacks.isModernCompatibilityEnabled(),
+            callbacks.isHybridCompatibilityEnabled(),
+            callbacks.isLegacyCompatibilityEnabled()
+        )) {
+            String message = callbacks.getMessageOrDefault(StandardMessages.KEY_OUTDATED_CLIENT,
+                StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE);
+            callbacks.logWarning("Received %s mod-list payload from %s but this compatibility mode is disabled.",
+                profile.name().toLowerCase(Locale.ROOT), playerName);
             return new ValidationResult(false, message);
         }
 
-        // 5. Verify hash matches payload
-        String calculatedHash = HashUtils.sha256Hex(modListPayload);
-        if (!calculatedHash.equals(modListHash)) {
-            if (debugMode) {
-                callbacks.logWarning("Received mod list from %s with mismatched hash. Expected %s but got %s", 
-                    playerName, calculatedHash, modListHash);
-            }
+        if (hashMissingOrInvalid && profile != ClientProfile.LEGACY) {
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_HASH_MISMATCH,
                 StandardMessages.HANDSHAKE_HASH_MISMATCH);
             return new ValidationResult(false, message);
         }
 
-        // 6. Mark nonce as used
-        usedNonces.add(nonce);
-
-        // 7. Parse mod list
+        // 6. Parse mod list
         Set<String> mods = new HashSet<>();
         for (String s : modListPayload.split(",")) {
             if (!s.isBlank()) {
@@ -97,10 +119,10 @@ public class PayloadValidation {
                 playerName, mods.size(), nonce);
         }
 
-        // 8. Sync to database
+        // 7. Sync to database
         callbacks.syncPlayerMods(playerId, playerName, mods);
 
-        // 9. Update client info
+        // 8. Update client info
         ClientInfo oldInfo = clients.get(playerId);
         ClientInfo newInfo = new ClientInfo(
             oldInfo != null && oldInfo.fabric(),  // preserve fabric flag
@@ -110,9 +132,12 @@ public class PayloadValidation {
             nonce,
             oldInfo != null ? oldInfo.integrityNonce() : null,
             oldInfo != null ? oldInfo.veltonNonce() : null,
-            false
+            oldInfo != null && oldInfo.checked()  // preserve checked flag to prevent double action execution
         );
         clients.put(playerId, newInfo);
+
+        // 9. Trigger player check with updated mod info
+        callbacks.checkPlayer(playerId, playerName, newInfo);
 
         return new ValidationResult(true, null, newInfo);
     }
@@ -123,6 +148,19 @@ public class PayloadValidation {
      */
     public ValidationResult validateIntegrity(UUID playerId, String playerName, byte[] clientSignature, 
                                              String jarHash, String nonce) {
+        ClientInfo previousInfo = clients.get(playerId);
+        ClientProfile profile = LegacyVersion.detectByMods(previousInfo != null ? previousInfo.mods() : Collections.emptySet());
+        if (debugMode) {
+            callbacks.logInfo("Detected integrity profile for %s: %s", playerName, profile.name().toLowerCase(Locale.ROOT));
+        }
+
+        if (profile == ClientProfile.HYBRID && !callbacks.isHybridCompatibilityEnabled()) {
+            String message = callbacks.getMessageOrDefault(StandardMessages.KEY_OUTDATED_CLIENT,
+                StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE);
+            callbacks.logWarning("Received hybrid(v6) integrity payload from %s while hybrid compatibility is disabled.", playerName);
+            return new ValidationResult(false, message);
+        }
+
         // 1. Validate nonce
         if (nonce == null || nonce.isEmpty()) {
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
@@ -131,31 +169,85 @@ public class PayloadValidation {
             return new ValidationResult(false, message);
         }
 
-        // 2. Validate signature exists
+        // 2. Check for replay attack
+        if (!markNonceUsed(playerId, nonce)) {
+            String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_REPLAY,
+                StandardMessages.HANDSHAKE_REPLAY);
+            callbacks.logWarning("Received integrity payload from %s with replay nonce. Kicking.", playerName);
+            return new ValidationResult(false, message);
+        }
+
+        // 3. Validate signature exists
         if (clientSignature == null || clientSignature.length == 0) {
-            String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_SIGNATURE,
-                StandardMessages.HANDSHAKE_MISSING_SIGNATURE);
+            String message = callbacks.getMessageOrDefault(StandardMessages.KEY_INVALID_SIGNATURE,
+                StandardMessages.DEFAULT_INVALID_SIGNATURE_MESSAGE);
             callbacks.logWarning("Received integrity payload from %s with invalid/missing signature. Rejecting.", playerName);
             return new ValidationResult(false, message);
         }
 
-        // 3. Check for legacy format (single byte)
+        // 4. Check for legacy format (single byte)
         if (clientSignature.length == 1) {
+            if (profile == ClientProfile.HYBRID && callbacks.isHybridCompatibilityEnabled()) {
+                boolean verified = clientSignature[0] != 0;
+                if (!verified) {
+                    String message = callbacks.getMessageOrDefault(StandardMessages.KEY_INVALID_SIGNATURE,
+                        StandardMessages.DEFAULT_INVALID_SIGNATURE_MESSAGE);
+                    callbacks.logWarning("Hybrid(v6) integrity marker from %s indicates invalid signature.", playerName);
+                    return new ValidationResult(false, message);
+                }
+                return updateIntegrityResult(playerId, playerName, nonce, true);
+            }
+
+            if (callbacks.isLegacyCompatibilityEnabled()) {
+                return updateIntegrityResult(playerId, playerName, nonce, true);
+            }
+
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_OUTDATED_CLIENT,
                 StandardMessages.DEFAULT_OUTDATED_CLIENT_MESSAGE);
             callbacks.logWarning("Received legacy integrity payload from %s. Rejecting.", playerName);
             return new ValidationResult(false, message);
         }
 
-        // 4. Validate jar hash exists
+        if (callbacks.isUnsignedCompatibilityEnabled()) {
+            return updateIntegrityResult(playerId, playerName, nonce, true);
+        }
+
+        // 5. Validate jar hash exists
         if (jarHash == null || jarHash.isEmpty()) {
+            if (callbacks.isLegacyCompatibilityEnabled()) {
+                return updateIntegrityResult(playerId, playerName, nonce, true);
+            }
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
                 StandardMessages.HANDSHAKE_MISSING_JAR_HASH);
             callbacks.logWarning("Received integrity payload from %s with invalid/missing jar hash. Rejecting.", playerName);
             return new ValidationResult(false, message);
         }
 
-        // 5. Verify signature
+        // 6. Validate jar hash format
+        if (!SHA256_HEX.matcher(jarHash).matches()) {
+            String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_JAR_HASH,
+                StandardMessages.HANDSHAKE_MISSING_JAR_HASH);
+            callbacks.logWarning("Received integrity payload from %s with malformed jar hash. Rejecting.", playerName);
+            return new ValidationResult(false, message);
+        }
+
+        if (debugMode) {
+            callbacks.logInfo("Integrity payload hash from %s: %s", playerName, jarHash);
+        }
+
+        if (profile == ClientProfile.HYBRID && callbacks.isHybridCompatibilityEnabled()) {
+            if (!LegacyVersion.isTrustedHybridJarHash(jarHash)) {
+                String message = callbacks.getMessageOrDefault(StandardMessages.KEY_INVALID_SIGNATURE,
+                    StandardMessages.DEFAULT_INVALID_SIGNATURE_MESSAGE);
+                callbacks.logWarning("Hybrid(v6) integrity payload from %s rejected: untrusted jar hash %s", playerName, jarHash);
+                return new ValidationResult(false, message);
+            }
+
+            boolean verified = verifyHybridSignature(jarHash, clientSignature, playerName);
+            return updateIntegrityResult(playerId, playerName, nonce, verified);
+        }
+
+        // 7. Verify signature
         boolean verified = verifySignature(jarHash, clientSignature, playerName);
 
         if (debugMode) {
@@ -164,7 +256,25 @@ public class PayloadValidation {
             callbacks.logInfo("%s - Integrity: %s", playerName, verified ? "PASSED" : "FAILED");
         }
 
-        // 6. Update client info
+        // 8. Update client info
+        return updateIntegrityResult(playerId, playerName, nonce, verified);
+    }
+
+    private boolean verifyHybridSignature(String jarHash, byte[] signatureBytes, String playerName) {
+        if (signatureVerifier != null && signatureVerifier.containsExpectedSignerCertificate(signatureBytes)) {
+            callbacks.logInfo("%s - Integrity: PASSED (hybrid certificate-chain validation)", playerName);
+            return true;
+        }
+
+        if (verifySignature(jarHash, signatureBytes, playerName)) {
+            return true;
+        }
+
+        callbacks.logWarning("Integrity check for %s: hybrid(v6) verification failed", playerName);
+        return false;
+    }
+
+    private ValidationResult updateIntegrityResult(UUID playerId, String playerName, String nonce, boolean verified) {
         ClientInfo oldInfo = clients.get(playerId);
         ClientInfo newInfo = new ClientInfo(
             oldInfo != null && oldInfo.fabric(),  // preserve fabric flag
@@ -174,7 +284,7 @@ public class PayloadValidation {
             oldInfo != null ? oldInfo.modListNonce() : null,
             nonce,
             oldInfo != null ? oldInfo.veltonNonce() : null,
-            false
+            oldInfo != null && oldInfo.checked()  // preserve checked flag to prevent double action execution
         );
         clients.put(playerId, newInfo);
 
@@ -197,7 +307,15 @@ public class PayloadValidation {
             return new ValidationResult(false, message);
         }
 
-        // 2. Check if signature hash exists (indicates verification)
+        // 2. Check for replay attack
+        if (!markNonceUsed(playerId, nonce)) {
+            String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_REPLAY,
+                StandardMessages.HANDSHAKE_REPLAY);
+            callbacks.logWarning("Received Velton payload from %s with replay nonce. Kicking.", playerName);
+            return new ValidationResult(false, message);
+        }
+
+        // 3. Check if signature hash exists (indicates verification)
         boolean verified = signatureHash != null && !signatureHash.isEmpty();
 
         if (debugMode) {
@@ -206,7 +324,7 @@ public class PayloadValidation {
             callbacks.logInfo("%s - Velton: %s", playerName, verified ? "PASSED" : "FAILED");
         }
 
-        // 3. Fail if not verified
+        // 4. Fail if not verified
         if (!verified) {
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_VELTON_FAILED,
                 StandardMessages.VELTON_VERIFICATION_FAILED);
@@ -214,7 +332,7 @@ public class PayloadValidation {
             return new ValidationResult(false, message);
         }
 
-        // 4. Update client info
+        // 5. Update client info
         ClientInfo oldInfo = clients.get(playerId);
         ClientInfo newInfo = new ClientInfo(
             oldInfo != null && oldInfo.fabric(),  // preserve fabric flag
@@ -224,11 +342,11 @@ public class PayloadValidation {
             oldInfo != null ? oldInfo.modListNonce() : null,
             oldInfo != null ? oldInfo.integrityNonce() : null,
             nonce,
-            false
+            oldInfo != null && oldInfo.checked()  // preserve checked flag to prevent double action execution
         );
         clients.put(playerId, newInfo);
 
-        // 5. Trigger player check
+        // 6. Trigger player check
         callbacks.checkPlayer(playerId, playerName, newInfo);
 
         return new ValidationResult(true, null, newInfo);
@@ -268,6 +386,29 @@ public class PayloadValidation {
         usedNonces.clear();
     }
 
+    public void clearNonceHistory(UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
+        String prefix = playerId + ":";
+        usedNonces.keySet().removeIf(key -> key.startsWith(prefix));
+    }
+
+    private boolean markNonceUsed(UUID playerId, String nonce) {
+        cleanupExpiredNonces();
+        String nonceKey = buildNonceKey(playerId, nonce);
+        return usedNonces.putIfAbsent(nonceKey, System.currentTimeMillis()) == null;
+    }
+
+    private String buildNonceKey(UUID playerId, String nonce) {
+        return playerId + ":" + nonce;
+    }
+
+    private void cleanupExpiredNonces() {
+        long now = System.currentTimeMillis();
+        usedNonces.entrySet().removeIf(entry -> now - entry.getValue() > NONCE_TTL_MILLIS);
+    }
+
     /**
      * Result of payload validation
      */
@@ -292,6 +433,10 @@ public class PayloadValidation {
      */
     public interface PayloadValidationCallbacks {
         String getMessageOrDefault(String key, String defaultMessage);
+        boolean isModernCompatibilityEnabled();
+        boolean isHybridCompatibilityEnabled();
+        boolean isLegacyCompatibilityEnabled();
+        boolean isUnsignedCompatibilityEnabled();
         void logInfo(String format, Object... args);
         void logWarning(String format, Object... args);
         void syncPlayerMods(UUID playerId, String playerName, Set<String> mods);

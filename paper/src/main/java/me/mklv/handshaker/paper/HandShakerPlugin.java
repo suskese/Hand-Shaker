@@ -6,7 +6,8 @@ import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.database.SQLitePlayerHistoryDatabase;
 import me.mklv.handshaker.paper.utils.PluginProtocolHandler;
 import me.mklv.handshaker.common.utils.ClientInfo;
-import me.mklv.handshaker.common.utils.DatabaseLoggerAdapter;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
+import me.mklv.handshaker.common.protocols.LegacyVersion;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -32,6 +33,18 @@ public class HandShakerPlugin extends JavaPlugin {
     @Override
     public void onEnable()
  {        loadConfiguration();
+        LegacyVersion.initializeTrustedHybridHashes(getClass(), new LegacyVersion.LogSink() {
+            @Override
+            public void info(String message) {
+                getLogger().info(message);
+            }
+
+            @Override
+            public void warn(String message) {
+                getLogger().warning(message);
+            }
+        }, DEBUG);
+
         loadDatabase();
         
         // Initialize protocol handler (handles plugin channels and certificate loading)
@@ -40,9 +53,6 @@ public class HandShakerPlugin extends JavaPlugin {
         
         // Register event listeners
         getServer().getPluginManager().registerEvents(new HandShakerListener(this, clients), this);
-        
-        // Register commands (original Bukkit-style commands)
-        HandShakerCommand.register(this);
         
         getLogger().info("HandShaker plugin enabled (Paper/Folia compatible)");
         
@@ -53,14 +63,9 @@ public class HandShakerPlugin extends JavaPlugin {
 
     @Override
     public void onLoad() {
-        // Register Brigadier commands via LifecycleEvent
         this.getLifecycleManager().registerEventHandler(
             LifecycleEvents.COMMANDS,
-            event -> HandShakerCommandV2.register(this, event.registrar())
-        );
-        this.getLifecycleManager().registerEventHandler(
-            LifecycleEvents.COMMANDS,
-            event -> HandShakerCommandV3.register(this, event.registrar())
+            event -> HandShakerCommand.register(this, event.registrar())
         );
     }
 
@@ -94,7 +99,7 @@ public class HandShakerPlugin extends JavaPlugin {
     }
 
     private void loadDatabase() {
-        playerHistoryDb = new SQLitePlayerHistoryDatabase(getDataFolder(), DatabaseLoggerAdapter.fromLoaderLogger(getLogger()), configManager.isPlayerdbEnabled());
+        playerHistoryDb = new SQLitePlayerHistoryDatabase(getDataFolder(), LoggerAdapter.fromLoaderDatabaseLogger(getLogger()), configManager.isPlayerdbEnabled());
     }
 
     @Override
@@ -110,15 +115,25 @@ public class HandShakerPlugin extends JavaPlugin {
     }
 
     public void checkPlayer(Player player) {
+        checkPlayer(player, false);
+    }
+
+    public void checkPlayer(Player player, boolean isTimeoutCheck) {
         if (protocolHandler != null) {
-            protocolHandler.checkPlayer(player, clients);
+            protocolHandler.checkPlayer(player, clients, isTimeoutCheck);
+        }
+    }
+
+    public void clearNonceHistory(UUID playerId) {
+        if (protocolHandler != null) {
+            protocolHandler.clearNonceHistory(playerId);
         }
     }
 
     public void schedulePlayerCheck(Player player, long delayTicks) {
         this.getServer().getGlobalRegionScheduler().runDelayed(this, task -> {
             if (player.isOnline()) {
-                checkPlayer(player);
+                checkPlayer(player, true); // true = isTimeoutCheck, enforce integrity verification
             }
         }, delayTicks);
     }
@@ -132,9 +147,9 @@ public class HandShakerPlugin extends JavaPlugin {
                 clients.put(uuid, info.withChecked(false));
             }
         }
-        // Re-check all online players
+        // Re-check all online players with timeout enforcement
         for (Player player : getServer().getOnlinePlayers()) {
-            checkPlayer(player);
+            checkPlayer(player, true);
         }
     }
 
@@ -151,25 +166,16 @@ public class HandShakerPlugin extends JavaPlugin {
         return clients;
     }
     
-    /**
-     * Record join timestamp for timing purposes (debug mode)
-     */
     public void recordPlayerJoin(UUID uuid) {
         if (DEBUG) {
             joinTimestamps.put(uuid, System.currentTimeMillis());
         }
     }
-    
-    /**
-     * Get join timestamp for a player
-     */
+
     public Long getJoinTimestamp(UUID uuid) {
         return joinTimestamps.get(uuid);
     }
-    
-    /**
-     * Remove and return join timestamp
-     */
+
     public Long removeJoinTimestamp(UUID uuid) {
         return joinTimestamps.remove(uuid);
     }

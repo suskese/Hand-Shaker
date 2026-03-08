@@ -1,8 +1,11 @@
 package me.mklv.handshaker.common.utils;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Optional;
 
 public final class HashUtils {
     private HashUtils() {
@@ -26,6 +29,26 @@ public final class HashUtils {
             return "";
         }
         return toHex(hash);
+    }
+
+    public static Optional<String> sha256FileHex(Path filePath) {
+        if (filePath == null || !Files.isRegularFile(filePath)) {
+            return Optional.empty();
+        }
+
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (var input = Files.newInputStream(filePath)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = input.read(buffer)) > 0) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            return Optional.of(toHex(digest.digest()));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
     }
 
     public static String toHex(byte[] bytes) {

@@ -6,9 +6,10 @@ import me.mklv.handshaker.common.configs.ConfigMigration.ConfigMigrator;
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.database.H2PlayerHistoryDatabase;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
-import me.mklv.handshaker.common.utils.DatabaseLoggerAdapter;
+import me.mklv.handshaker.common.utils.LoggerAdapter;
 import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;
+import me.mklv.handshaker.common.protocols.LegacyVersion;
 import me.mklv.handshaker.common.protocols.PayloadValidation;
 import me.mklv.handshaker.common.protocols.PayloadValidation.PayloadValidationCallbacks;
 import me.mklv.handshaker.common.protocols.PayloadValidation.ValidationResult;
@@ -92,13 +93,25 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         configManager.load();
 
         DEBUG_MODE = configManager.isDebug();
+
+        LegacyVersion.initializeTrustedHybridHashes(getClass(), new LegacyVersion.LogSink() {
+            @Override
+            public void info(String message) {
+                LOGGER.info(message);
+            }
+
+            @Override
+            public void warn(String message) {
+                LOGGER.warn(message);
+            }
+        }, DEBUG_MODE);
         
         loadPublicCertificate();
         
         // Initialize player history database if enabled
         if (configManager.isPlayerdbEnabled()) {
             Path configDir = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir();
-            playerHistoryDb = new H2PlayerHistoryDatabase(configDir.toFile(), DatabaseLoggerAdapter.fromLoaderLogger(LOGGER));
+            playerHistoryDb = new H2PlayerHistoryDatabase(configDir.toFile(), LoggerAdapter.fromLoaderDatabaseLogger(LOGGER));
         }
 
         // Initialize unified payload validator with Fabric-specific callbacks
@@ -107,6 +120,26 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 @Override
                 public String getMessageOrDefault(String key, String defaultMessage) {
                     return configManager.getMessageOrDefault(key, defaultMessage);
+                }
+
+                @Override
+                public boolean isModernCompatibilityEnabled() {
+                    return configManager.isModernCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isHybridCompatibilityEnabled() {
+                    return configManager.isHybridCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isLegacyCompatibilityEnabled() {
+                    return configManager.isLegacyCompatibilityEnabled();
+                }
+
+                @Override
+                public boolean isUnsignedCompatibilityEnabled() {
+                    return configManager.isUnsignedCompatibilityEnabled();
                 }
 
                 @Override
@@ -215,12 +248,13 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                     if (handler.player.networkHandler == null) return; // Player disconnected
                     ClientInfo info = clients.computeIfAbsent(handler.player.getUuid(), uuid -> new ClientInfo(Collections.emptySet(), false, false, null, null, null));
 
-                    configManager.checkPlayer(handler.player, info, false); // Don't execute actions here, just check
+                    configManager.checkPlayer(handler.player, info, false, true); // Timeout check: enforce integrity requirements
                 });
             }, configManager.getHandshakeTimeoutSeconds(), TimeUnit.SECONDS);
         });
 
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            payloadValidator.clearNonceHistory(handler.player.getUuid());
             clients.remove(handler.player.getUuid());
             configManager.playerLeft(handler.player);
         });
@@ -250,7 +284,7 @@ public class HandShakerServer implements DedicatedServerModInitializer {
         if (server == null) return;
         LOGGER.info("Re-checking all online players...");
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            configManager.checkPlayer(player, clients.getOrDefault(player.getUuid(), new ClientInfo(Collections.emptySet(), false, false, null, null, null)), false);
+            configManager.checkPlayer(player, clients.getOrDefault(player.getUuid(), new ClientInfo(Collections.emptySet(), false, false, null, null, null)), false, true);
         }
     }
     
@@ -306,21 +340,6 @@ public class HandShakerServer implements DedicatedServerModInitializer {
                 PacketCodecs.STRING, VeltonPayload::nonce,
                 VeltonPayload::new);
         @Override public CustomPayload.Id<? extends CustomPayload> getId() { return ID; }
-    }
-
-    public class StringUtils {
-
-        public static String truncate(String str, int maxLength) {
-            if (str == null) return "";
-            return str.substring(0, Math.min(maxLength, str.length()));
-        }
-
-        public static String safePlayerName(String playerName) {
-            return playerName == null || playerName.isEmpty() ? "Unknown" : playerName;
-        }
-
-        public static boolean isNullOrEmpty(String str) {
-            return str == null || str.isEmpty();
-        }
-    }
 }
+
+    }

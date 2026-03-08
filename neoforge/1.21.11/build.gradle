@@ -129,6 +129,107 @@ tasks.named('jar') {
     }
 }
 
+def computeCanonicalJarHash = { File jarFile ->
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    def zip = new java.util.zip.ZipFile(jarFile)
+    try {
+        def entries = java.util.Collections.list(zip.entries())
+            .findAll { !it.isDirectory() }
+            .findAll {
+                def upper = it.name.toUpperCase(java.util.Locale.ROOT)
+                !upper.startsWith('META-INF/') || (
+                    !upper.endsWith('.SF')
+                        && !upper.endsWith('.RSA')
+                        && !upper.endsWith('.DSA')
+                        && upper != 'META-INF/MANIFEST.MF'
+                        && upper != 'META-INF/HANDSHAKER.HASH'
+                        && upper != 'META-INF/HANDSHAKER.SIG'
+                )
+            }
+            .sort { a, b -> a.name <=> b.name }
+
+        entries.each { entry ->
+            zip.getInputStream(entry).withCloseable { input ->
+                byte[] buffer = new byte[8192]
+                int read
+                while ((read = input.read(buffer)) > 0) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+        }
+    } finally {
+        zip.close()
+    }
+    return digest.digest().encodeHex().toString()
+}
+
+tasks.register('embedIntegrityProof') {
+    group = 'build'
+    description = 'Embeds detached integrity proof files into NeoForge jar.'
+    dependsOn(tasks.named('jar'))
+
+    doLast {
+        def outputJar = tasks.named('jar').get().archiveFile.get().asFile
+        if (!outputJar.exists()) {
+            throw new GradleException("Jar not found: ${outputJar}")
+        }
+
+        def envFile = rootProject.file('.env')
+        def keystorePassword = null
+        if (envFile.exists()) {
+            envFile.eachLine { line ->
+                if (line.startsWith('KEYSTORE_PASSWORD=')) {
+                    keystorePassword = line.replace('KEYSTORE_PASSWORD=', '').trim()
+                }
+            }
+        }
+        if (!keystorePassword) {
+            keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD')
+        }
+        if (!keystorePassword) {
+            throw new GradleException('KEYSTORE_PASSWORD is not set')
+        }
+
+        def keyStoreFile = rootProject.file('.Integrity/keystore.jks')
+        if (!keyStoreFile.exists()) {
+            throw new GradleException('Keystore not found at .Integrity/keystore.jks')
+        }
+
+        def hashHex = computeCanonicalJarHash(outputJar)
+
+        def keyStore = java.security.KeyStore.getInstance('JKS')
+        keyStoreFile.withInputStream { stream ->
+            keyStore.load(stream, keystorePassword.toCharArray())
+        }
+
+        def privateKey = keyStore.getKey('handshaker', keystorePassword.toCharArray())
+        if (!(privateKey instanceof java.security.PrivateKey)) {
+            throw new GradleException('Private key alias handshaker was not found in keystore')
+        }
+
+        def signature = java.security.Signature.getInstance('SHA256withRSA')
+        signature.initSign((java.security.PrivateKey) privateKey)
+        signature.update(hashHex.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        def sigBytes = signature.sign()
+
+        def tmpDir = layout.buildDirectory.dir('integrityProof').get().asFile
+        tmpDir.mkdirs()
+        def hashFile = new File(tmpDir, 'HANDSHAKER.HASH')
+        def sigFile = new File(tmpDir, 'HANDSHAKER.SIG')
+        hashFile.text = hashHex + '\n'
+        sigFile.bytes = sigBytes
+
+        ant.zip(destfile: outputJar.absolutePath, update: true) {
+            zipfileset(file: hashFile, fullpath: 'META-INF/HANDSHAKER.HASH')
+            zipfileset(file: sigFile, fullpath: 'META-INF/HANDSHAKER.SIG')
+        }
+    }
+}
+
+tasks.named('assemble') {
+    dependsOn('embedIntegrityProof')
+}
+
 task inspectClasspath {
     doLast {
         configurations.compileClasspath.each { file ->

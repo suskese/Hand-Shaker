@@ -63,27 +63,46 @@ public class PermissionsAdapter {
                     return (boolean) PERMISSIONS_CHECK_COMMAND_SOURCE.invoke(null, source, permission);
                 }
             } catch (Exception e) {
-                // If all reflection fails, allow by default
+                // If reflection fails, allow by default for commands
                 return true;
             }
         }
         
-        // No fabric-permissions-api, allow by default
+        // No fabric-permissions-api, allow by default for commands
         return true;
     }
 
     public static boolean checkPermission(ServerPlayerEntity player, String permission) {
+        // Special handling for "handshaker.bypass": OPs should NOT have this permission by default
+        // It must be explicitly assigned via the permission system to bypass HandShaker checks
+        if ("handshaker.bypass".equals(permission)) {
+            // If no permission system available, OPs cannot bypass by default
+            if (!HAS_FABRIC_PERMISSIONS || PERMISSIONS_CHECK_PLAYER == null) {
+                return false; // Deny bypass if no explicit permission system
+            }
+            
+            // If permission system exists, check if explicitly assigned
+            // This prevents OPs from auto-getting the permission
+            try {
+                return (boolean) PERMISSIONS_CHECK_PLAYER.invoke(null, player, permission);
+            } catch (Exception e) {
+                // If reflection fails for this specific permission, deny by default (safer)
+                return false;
+            }
+        }
+        
+        // For other permissions, use standard Fabric permission system
         if (HAS_FABRIC_PERMISSIONS && PERMISSIONS_CHECK_PLAYER != null) {
             try {
                 return (boolean) PERMISSIONS_CHECK_PLAYER.invoke(null, player, permission);
             } catch (Exception e) {
-                // If reflection fails, allow by default
-                return true;
+                // If reflection fails, deny by default (safer than allowing unknown permissions)
+                return false;
             }
         }
         
-        // No fabric-permissions-api, allow by default
-        return true;
+        // No fabric-permissions-api, deny by default (only explicit grants via third-party mods)
+        return false;
     }
 
     public static boolean hasFabricPermissions() {

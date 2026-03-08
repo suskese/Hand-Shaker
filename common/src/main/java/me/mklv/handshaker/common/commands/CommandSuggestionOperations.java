@@ -8,6 +8,33 @@ import java.util.Locale;
 import java.util.Set;
 
 public final class CommandSuggestionOperations {
+    public static final List<String> ROOT_COMMANDS = List.of("reload", "info", "config", "mode", "manage");
+    public static final List<String> INFO_SUBCOMMANDS = List.of("configured_mods", "all_mods", "mod", "player");
+    public static final List<String> CONFIG_PARAMS = List.of(
+        "force_handshaker_mod",
+        "compat_modern",
+        "compat_hybrid",
+        "compat_legacy",
+        "compat_unsigned",
+        "default_action",
+        "enforce_whitelisted_mod_list",
+        "allow_bedrock_players",
+        "player_database_enabled",
+        "handshake_timeout_seconds",
+        "use_hash_for_mods",
+        "mod_versioning",
+        "runtime_cache",
+        "required_modpack_hash"
+    );
+    public static final List<String> MODE_LISTS = List.of("mods_required", "mods_blacklisted", "mods_whitelisted");
+    public static final List<String> MANAGE_SUBCOMMANDS = List.of("add", "change", "remove", "ignore", "player");
+    public static final List<String> MOD_MODES = List.of("allowed", "required", "blacklisted", "optional");
+    public static final List<String> BOOLEAN_VALUES = List.of("true", "false");
+    public static final List<String> INTEGRITY_MODES = List.of("signed", "dev");
+    public static final List<String> BEHAVIOR_MODES = List.of("strict", "vanilla");
+    public static final List<String> IGNORE_SUBCOMMANDS = List.of("add", "remove", "list");
+    public static final List<String> DEFAULT_ACTIONS = List.of("kick", "ban", "none");
+
     private CommandSuggestionOperations() {
     }
 
@@ -31,19 +58,19 @@ public final class CommandSuggestionOperations {
     }
 
     public static List<String> modeSuggestions(String remaining) {
-        return filterByPrefix(CommandSuggestionData.MOD_MODES, remaining);
+        return filterByPrefix(MOD_MODES, remaining);
     }
 
     public static List<String> modeListSuggestions(String remaining) {
-        return filterByPrefix(CommandSuggestionData.MODE_LISTS, remaining);
+        return filterByPrefix(MODE_LISTS, remaining);
     }
 
     public static List<String> booleanSuggestions(String remaining) {
-        return filterByPrefix(CommandSuggestionData.BOOLEAN_VALUES, remaining);
+        return filterByPrefix(BOOLEAN_VALUES, remaining);
     }
 
     public static List<String> configParamSuggestions(String remaining) {
-        return filterByPrefix(CommandSuggestionData.CONFIG_PARAMS, remaining);
+        return filterByPrefix(CONFIG_PARAMS, remaining);
     }
 
     public static List<String> actionSuggestions(Collection<String> availableActions, boolean includeDefaults, boolean fallbackToDefaultsWhenEmpty) {
@@ -51,7 +78,7 @@ public final class CommandSuggestionOperations {
         boolean hasCustom = availableActions != null && !availableActions.isEmpty();
 
         if (includeDefaults || (!hasCustom && fallbackToDefaultsWhenEmpty)) {
-            combined.addAll(CommandSuggestionData.DEFAULT_ACTIONS);
+            combined.addAll(DEFAULT_ACTIONS);
         }
 
         if (hasCustom) {
@@ -68,12 +95,13 @@ public final class CommandSuggestionOperations {
 
         String normalized = param.toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "behavior" -> CommandSuggestionData.BEHAVIOR_MODES;
-            case "integrity" -> CommandSuggestionData.INTEGRITY_MODES;
-            case "whitelist", "allow_bedrock", "playerdb_enabled", "hash_mods", "mod_versioning", "runtime_cache" ->
-                CommandSuggestionData.BOOLEAN_VALUES;
+            case "force_handshaker_mod", "compat_modern", "compat_hybrid", "compat_legacy", "compat_unsigned",
+                 "enforce_whitelisted_mod_list", "allow_bedrock_players", "player_database_enabled", "use_hash_for_mods",
+                 "mod_versioning", "runtime_cache",
+                 "whitelist", "allow_bedrock", "playerdb_enabled", "hash_mods" ->
+                BOOLEAN_VALUES;
             case "required_modpack_hash" -> List.of("off", "current");
-            case "default" -> actionSuggestions(availableActions, true, true);
+            case "default_action", "default" -> actionSuggestions(availableActions, true, true);
             default -> List.of();
         };
     }

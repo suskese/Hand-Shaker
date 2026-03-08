@@ -34,51 +34,99 @@ public final class ConfigCommandOperations {
         String input = value == null ? "" : value.trim();
 
         switch (key) {
-            case "behavior" -> {
-                if (!input.equalsIgnoreCase("STRICT") && !input.equalsIgnoreCase("VANILLA")) {
-                    return new MutationResult(false, "Behavior must be STRICT or VANILLA", false, false, false);
-                }
-                config.setBehavior(input);
-                return new MutationResult(true, "Behavior set to " + input.toUpperCase(Locale.ROOT), true, false, true);
-            }
-            case "integrity" -> {
-                if (!input.equalsIgnoreCase("SIGNED") && !input.equalsIgnoreCase("DEV")) {
-                    return new MutationResult(false, "Integrity must be SIGNED or DEV", false, false, false);
-                }
-                config.setIntegrityMode(input);
-                return new MutationResult(true, "Integrity mode set to " + input.toUpperCase(Locale.ROOT), true, false, false);
-            }
-            case "whitelist" -> {
+            case "force_handshaker_mod", "behavior" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
                 if (enabled == null) {
-                    return new MutationResult(false, "Whitelist must be true/false or on/off", false, false, false);
+                    if (input.equalsIgnoreCase("STRICT") || input.equalsIgnoreCase("VANILLA")) {
+                        enabled = input.equalsIgnoreCase("STRICT");
+                    } else {
+                        return new MutationResult(false, "force_handshaker_mod must be true/false or on/off", false, false, false);
+                    }
+                }
+                config.setForceHandshakerMod(enabled);
+                return new MutationResult(true, "force_handshaker_mod set to " + enabled, true, false, true);
+            }
+            case "compat_modern" -> {
+                Boolean enabled = CommandHelper.parseEnableFlag(input);
+                if (enabled == null) {
+                    return new MutationResult(false, "compat_modern must be true/false or on/off", false, false, false);
+                }
+                config.setModernCompatibilityEnabled(enabled);
+                return new MutationResult(true, "compat_modern set to " + enabled, true, false, false);
+            }
+            case "compat_hybrid" -> {
+                Boolean enabled = CommandHelper.parseEnableFlag(input);
+                if (enabled == null) {
+                    return new MutationResult(false, "compat_hybrid must be true/false or on/off", false, false, false);
+                }
+                config.setHybridCompatibilityEnabled(enabled);
+                return new MutationResult(true, "compat_hybrid set to " + enabled, true, false, false);
+            }
+            case "compat_legacy" -> {
+                Boolean enabled = CommandHelper.parseEnableFlag(input);
+                if (enabled == null) {
+                    return new MutationResult(false, "compat_legacy must be true/false or on/off", false, false, false);
+                }
+                config.setLegacyCompatibilityEnabled(enabled);
+                return new MutationResult(true, "compat_legacy set to " + enabled, true, false, false);
+            }
+            case "compat_unsigned", "integrity" -> {
+                Boolean enabled = CommandHelper.parseEnableFlag(input);
+                if (enabled == null) {
+                    if (input.equalsIgnoreCase("SIGNED") || input.equalsIgnoreCase("DEV")) {
+                        enabled = input.equalsIgnoreCase("DEV");
+                    } else {
+                        return new MutationResult(false, "compat_unsigned must be true/false or on/off", false, false, false);
+                    }
+                }
+                config.setUnsignedCompatibilityEnabled(enabled);
+                return new MutationResult(true, "compat_unsigned set to " + enabled, true, false, false);
+            }
+            case "default_action", "default" -> {
+                String normalizedAction = input.toLowerCase(Locale.ROOT);
+                boolean builtIn = normalizedAction.equals("none") || normalizedAction.equals("kick") || normalizedAction.equals("ban");
+                boolean custom = config.getAvailableActions().stream()
+                    .anyMatch(action -> action.equalsIgnoreCase(normalizedAction));
+                if (!builtIn && !custom) {
+                    String available = config.getAvailableActions().isEmpty()
+                        ? "none, kick, ban"
+                        : "none, kick, ban, " + String.join(", ", config.getAvailableActions());
+                    return new MutationResult(false, "Default action must be one of: " + available, false, false, false);
+                }
+                config.setDefaultAction(normalizedAction);
+                return new MutationResult(true, "default_action set to " + normalizedAction, true, false, false);
+            }
+            case "enforce_whitelisted_mod_list", "whitelist" -> {
+                Boolean enabled = CommandHelper.parseEnableFlag(input);
+                if (enabled == null) {
+                    return new MutationResult(false, "enforce_whitelisted_mod_list must be true/false or on/off", false, false, false);
                 }
                 config.setWhitelist(enabled);
-                return new MutationResult(true, "Whitelist mode " + (enabled ? "ON" : "OFF"), true, false, true);
+                return new MutationResult(true, "enforce_whitelisted_mod_list " + (enabled ? "enabled" : "disabled"), true, false, true);
             }
-            case "allow_bedrock" -> {
+            case "allow_bedrock_players", "allow_bedrock" -> {
                 Boolean allow = CommandHelper.parseEnableFlag(input);
                 if (allow == null) {
-                    return new MutationResult(false, "allow_bedrock must be true/false or on/off", false, false, false);
+                    return new MutationResult(false, "allow_bedrock_players must be true/false or on/off", false, false, false);
                 }
                 config.setAllowBedrockPlayers(allow);
                 return new MutationResult(true, "Bedrock players " + (allow ? "allowed" : "blocked"), true, false, true);
             }
-            case "playerdb_enabled" -> {
+            case "player_database_enabled", "playerdb_enabled" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
                 if (enabled == null) {
-                    return new MutationResult(false, "playerdb_enabled must be true/false or on/off", false, false, false);
+                    return new MutationResult(false, "player_database_enabled must be true/false or on/off", false, false, false);
                 }
                 config.setPlayerdbEnabled(enabled);
                 return new MutationResult(true, "Player database " + (enabled ? "enabled" : "disabled"), true, false, false);
             }
-            case "hash_mods" -> {
+            case "use_hash_for_mods", "hash_mods" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
                 if (enabled == null) {
-                    return new MutationResult(false, "hash_mods must be true/false or on/off", false, false, false);
+                    return new MutationResult(false, "use_hash_for_mods must be true/false or on/off", false, false, false);
                 }
                 config.setHashMods(enabled);
-                return new MutationResult(true, "hash_mods " + (enabled ? "enabled" : "disabled"), true, false, false);
+                return new MutationResult(true, "use_hash_for_mods " + (enabled ? "enabled" : "disabled"), true, false, false);
             }
             case "mod_versioning" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
@@ -96,11 +144,11 @@ public final class ConfigCommandOperations {
                 config.setRuntimeCache(enabled);
                 return new MutationResult(true, "runtime_cache " + (enabled ? "enabled" : "disabled"), true, false, false);
             }
-            case "handshake_timeout" -> {
+            case "handshake_timeout_seconds", "handshake_timeout" -> {
                 try {
                     int seconds = Integer.parseInt(input);
                     config.setHandshakeTimeoutSeconds(seconds);
-                    return new MutationResult(true, "Handshake timeout set to " + Math.max(1, seconds) + "s", true, false, false);
+                    return new MutationResult(true, "handshake_timeout_seconds set to " + Math.max(1, seconds), true, false, false);
                 } catch (NumberFormatException ex) {
                     return new MutationResult(false, "Handshake timeout must be a number of seconds", false, false, false);
                 }

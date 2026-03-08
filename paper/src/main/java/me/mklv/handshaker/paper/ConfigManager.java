@@ -108,6 +108,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             modsWhitelistedEnabled,
             hashMods,
             modVersioning,
+            isHybridCompatibilityEnabled(),
             getRequiredModpackHash(),
             collectKnownHashes(),
             ignoredMods,

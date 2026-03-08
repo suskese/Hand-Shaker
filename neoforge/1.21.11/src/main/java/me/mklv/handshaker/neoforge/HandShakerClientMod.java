@@ -12,16 +12,14 @@ import me.mklv.handshaker.neoforge.server.HandShakerServerMod;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import me.mklv.handshaker.common.utils.HashUtils;
+import me.mklv.handshaker.common.utils.JarIntegrityProof;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.jar.JarFile;
 
 @Mod(HandShakerClientMod.MOD_ID)
 public class HandShakerClientMod {
@@ -70,149 +68,35 @@ public class HandShakerClientMod {
     }
 
     private void sendSignature(ClientPlayerNetworkEvent.LoggingIn event) {
-        Optional<byte[]> jarSignature = getJarSignature();
-        Optional<String> jarContentHash = computeJarContentHash();
-        String nonce = generateNonce();
-        Optional<Boolean> isSignatureValid = verifyJarSignatureLocally();
-
-        if (jarSignature.isPresent() && jarContentHash.isPresent()) {
-            if (isSignatureValid.isPresent() && isSignatureValid.get()) {
-                sendPacket(event, new HandShakerServerMod.IntegrityPayload(jarSignature.get(), jarContentHash.get(), nonce));
-                LOGGER.info("Sent JAR signature ({} bytes) with content hash {} and nonce: {}", jarSignature.get().length, jarContentHash.get().substring(0, 8), nonce);
-            } else {
-                LOGGER.error("JAR signature verification FAILED on client side - rejecting!");
-                sendPacket(event, new HandShakerServerMod.IntegrityPayload(new byte[0], "", nonce));
+        Optional<JarIntegrityProof.Proof> proof = JarIntegrityProof.buildFromRuntimeJar(HandShakerClientMod.class, new JarIntegrityProof.LogSink() {
+            @Override
+            public void info(String message) {
+                LOGGER.info(message);
             }
+
+            @Override
+            public void warn(String message) {
+                LOGGER.warn(message);
+            }
+        });
+        String nonce = generateNonce();
+
+        if (proof.isPresent()) {
+            JarIntegrityProof.Proof integrityProof = proof.get();
+            sendPacket(event, new HandShakerServerMod.IntegrityPayload(integrityProof.signature(), integrityProof.jarHash(), nonce));
+            LOGGER.info("Sent detached integrity proof ({} bytes) with content hash {} and nonce: {}",
+                integrityProof.signature().length,
+                integrityProof.jarHash().substring(0, 8),
+                nonce);
         } else {
-            LOGGER.warn("Could not find JAR signature or hash. Sending empty payload.");
+            LOGGER.warn("Could not build runtime integrity proof. Sending empty payload.");
             sendPacket(event, new HandShakerServerMod.IntegrityPayload(new byte[0], "", nonce));
         }
-    }
-
-    private Optional<byte[]> getJarSignature() {
-        try {
-            var classPath = HandShakerClientMod.class.getProtectionDomain()
-                .getCodeSource()
-                .getLocation()
-                .toURI();
-            var path = java.nio.file.Paths.get(classPath);
-
-            if (!java.nio.file.Files.isRegularFile(path)) {
-                LOGGER.warn("Not running from JAR file: {}", path);
-                return Optional.empty();
-            }
-
-            try (var zipFile = new java.util.zip.ZipFile(path.toFile())) {
-                var entries = zipFile.entries();
-                while (entries.hasMoreElements()) {
-                    var entry = entries.nextElement();
-                    String name = entry.getName().toUpperCase();
-                    if (name.startsWith("META-INF/") && name.endsWith(".RSA")) {
-                        try (var is = zipFile.getInputStream(entry)) {
-                            byte[] signature = is.readAllBytes();
-                            LOGGER.info("Found RSA signature file in JAR: {}", entry.getName());
-                            return Optional.of(signature);
-                        }
-                    }
-                }
-                LOGGER.warn("No .RSA signature file found in META-INF");
-            }
-        } catch (Exception e) {
-            LOGGER.debug("Could not read signature from JAR: {}", e.getMessage());
-        }
-        return Optional.empty();
     }
 
     private void sendPacket(ClientPlayerNetworkEvent.LoggingIn event, CustomPacketPayload payload) {
         if (event.getPlayer() != null && event.getPlayer().connection != null) {
             event.getPlayer().connection.send(new ServerboundCustomPayloadPacket(payload));
-        }
-    }
-
-    private Optional<String> computeJarContentHash() {
-        try {
-            var classPath = HandShakerClientMod.class.getProtectionDomain()
-                    .getCodeSource()
-                    .getLocation()
-                    .toURI();
-            var path = java.nio.file.Paths.get(classPath);
-            
-            if (!java.nio.file.Files.isRegularFile(path)) {
-                LOGGER.error("Not running from JAR file: {}", path);
-                return Optional.empty();
-            }
-
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            try (var zipFile = new java.util.zip.ZipFile(path.toFile())) {
-                // Collect and sort entries for consistent hashing
-                var entries = java.util.Collections.list(zipFile.entries()).stream()
-                        .filter(e -> {
-                            String name = e.getName().toUpperCase();
-                            // Skip signature files
-                            return !name.startsWith("META-INF/") || 
-                                   (!name.endsWith(".SF") && !name.endsWith(".RSA") && 
-                                    !name.endsWith(".DSA") && !name.equals("META-INF/MANIFEST.MF"));
-                        })
-                        .sorted(java.util.Comparator.comparing(java.util.zip.ZipEntry::getName))
-                        .toList();
-
-                if (entries.isEmpty()) {
-                    LOGGER.error("JAR has no content files");
-                    return Optional.empty();
-                }
-
-                for (var entry : entries) {
-                    try (var is = zipFile.getInputStream(entry)) {
-                        byte[] buffer = new byte[8192];
-                        int read;
-                        while ((read = is.read(buffer)) > 0) {
-                            digest.update(buffer, 0, read);
-                        }
-                    }
-                }
-
-                String hexHash = HashUtils.toHex(digest.digest());
-                LOGGER.info("Computed JAR content hash ({} files): {}", entries.size(), hexHash.substring(0, 8));
-                return Optional.of(hexHash);
-            }
-        } catch (Exception e) {
-            LOGGER.error("Failed to compute JAR content hash: {}", e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    private Optional<Boolean> verifyJarSignatureLocally() {
-        try {
-            var classPath = HandShakerClientMod.class.getProtectionDomain()
-                    .getCodeSource()
-                    .getLocation()
-                    .toURI();
-            var path = java.nio.file.Paths.get(classPath);
-            
-            if (path == null || !java.nio.file.Files.isRegularFile(path)) {
-                return Optional.empty();
-            }
-
-            try (var jarFile = new JarFile(path.toFile())) {
-                var entries = java.util.Collections.list(jarFile.entries());
-                for (var entry : entries) {
-                    try (var is = jarFile.getInputStream(entry)) {
-                        byte[] buffer = new byte[8192];
-                        while (is.read(buffer) > 0) {
-                            // Reading triggers verification
-                        }
-                    }
-                }
-                
-                LOGGER.info("JAR signature verified successfully on client side");
-                return Optional.of(true);
-            } catch (java.io.IOException e) {
-                LOGGER.error("JAR signature verification FAILED: {}", e.getMessage());
-                return Optional.of(false);
-            }
-        } catch (Exception e) {
-            LOGGER.error("Error verifying JAR signature: {}", e.getMessage());
-            return Optional.of(false);
         }
     }
 
@@ -243,23 +127,7 @@ public class HandShakerClientMod {
     }
 
     private Optional<String> computeFileSha256(Path path) {
-        if (path == null || !Files.isRegularFile(path)) {
-            return Optional.empty();
-        }
-
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            try (var input = Files.newInputStream(path)) {
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = input.read(buffer)) > 0) {
-                    digest.update(buffer, 0, read);
-                }
-            }
-            return Optional.of(HashUtils.toHex(digest.digest()));
-        } catch (Exception ignored) {
-            return Optional.empty();
-        }
+        return HashUtils.sha256FileHex(path);
     }
 
 }

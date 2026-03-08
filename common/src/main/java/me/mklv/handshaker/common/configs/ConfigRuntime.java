@@ -9,8 +9,6 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class ConfigRuntime {
     private ConfigRuntime() {
@@ -23,6 +21,11 @@ public final class ConfigRuntime {
 
         public static ConfigTypes.ConfigLoadResult build(ConfigTypes.ConfigState.Behavior behavior,
                                                          ConfigTypes.ConfigState.IntegrityMode integrityMode,
+                                                         boolean forceHandshakerMod,
+                                                         boolean modernCompatibility,
+                                                         boolean hybridCompatibility,
+                                                         boolean legacyCompatibility,
+                                                         boolean unsignedCompatibility,
                                                          boolean debug,
                                                          String kickMessage,
                                                          String noHandshakeKickMessage,
@@ -37,6 +40,7 @@ public final class ConfigRuntime {
                                                          boolean runtimeCache,
                                                          boolean modVersioning,
                                                          String requiredModpackHash,
+                                                         String defaultAction,
                                                          boolean whitelist,
                                                          int handshakeTimeoutSeconds,
                                                          Map<String, String> messages,
@@ -47,44 +51,46 @@ public final class ConfigRuntime {
                                                          Set<String> requiredModsActive,
                                                          Set<String> optionalModsActive,
                                                          Map<String, ConfigTypes.ActionDefinition> actionsMap) {
-            ConfigTypes.ConfigLoadResult snapshot = new ConfigTypes.ConfigLoadResult();
-            snapshot.setDebug(debug);
-            snapshot.setBehavior(behavior);
-            snapshot.setIntegrityMode(integrityMode);
-            snapshot.setKickMessage(kickMessage);
-            snapshot.setNoHandshakeKickMessage(noHandshakeKickMessage);
-            snapshot.setMissingWhitelistModMessage(missingWhitelistModMessage);
-            snapshot.setInvalidSignatureKickMessage(invalidSignatureKickMessage);
-            snapshot.setAllowBedrockPlayers(allowBedrockPlayers);
-            snapshot.setPlayerdbEnabled(playerdbEnabled);
-            snapshot.setModsRequiredEnabled(modsRequiredEnabled);
-            snapshot.setModsBlacklistedEnabled(modsBlacklistedEnabled);
-            snapshot.setModsWhitelistedEnabled(modsWhitelistedEnabled);
-            snapshot.setHashMods(hashMods);
-            snapshot.setRuntimeCache(runtimeCache);
-            snapshot.setModVersioning(modVersioning);
-            snapshot.setRequiredModpackHash(requiredModpackHash);
-            snapshot.setWhitelist(whitelist);
-            snapshot.setHandshakeTimeoutSeconds(handshakeTimeoutSeconds);
-
-            Map<String, String> messageSnapshot = messages != null ? messages : Collections.emptyMap();
-            snapshot.getMessages().putAll(messageSnapshot);
-            snapshot.getModConfigMap().putAll(modConfigMap);
-            snapshot.getIgnoredMods().addAll(ignoredMods);
-            snapshot.getWhitelistedModsActive().addAll(whitelistedModsActive);
-            snapshot.getBlacklistedModsActive().addAll(blacklistedModsActive);
-            snapshot.getRequiredModsActive().addAll(requiredModsActive);
-            snapshot.getOptionalModsActive().addAll(optionalModsActive);
-            snapshot.getActionsMap().putAll(actionsMap);
-            return snapshot;
+            return me.mklv.handshaker.common.configs.ConfigSnapshotBuilder.build(
+                behavior,
+                integrityMode,
+                forceHandshakerMod,
+                modernCompatibility,
+                hybridCompatibility,
+                legacyCompatibility,
+                unsignedCompatibility,
+                debug,
+                kickMessage,
+                noHandshakeKickMessage,
+                missingWhitelistModMessage,
+                invalidSignatureKickMessage,
+                allowBedrockPlayers,
+                playerdbEnabled,
+                modsRequiredEnabled,
+                modsBlacklistedEnabled,
+                modsWhitelistedEnabled,
+                hashMods,
+                runtimeCache,
+                modVersioning,
+                requiredModpackHash,
+                defaultAction,
+                whitelist,
+                handshakeTimeoutSeconds,
+                messages,
+                modConfigMap,
+                ignoredMods,
+                whitelistedModsActive,
+                blacklistedModsActive,
+                requiredModsActive,
+                optionalModsActive,
+                actionsMap
+            );
         }
     }
     // endregion
 
     // region MessagePlaceholderExpander
     public static final class MessagePlaceholderExpander {
-        private static final Pattern MESSAGE_PATTERN = Pattern.compile("\\{messages\\.([^}]+)\\}");
-
         private MessagePlaceholderExpander() {
         }
 
@@ -92,34 +98,7 @@ public final class ConfigRuntime {
                                     String playerName,
                                     String modText,
                                     Map<String, String> messages) {
-            if (command == null) {
-                return null;
-            }
-
-            String result = replaceMessagePlaceholders(command, messages);
-            String safePlayer = playerName != null ? playerName : "";
-            String safeMod = modText != null ? modText : "";
-
-            return result
-                .replace("{player}", safePlayer)
-                .replace("{mod}", safeMod)
-                .replace("{mods}", safeMod);
-        }
-
-        private static String replaceMessagePlaceholders(String command, Map<String, String> messages) {
-            if (messages == null || messages.isEmpty()) {
-                return command;
-            }
-
-            Matcher matcher = MESSAGE_PATTERN.matcher(command);
-            StringBuffer buffer = new StringBuffer();
-            while (matcher.find()) {
-                String messageKey = matcher.group(1);
-                String messageValue = messages.getOrDefault(messageKey, "{messages." + messageKey + "}");
-                matcher.appendReplacement(buffer, Matcher.quoteReplacement(messageValue));
-            }
-            matcher.appendTail(buffer);
-            return buffer.toString();
+            return me.mklv.handshaker.common.configs.MessagePlaceholderExpander.expand(command, playerName, modText, messages);
         }
     }
     // endregion
@@ -130,11 +109,7 @@ public final class ConfigRuntime {
         }
 
         public static String normalizeModId(String modId) {
-            ConfigTypes.ModEntry entry = ConfigTypes.ModEntry.parse(modId);
-            if (entry == null) {
-                return null;
-            }
-            return entry.toDisplayKey();
+            return me.mklv.handshaker.common.configs.ModConfigStore.normalizeModId(modId);
         }
 
         public static void upsertModConfig(Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
@@ -148,30 +123,19 @@ public final class ConfigRuntime {
                                            String warnMessage,
                                            String defaultAllowedAction,
                                            String defaultOtherAction) {
-            String normalizedId = normalizeModId(modId);
-            if (normalizedId == null) {
-                return;
-            }
-
-            ConfigTypes.ConfigState.ModConfig existing = modConfigMap.get(normalizedId);
-            if (existing != null) {
-                if (mode != null) {
-                    existing.setMode(mode);
-                }
-                if (action != null) {
-                    existing.setAction(action);
-                }
-                if (warnMessage != null) {
-                    existing.setWarnMessage(warnMessage);
-                }
-            } else {
-                String resolvedAction = resolveActionDefault(mode, action, defaultAllowedAction, defaultOtherAction);
-                modConfigMap.put(normalizedId, new ConfigTypes.ConfigState.ModConfig(mode, resolvedAction, warnMessage));
-            }
-
-            if (mode != null) {
-                updateActiveSets(normalizedId, mode, requiredModsActive, blacklistedModsActive, whitelistedModsActive, optionalModsActive);
-            }
+            me.mklv.handshaker.common.configs.ModConfigStore.upsertModConfig(
+                modConfigMap,
+                requiredModsActive,
+                blacklistedModsActive,
+                whitelistedModsActive,
+                optionalModsActive,
+                modId,
+                mode,
+                action,
+                warnMessage,
+                defaultAllowedAction,
+                defaultOtherAction
+            );
         }
 
         public static boolean removeModConfig(Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
@@ -180,19 +144,14 @@ public final class ConfigRuntime {
                                               Set<String> whitelistedModsActive,
                                               Set<String> optionalModsActive,
                                               String modId) {
-            String normalizedId = normalizeModId(modId);
-            if (normalizedId == null) {
-                return false;
-            }
-
-            boolean removed = modConfigMap.remove(normalizedId) != null;
-            if (removed) {
-                requiredModsActive.remove(normalizedId);
-                blacklistedModsActive.remove(normalizedId);
-                whitelistedModsActive.remove(normalizedId);
-                optionalModsActive.remove(normalizedId);
-            }
-            return removed;
+            return me.mklv.handshaker.common.configs.ModConfigStore.removeModConfig(
+                modConfigMap,
+                requiredModsActive,
+                blacklistedModsActive,
+                whitelistedModsActive,
+                optionalModsActive,
+                modId
+            );
         }
 
         public static void addAllMods(Set<String> mods,
@@ -206,64 +165,31 @@ public final class ConfigRuntime {
                                       Set<String> optionalModsActive,
                                       String defaultAllowedAction,
                                       String defaultOtherAction) {
-            if (mods == null) {
-                return;
-            }
-
-            String resolvedAction = resolveActionDefault(mode, action, defaultAllowedAction, defaultOtherAction);
-            for (String mod : mods) {
-                String normalizedId = normalizeModId(mod);
-                if (normalizedId == null) {
-                    continue;
-                }
-                modConfigMap.put(normalizedId, new ConfigTypes.ConfigState.ModConfig(mode, resolvedAction, warnMessage));
-                updateActiveSets(normalizedId, mode, requiredModsActive, blacklistedModsActive, whitelistedModsActive, optionalModsActive);
-            }
+            me.mklv.handshaker.common.configs.ModConfigStore.addAllMods(
+                mods,
+                mode,
+                action,
+                warnMessage,
+                modConfigMap,
+                requiredModsActive,
+                blacklistedModsActive,
+                whitelistedModsActive,
+                optionalModsActive,
+                defaultAllowedAction,
+                defaultOtherAction
+            );
         }
 
         public static String resolveActionDefault(String mode,
                                                   String action,
                                                   String defaultAllowedAction,
                                                   String defaultOtherAction) {
-            if (action != null) {
-                return action;
-            }
-            if (defaultAllowedAction == null && defaultOtherAction == null) {
-                return null;
-            }
-
-            String modeLower = mode != null ? mode.toLowerCase(Locale.ROOT) : ConfigTypes.ConfigState.MODE_ALLOWED;
-            if (ConfigTypes.ConfigState.MODE_ALLOWED.equals(modeLower)
-                || ConfigTypes.ConfigState.MODE_WHITELISTED.equals(modeLower)
-                || ConfigTypes.ConfigState.MODE_REQUIRED.equals(modeLower)) {
-                return defaultAllowedAction;
-            }
-            return defaultOtherAction;
-        }
-
-        private static void updateActiveSets(String modId,
-                                             String mode,
-                                             Set<String> requiredModsActive,
-                                             Set<String> blacklistedModsActive,
-                                             Set<String> whitelistedModsActive,
-                                             Set<String> optionalModsActive) {
-            requiredModsActive.remove(modId);
-            blacklistedModsActive.remove(modId);
-            whitelistedModsActive.remove(modId);
-            optionalModsActive.remove(modId);
-
-            String modeLower = mode.toLowerCase(Locale.ROOT);
-            if (ConfigTypes.ConfigState.MODE_REQUIRED.equals(modeLower)) {
-                requiredModsActive.add(modId);
-            } else if (ConfigTypes.ConfigState.MODE_BLACKLISTED.equals(modeLower)) {
-                blacklistedModsActive.add(modId);
-            } else if (ConfigTypes.ConfigState.MODE_ALLOWED.equals(modeLower) || ConfigTypes.ConfigState.MODE_WHITELISTED.equals(modeLower)) {
-                whitelistedModsActive.add(modId);
-            } else if ("optional".equals(modeLower)) {
-                optionalModsActive.add(modId);
-                // Optional mods are also added to whitelisted for backwards compatibility
-                whitelistedModsActive.add(modId);
-            }
+            return me.mklv.handshaker.common.configs.ModConfigStore.resolveActionDefault(
+                mode,
+                action,
+                defaultAllowedAction,
+                defaultOtherAction
+            );
         }
     }
     // endregion
@@ -273,6 +199,11 @@ public final class ConfigRuntime {
         protected boolean debug = false;
         protected ConfigTypes.ConfigState.Behavior behavior = ConfigTypes.ConfigState.Behavior.STRICT;
         protected ConfigTypes.ConfigState.IntegrityMode integrityMode = ConfigTypes.ConfigState.IntegrityMode.SIGNED;
+        protected boolean forceHandshakerMod = true;
+        protected boolean modernCompatibility = true;
+        protected boolean hybridCompatibility = false;
+        protected boolean legacyCompatibility = false;
+        protected boolean unsignedCompatibility = false;
         protected String kickMessage = ConfigTypes.StandardMessages.DEFAULT_KICK_MESSAGE;
         protected String noHandshakeKickMessage = ConfigTypes.StandardMessages.DEFAULT_NO_HANDSHAKE_MESSAGE;
         protected String missingWhitelistModMessage = ConfigTypes.StandardMessages.DEFAULT_MISSING_WHITELIST_MESSAGE;
@@ -288,6 +219,7 @@ public final class ConfigRuntime {
         protected boolean runtimeCache = false;
         protected boolean modVersioning = true;
         protected String requiredModpackHash;
+        protected String defaultAction = "kick";
 
         protected final Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap = new LinkedHashMap<>();
         protected boolean whitelist = false;
@@ -313,6 +245,9 @@ public final class ConfigRuntime {
                                         ConfigTypes.ConfigLoadOptions options) {
             ConfigTypes.ConfigLoadResult result = ConfigLoader.load(configDir, resourceBase, logger, options);
             applyLoadResult(result);
+            if (result != null && result.isRewriteToV7()) {
+                ConfigWriter.writeAll(configDir, logger, result);
+            }
         }
 
         protected final void applyLoadResult(ConfigTypes.ConfigLoadResult result) {
@@ -324,6 +259,11 @@ public final class ConfigRuntime {
 
             behavior = result.getBehavior();
             integrityMode = result.getIntegrityMode();
+            forceHandshakerMod = result.isForceHandshakerMod();
+            modernCompatibility = result.isModernCompatibility();
+            hybridCompatibility = result.isHybridCompatibility();
+            legacyCompatibility = result.isLegacyCompatibility();
+            unsignedCompatibility = result.isUnsignedCompatibility();
             kickMessage = result.getKickMessage();
             noHandshakeKickMessage = result.getNoHandshakeKickMessage();
             missingWhitelistModMessage = result.getMissingWhitelistModMessage();
@@ -338,6 +278,9 @@ public final class ConfigRuntime {
             runtimeCache = result.isRuntimeCache();
             modVersioning = result.isModVersioning();
             requiredModpackHash = result.getRequiredModpackHash();
+            defaultAction = result.getDefaultAction() != null && !result.getDefaultAction().isBlank()
+                ? result.getDefaultAction().toLowerCase(Locale.ROOT)
+                : "kick";
             whitelist = result.isWhitelist();
 
             customMessages.clear();
@@ -370,6 +313,11 @@ public final class ConfigRuntime {
             ConfigTypes.ConfigLoadResult snapshot = ConfigSnapshotBuilder.build(
                 behavior,
                 integrityMode,
+                forceHandshakerMod,
+                modernCompatibility,
+                hybridCompatibility,
+                legacyCompatibility,
+                unsignedCompatibility,
                 debug,
                 kickMessage,
                 noHandshakeKickMessage,
@@ -384,6 +332,7 @@ public final class ConfigRuntime {
                 runtimeCache,
                 modVersioning,
                 requiredModpackHash,
+                defaultAction,
                 whitelist,
                 handshakeTimeoutSeconds,
                 customMessages,
@@ -404,11 +353,31 @@ public final class ConfigRuntime {
         }
 
         public ConfigTypes.ConfigState.Behavior getBehavior() {
-            return behavior;
+            return forceHandshakerMod ? ConfigTypes.ConfigState.Behavior.STRICT : ConfigTypes.ConfigState.Behavior.VANILLA;
         }
 
         public ConfigTypes.ConfigState.IntegrityMode getIntegrityMode() {
-            return integrityMode;
+            return unsignedCompatibility ? ConfigTypes.ConfigState.IntegrityMode.DEV : ConfigTypes.ConfigState.IntegrityMode.SIGNED;
+        }
+
+        public boolean isForceHandshakerMod() {
+            return forceHandshakerMod;
+        }
+
+        public boolean isModernCompatibilityEnabled() {
+            return modernCompatibility;
+        }
+
+        public boolean isHybridCompatibilityEnabled() {
+            return hybridCompatibility;
+        }
+
+        public boolean isLegacyCompatibilityEnabled() {
+            return legacyCompatibility;
+        }
+
+        public boolean isUnsignedCompatibilityEnabled() {
+            return unsignedCompatibility;
         }
 
         public String getKickMessage() {
@@ -495,6 +464,14 @@ public final class ConfigRuntime {
             return requiredModpackHash;
         }
 
+        public String getDefaultAction() {
+            return defaultAction;
+        }
+
+        public String getDefaultActionForMode(String mode) {
+            return defaultAction;
+        }
+
         public ConfigTypes.ActionDefinition getAction(String actionName) {
             if (actionName == null) return null;
             return actionsMap.get(actionName.toLowerCase(Locale.ROOT));
@@ -513,11 +490,36 @@ public final class ConfigRuntime {
         }
 
         public void setBehavior(String value) {
-            this.behavior = value != null && value.equalsIgnoreCase("STRICT") ? ConfigTypes.ConfigState.Behavior.STRICT : ConfigTypes.ConfigState.Behavior.VANILLA;
+            this.forceHandshakerMod = value != null && value.equalsIgnoreCase("STRICT");
+            this.behavior = forceHandshakerMod ? ConfigTypes.ConfigState.Behavior.STRICT : ConfigTypes.ConfigState.Behavior.VANILLA;
         }
 
         public void setIntegrityMode(String value) {
-            this.integrityMode = value != null && value.equalsIgnoreCase("SIGNED") ? ConfigTypes.ConfigState.IntegrityMode.SIGNED : ConfigTypes.ConfigState.IntegrityMode.DEV;
+            this.unsignedCompatibility = value != null && value.equalsIgnoreCase("DEV");
+            this.modernCompatibility = true;
+            this.integrityMode = unsignedCompatibility ? ConfigTypes.ConfigState.IntegrityMode.DEV : ConfigTypes.ConfigState.IntegrityMode.SIGNED;
+        }
+
+        public void setForceHandshakerMod(boolean forceHandshakerMod) {
+            this.forceHandshakerMod = forceHandshakerMod;
+            this.behavior = forceHandshakerMod ? ConfigTypes.ConfigState.Behavior.STRICT : ConfigTypes.ConfigState.Behavior.VANILLA;
+        }
+
+        public void setModernCompatibilityEnabled(boolean enabled) {
+            this.modernCompatibility = enabled;
+        }
+
+        public void setHybridCompatibilityEnabled(boolean enabled) {
+            this.hybridCompatibility = enabled;
+        }
+
+        public void setLegacyCompatibilityEnabled(boolean enabled) {
+            this.legacyCompatibility = enabled;
+        }
+
+        public void setUnsignedCompatibilityEnabled(boolean enabled) {
+            this.unsignedCompatibility = enabled;
+            this.integrityMode = enabled ? ConfigTypes.ConfigState.IntegrityMode.DEV : ConfigTypes.ConfigState.IntegrityMode.SIGNED;
         }
 
         public void setWhitelist(boolean value) {
@@ -530,6 +532,14 @@ public final class ConfigRuntime {
 
         public String getDefaultMode() {
             return whitelist ? "BLACKLISTED" : "ALLOWED";
+        }
+
+        public void setDefaultAction(String actionName) {
+            if (actionName == null || actionName.isBlank()) {
+                this.defaultAction = "kick";
+                return;
+            }
+            this.defaultAction = actionName.trim().toLowerCase(Locale.ROOT);
         }
 
         public void setKickMessage(String message) {
@@ -671,8 +681,8 @@ public final class ConfigRuntime {
                 mode,
                 action,
                 warnMessage,
-                "none",
-                "kick"
+                defaultAction,
+                defaultAction
             );
             return true;
         }
@@ -691,7 +701,7 @@ public final class ConfigRuntime {
         public ConfigTypes.ConfigState.ModConfig getModConfig(String modId) {
             if (modId == null) {
                 String defaultModeStr = whitelist ? ConfigTypes.ConfigState.MODE_BLACKLISTED : ConfigTypes.ConfigState.MODE_ALLOWED;
-                return new ConfigTypes.ConfigState.ModConfig(defaultModeStr, "kick", null);
+                return new ConfigTypes.ConfigState.ModConfig(defaultModeStr, defaultAction, null);
             }
 
             String normalized = modId.toLowerCase(Locale.ROOT);
@@ -699,7 +709,7 @@ public final class ConfigRuntime {
             if (cfg != null) return cfg;
 
             String defaultModeStr = whitelist ? ConfigTypes.ConfigState.MODE_BLACKLISTED : ConfigTypes.ConfigState.MODE_ALLOWED;
-            return new ConfigTypes.ConfigState.ModConfig(defaultModeStr, "kick", null);
+            return new ConfigTypes.ConfigState.ModConfig(defaultModeStr, defaultAction, null);
         }
 
         public void addAllMods(Set<String> mods, String mode, String action, String warnMessage) {
@@ -713,8 +723,8 @@ public final class ConfigRuntime {
                 blacklistedModsActive,
                 whitelistedModsActive,
                 optionalModsActive,
-                "none",
-                "kick"
+                defaultAction,
+                defaultAction
             );
         }
     }

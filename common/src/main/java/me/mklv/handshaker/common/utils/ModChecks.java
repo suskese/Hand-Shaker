@@ -25,6 +25,7 @@ public final class ModChecks {
         private final boolean modsWhitelistedEnabled;
         private final boolean hashMods;
         private final boolean modVersioning;
+        private final boolean hybridCompatibility;
         private final String requiredModpackHash;
         private final Map<String, String> knownModHashes;
         private final Set<String> ignoredMods;
@@ -43,6 +44,7 @@ public final class ModChecks {
                              boolean modsWhitelistedEnabled,
                              boolean hashMods,
                              boolean modVersioning,
+                             boolean hybridCompatibility,
                              String requiredModpackHash,
                              Map<String, String> knownModHashes,
                              Set<String> ignoredMods,
@@ -60,6 +62,7 @@ public final class ModChecks {
             this.modsWhitelistedEnabled = modsWhitelistedEnabled;
             this.hashMods = hashMods;
             this.modVersioning = modVersioning;
+            this.hybridCompatibility = hybridCompatibility;
             this.requiredModpackHash = requiredModpackHash;
             this.knownModHashes = knownModHashes;
             this.ignoredMods = ignoredMods;
@@ -95,6 +98,10 @@ public final class ModChecks {
 
         public boolean isModVersioning() {
             return modVersioning;
+        }
+
+        public boolean isHybridCompatibility() {
+            return hybridCompatibility;
         }
 
         public String getRequiredModpackHash() {
@@ -354,7 +361,14 @@ public final class ModChecks {
                 if (!rule.modId().equals(clientMod.modId())) {
                     continue;
                 }
-                if (input.isModVersioning() && rule.version() != null && !rule.version().equals(clientMod.version())) {
+                if (input.isModVersioning() && rule.version() != null
+                    && clientMod.version() != null
+                    && !rule.version().equals(clientMod.version())) {
+                    continue;
+                }
+                if (input.isModVersioning() && rule.version() != null
+                    && clientMod.version() == null
+                    && !input.isHybridCompatibility()) {
                     continue;
                 }
                 if (!isHashAccepted(clientMod, rule, input)) {
@@ -374,7 +388,14 @@ public final class ModChecks {
                 if (!rule.modId().equals(clientMod.modId())) {
                     continue;
                 }
-                if (input.isModVersioning() && rule.version() != null && !rule.version().equals(clientMod.version())) {
+                if (input.isModVersioning() && rule.version() != null
+                    && clientMod.version() != null
+                    && !rule.version().equals(clientMod.version())) {
+                    continue;
+                }
+                if (input.isModVersioning() && rule.version() != null
+                    && clientMod.version() == null
+                    && !input.isHybridCompatibility()) {
                     continue;
                 }
                 if (!isHashAccepted(clientMod, rule, input)) {
@@ -392,7 +413,14 @@ public final class ModChecks {
                     if (!rule.modId().equals(clientMod.modId())) {
                         continue;
                     }
-                    if (input.isModVersioning() && rule.version() != null && !rule.version().equals(clientMod.version())) {
+                    if (input.isModVersioning() && rule.version() != null
+                        && clientMod.version() != null
+                        && !rule.version().equals(clientMod.version())) {
+                        continue;
+                    }
+                    if (input.isModVersioning() && rule.version() != null
+                        && clientMod.version() == null
+                        && !input.isHybridCompatibility()) {
                         continue;
                     }
                     if (!isHashAccepted(clientMod, rule, input)) {
@@ -461,8 +489,8 @@ public final class ModChecks {
             if (message == null) {
                 return null;
             }
-            // Limit to ~10 mods to avoid spam
-            final int MOD_DISPLAY_LIMIT = 10;
+            final int MOD_DISPLAY_LIMIT = 5;
+            final int MOD_TEXT_LIMIT = 220;
             StringBuilder modList = new StringBuilder();
             int count = 0;
             for (String mod : mods) {
@@ -476,6 +504,14 @@ public final class ModChecks {
                 }
                 modList.append(mod);
                 count++;
+
+                if (modList.length() >= MOD_TEXT_LIMIT) {
+                    int remaining = Math.max(0, mods.size() - count);
+                    if (remaining > 0) {
+                        modList.append(", and ").append(remaining).append(" more");
+                    }
+                    break;
+                }
             }
             return message.replace("{mod}", modList.toString());
         }

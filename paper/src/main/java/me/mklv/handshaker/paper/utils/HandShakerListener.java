@@ -37,6 +37,7 @@ public class HandShakerListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
         clients.remove(uuid);
+        plugin.clearNonceHistory(uuid);
         plugin.removeJoinTimestamp(uuid);
     }
 }

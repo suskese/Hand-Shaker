@@ -10,6 +10,7 @@ import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.IntegrityMode;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState.ModConfig;
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
+import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.LoggerAdapter;
 import me.mklv.handshaker.common.protocols.CollectKnownHashes;
@@ -162,6 +163,23 @@ public class ConfigManager extends CommonConfigManagerBase {
             }
         }
         
+        boolean bedrockPlayer = BedrockPlayer.isBedrockPlayer(
+            player.getUUID(),
+            player.getName().getString(),
+            message -> HandShakerServerMod.LOGGER.warn(message)
+        );
+        if (bedrockPlayer) {
+            if (allowBedrockPlayers) {
+                return;
+            }
+
+            player.connection.disconnect(net.minecraft.network.chat.Component.literal(getMessageOrDefault(
+                StandardMessages.KEY_BEDROCK,
+                StandardMessages.DEFAULT_BEDROCK_MESSAGE
+            )));
+            return;
+        }
+
         // If behavior is VANILLA and client doesn't have the mod, skip all checks
         if (behavior == Behavior.VANILLA && !hasMod) {
             return;
@@ -184,6 +202,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             modsWhitelistedEnabled,
             hashMods,
             modVersioning,
+            isHybridCompatibilityEnabled(),
             getRequiredModpackHash(),
             collectKnownHashes(),
             ignoredMods,

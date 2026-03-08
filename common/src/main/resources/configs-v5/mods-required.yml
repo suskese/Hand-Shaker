@@ -1,6 +1,0 @@
-# Required mods to join the server
-# Players must have ALL of these mods installed
-# Format: mod_id:version|null: action (action is from mods-actions.yml, or "none")
-
-required:
-  hand-shaker:7.0.0: none
