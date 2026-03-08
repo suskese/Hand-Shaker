@@ -33,7 +33,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public class HandShakerCommand {
-    private static final int PAGE_SIZE = 10;
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         var handshaker = Commands.literal("handshaker")
@@ -64,59 +63,16 @@ public class HandShakerCommand {
                         .executes(HandShakerCommand::showModInfo))))
             .then(Commands.literal("config")
                 .executes(HandShakerCommand::showConfig)
-                .then(Commands.literal("force_handshaker_mod")
+                .then(Commands.argument("param", StringArgumentType.word())
+                    .suggests(HandShakerCommand::suggestConfigParams)
                     .then(Commands.argument("value", StringArgumentType.word())
-                    .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "force_handshaker_mod"))))
-                .then(Commands.literal("compat_modern")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                    .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "compat_modern"))))
-                .then(Commands.literal("compat_hybrid")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                    .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "compat_hybrid"))))
-                .then(Commands.literal("compat_legacy")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                    .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "compat_legacy"))))
-                .then(Commands.literal("compat_unsigned")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                    .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "compat_unsigned"))))
-                .then(Commands.literal("enforce_whitelisted_mod_list")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "enforce_whitelisted_mod_list"))))
-                .then(Commands.literal("allow_bedrock_players")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "allow_bedrock_players"))))
-                .then(Commands.literal("player_database_enabled")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "player_database_enabled"))))
-                .then(Commands.literal("use_hash_for_mods")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestBooleanValues)
-                    .executes(ctx -> setConfigValue(ctx, "use_hash_for_mods"))))
-                .then(Commands.literal("mod_versioning")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestBooleanValues)
-                        .executes(ctx -> setConfigValue(ctx, "mod_versioning"))))
-                .then(Commands.literal("runtime_cache")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestBooleanValues)
-                        .executes(ctx -> setConfigValue(ctx, "runtime_cache"))))
-                .then(Commands.literal("required_modpack_hash")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                        .suggests(HandShakerCommand::suggestRequiredModpackHashValues)
-                        .executes(ctx -> setConfigValue(ctx, "required_modpack_hash")))))
+                        .suggests(HandShakerCommand::suggestConfigValues)
+                        .executes(HandShakerCommand::setConfigValueDynamic))))
             .then(Commands.literal("mode")
                 .then(Commands.argument("list", StringArgumentType.word())
                     .suggests(HandShakerCommand::suggestModeLists)
                     .then(Commands.argument("action", StringArgumentType.word())
-                        .suggests((ctx, builder) -> builder.suggest("on").suggest("off").buildFuture())
+                        .suggests(HandShakerCommand::suggestCurrentModeState)
                         .executes(HandShakerCommand::setMode))))
             // Manage subcommands
             .then(Commands.literal("manage")
@@ -249,7 +205,7 @@ public class HandShakerCommand {
         }
 
         InfoCommandOperations.ConfiguredModsPageResult paged =
-            InfoCommandOperations.loadConfiguredModsPage(mods, pageNum, PAGE_SIZE);
+            InfoCommandOperations.loadConfiguredModsPage(mods, pageNum, CommandHelper.PAGE_SIZE);
         if (paged.hasInvalidPage()) {
             ctx.getSource().sendFailure(Component.literal("Invalid page. Total pages: " + paged.totalPages()));
             return 0;
@@ -338,7 +294,7 @@ public class HandShakerCommand {
 
         Map<String, Integer> popularity = InfoCommandOperations.collectPopularity(allPlayersMods);
         InfoCommandOperations.PopularityPageResult paged =
-            InfoCommandOperations.loadPopularityPage(popularity, pageNum, PAGE_SIZE);
+            InfoCommandOperations.loadPopularityPage(popularity, pageNum, CommandHelper.PAGE_SIZE);
         if (paged.hasInvalidPage()) {
             ctx.getSource().sendFailure(Component.literal("Invalid page. Total pages: " + paged.totalPages()));
             return 0;
@@ -357,7 +313,7 @@ public class HandShakerCommand {
             ModEntry parsed = ModEntry.parse(modToken);
             String modId = parsed != null ? parsed.modId() : modToken;
             String version = parsed != null && parsed.version() != null ? parsed.version() : "unknown";
-            String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : prettyModName(modId);
+            String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : CommandHelper.prettyModName(modId);
 
             if (ctx.getSource().getEntity() instanceof ServerPlayer) {
                 String modInfoCommand = CommandVisualOperations.infoModCommand("/handshaker", modToken);
@@ -456,7 +412,7 @@ public class HandShakerCommand {
         UUID onlineUuid = online != null ? online.getUUID() : null;
 
         InfoCommandOperations.PlayerHistoryResult result =
-            InfoCommandOperations.loadPlayerHistory(db, playerName, onlineUuid, pageNum, PAGE_SIZE);
+            InfoCommandOperations.loadPlayerHistory(db, playerName, onlineUuid, pageNum, CommandHelper.PAGE_SIZE);
         if (!result.success()) {
             ctx.getSource().sendFailure(Component.literal(result.error()));
             return 0;
@@ -539,6 +495,11 @@ public class HandShakerCommand {
         }
         ctx.getSource().sendSystemMessage(sectionFooter(title));
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static int setConfigValueDynamic(CommandContext<CommandSourceStack> ctx) {
+        String param = StringArgumentType.getString(ctx, "param");
+        return setConfigValue(ctx, param);
     }
 
     private static int setConfigValue(CommandContext<CommandSourceStack> ctx, String param) {
@@ -787,14 +748,14 @@ public class HandShakerCommand {
         }
 
         int totalMods = parsedMods.size();
-        int totalPages = Math.max(1, (int) Math.ceil((double) totalMods / PAGE_SIZE));
+        int totalPages = Math.max(1, (int) Math.ceil((double) totalMods / CommandHelper.PAGE_SIZE));
         if (pageNum < 1 || pageNum > totalPages) {
             ctx.getSource().sendFailure(Component.literal("Invalid page. Total pages: " + totalPages));
             return 0;
         }
 
-        int start = (pageNum - 1) * PAGE_SIZE;
-        int end = Math.min(start + PAGE_SIZE, totalMods);
+        int start = (pageNum - 1) * CommandHelper.PAGE_SIZE;
+        int end = Math.min(start + CommandHelper.PAGE_SIZE, totalMods);
 
         String title = totalMods + " Mods";
         ctx.getSource().sendSystemMessage(sectionHeader(title));
@@ -810,7 +771,7 @@ public class HandShakerCommand {
             ModEntry entry = parsedMods.get(i);
             String modId = entry.modId();
             String version = entry.version() != null ? entry.version() : "unknown";
-            String displayName = entry.displayName() != null ? entry.displayName() : prettyModName(modId);
+            String displayName = entry.displayName() != null ? entry.displayName() : CommandHelper.prettyModName(modId);
 
             ctx.getSource().sendSystemMessage(Component.literal("- ").withColor(0xAAAAAA)
                 .append(Component.literal(displayName).withColor(0xFFFFFF)));
@@ -877,28 +838,6 @@ public class HandShakerCommand {
         ctx.getSource().sendSystemMessage(prev.append(Component.literal(" ")).append(next));
     }
 
-    private static String prettyModName(String modId) {
-        if (modId == null || modId.isBlank()) {
-            return "unknown";
-        }
-        String normalized = modId.replace('_', ' ').replace('-', ' ');
-        String[] words = normalized.split("\\s+");
-        StringBuilder result = new StringBuilder();
-        for (String word : words) {
-            if (word.isEmpty()) {
-                continue;
-            }
-            if (result.length() > 0) {
-                result.append(' ');
-            }
-            result.append(Character.toUpperCase(word.charAt(0)));
-            if (word.length() > 1) {
-                result.append(word.substring(1));
-            }
-        }
-        return result.toString();
-    }
-
     private static MutableComponent modeTag(String mode) {
         String label = CommandHelper.modeTagLabel(mode);
         if (mode == null) {
@@ -917,16 +856,24 @@ public class HandShakerCommand {
 
     // ===== Suggestion Providers =====
 
-    private static CompletableFuture<Suggestions> suggestBooleanValues(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        for (String value : CommandSuggestionOperations.booleanSuggestions(builder.getRemaining())) {
-            builder.suggest(value);
+
+    private static CompletableFuture<Suggestions> suggestConfigParams(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
+        for (String param : CommandSuggestionOperations.configParamSuggestions(builder.getRemaining())) {
+            builder.suggest(param);
         }
         return builder.buildFuture();
     }
 
-    private static CompletableFuture<Suggestions> suggestRequiredModpackHashValues(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        List<String> values = CommandSuggestionOperations.configValueSuggestions("required_modpack_hash", null);
-        for (String value : CommandSuggestionOperations.filterByPrefix(values, builder.getRemaining())) {
+    private static CompletableFuture<Suggestions> suggestConfigValues(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
+        String param = null;
+        try {
+            param = StringArgumentType.getString(ctx, "param");
+        } catch (IllegalArgumentException ignored) {
+        }
+
+        ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
+        for (String value : CommandSuggestionOperations.configValueSuggestions(
+            param != null ? param.toLowerCase() : "", config.getAvailableActions())) {
             builder.suggest(value);
         }
         return builder.buildFuture();
@@ -935,6 +882,36 @@ public class HandShakerCommand {
     private static CompletableFuture<Suggestions> suggestModes(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
         for (String mode : CommandSuggestionOperations.modeSuggestions(builder.getRemaining())) {
             builder.suggest(mode);
+        }
+        return builder.buildFuture();
+    }
+
+    private static CompletableFuture<Suggestions> suggestCurrentModeState(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
+        String listName = null;
+        try {
+            listName = StringArgumentType.getString(ctx, "list").toLowerCase();
+        } catch (IllegalArgumentException ignored) {
+        }
+
+        if (listName != null) {
+            ConfigManager config = HandShakerServerMod.getInstance().getBlacklistConfig();
+            boolean isCurrentlyEnabled = switch (listName) {
+                case "mods_required" -> config.areModsRequiredEnabled();
+                case "mods_blacklisted" -> config.areModsBlacklistedEnabled();
+                case "mods_whitelisted" -> config.areModsWhitelistedEnabled();
+                default -> false;
+            };
+            
+            // Only suggest the opposite of the current state
+            if (isCurrentlyEnabled) {
+                builder.suggest("off");
+            } else {
+                builder.suggest("on");
+            }
+        } else {
+            // list argument not yet filled - suggest both
+            builder.suggest("on");
+            builder.suggest("off");
         }
         return builder.buildFuture();
     }

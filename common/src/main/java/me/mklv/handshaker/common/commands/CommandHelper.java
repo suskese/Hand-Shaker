@@ -14,6 +14,8 @@ import me.mklv.handshaker.common.utils.ModpackHashing;
 
 public class CommandHelper {
     
+    public static final int PAGE_SIZE = 10;
+    
     public record HelpSection(String title, List<HelpEntry> entries) {}
     
     public record HelpEntry(String command, String description) {}
@@ -182,6 +184,28 @@ public class CommandHelper {
             case "allowed" -> "[ALW]";
             default -> "[UNK]";
         };
+    }
+
+    public static String prettyModName(String modId) {
+        if (modId == null || modId.isBlank()) {
+            return "unknown";
+        }
+        String normalized = modId.replace('_', ' ').replace('-', ' ');
+        String[] words = normalized.split("\\s+");
+        StringBuilder result = new StringBuilder();
+        for (String word : words) {
+            if (word.isEmpty()) {
+                continue;
+            }
+            if (result.length() > 0) {
+                result.append(' ');
+            }
+            result.append(Character.toUpperCase(word.charAt(0)));
+            if (word.length() > 1) {
+                result.append(word.substring(1));
+            }
+        }
+        return result.toString();
     }
 
     public static String toDisplayModToken(String rawMod) {

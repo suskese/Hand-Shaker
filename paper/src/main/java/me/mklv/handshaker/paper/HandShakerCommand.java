@@ -32,7 +32,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public class HandShakerCommand{
-    private static final int PAGE_SIZE = 10;
     private final HandShakerPlugin plugin;
     private final ConfigManager config;
 
@@ -113,7 +112,7 @@ public class HandShakerCommand{
             .then(Commands.argument("list", StringArgumentType.string())
                 .suggests(this::suggestModeLists)
                 .then(Commands.argument("action", StringArgumentType.string())
-                    .suggests(this::suggestBool)
+                    .suggests(this::suggestCurrentModeState)
                     .executes(ctx -> setMode(ctx.getSource(), ctx.getArgument("list", String.class), ctx.getArgument("action", String.class)))));
     }
 
@@ -274,7 +273,7 @@ public class HandShakerCommand{
         }
 
         InfoCommandOperations.ConfiguredModsPageResult paged =
-            InfoCommandOperations.loadConfiguredModsPage(mods, pageNum, PAGE_SIZE);
+            InfoCommandOperations.loadConfiguredModsPage(mods, pageNum, CommandHelper.PAGE_SIZE);
         if (paged.hasInvalidPage()) {
             source.getSender().sendMessage(Component.text("Invalid page. Total pages: " + paged.totalPages()).color(NamedTextColor.RED));
             return 0;
@@ -355,7 +354,7 @@ public class HandShakerCommand{
         }
 
         InfoCommandOperations.PopularityPageResult paged =
-            InfoCommandOperations.loadPopularityPage(db.getModPopularity(), pageNum, PAGE_SIZE);
+            InfoCommandOperations.loadPopularityPage(db.getModPopularity(), pageNum, CommandHelper.PAGE_SIZE);
         if (paged.hasInvalidPage()) {
             source.getSender().sendMessage(Component.text("Invalid page. Total pages: " + paged.totalPages()).color(NamedTextColor.RED));
             return 0;
@@ -382,7 +381,7 @@ public class HandShakerCommand{
                 ModEntry parsed = ModEntry.parse(modToken);
                 String modId = parsed != null ? parsed.modId() : modToken;
                 String version = parsed != null && parsed.version() != null ? parsed.version() : "unknown";
-                String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : prettyModName(modId);
+                String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : CommandHelper.prettyModName(modId);
 
                 ConfigState.ModConfig modCfg = config.getModConfig(modToken);
                 source.getSender().sendMessage(modeTagComponent(modCfg)
@@ -404,7 +403,7 @@ public class HandShakerCommand{
                 ModEntry parsed = ModEntry.parse(modToken);
                 String modId = parsed != null ? parsed.modId() : modToken;
                 String version = parsed != null && parsed.version() != null ? parsed.version() : "unknown";
-                String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : prettyModName(modId);
+                String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : CommandHelper.prettyModName(modId);
                 
                 ConfigState.ModConfig modCfg = config.getModConfig(modToken);
                 NamedTextColor statusColor = modCfg != null && modCfg.isRequired() ? NamedTextColor.GREEN 
@@ -512,7 +511,7 @@ public class HandShakerCommand{
         UUID onlineUuid = online != null ? online.getUniqueId() : null;
 
         InfoCommandOperations.PlayerHistoryResult result =
-            InfoCommandOperations.loadPlayerHistory(db, playerName, onlineUuid, pageNum, PAGE_SIZE);
+            InfoCommandOperations.loadPlayerHistory(db, playerName, onlineUuid, pageNum, CommandHelper.PAGE_SIZE);
         if (!result.success()) {
             source.getSender().sendMessage(Component.text(result.error()).color(NamedTextColor.RED));
             return 0;
@@ -786,14 +785,14 @@ public class HandShakerCommand{
         }
 
         int totalMods = parsedMods.size();
-        int totalPages = Math.max(1, (int) Math.ceil((double) totalMods / PAGE_SIZE));
+        int totalPages = Math.max(1, (int) Math.ceil((double) totalMods / CommandHelper.PAGE_SIZE));
         if (pageNum < 1 || pageNum > totalPages) {
             source.getSender().sendMessage(Component.text("Invalid page. Total pages: " + totalPages).color(NamedTextColor.RED));
             return 0;
         }
 
-        int start = (pageNum - 1) * PAGE_SIZE;
-        int end = Math.min(start + PAGE_SIZE, totalMods);
+        int start = (pageNum - 1) * CommandHelper.PAGE_SIZE;
+        int end = Math.min(start + CommandHelper.PAGE_SIZE, totalMods);
 
         String title = totalMods + " Mods";
         source.getSender().sendMessage(sectionHeader(title));
@@ -809,7 +808,7 @@ public class HandShakerCommand{
             ModEntry entry = parsedMods.get(i);
             String modId = entry.modId();
             String version = entry.version() != null ? entry.version() : "unknown";
-            String displayName = entry.displayName() != null ? entry.displayName() : prettyModName(modId);
+            String displayName = entry.displayName() != null ? entry.displayName() : CommandHelper.prettyModName(modId);
             source.getSender().sendMessage(Component.text("- ").color(NamedTextColor.GRAY)
                 .append(Component.text(displayName).color(NamedTextColor.WHITE)));
             source.getSender().sendMessage(Component.text("  ID: ").color(NamedTextColor.DARK_GRAY)
@@ -885,7 +884,7 @@ public class HandShakerCommand{
 
     private CompletableFuture<Suggestions> suggestActions(
             CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        List<String> actions = CommandSuggestionOperations.actionSuggestions(config.getAvailableActions(), true, false);
+        List<String> actions = CommandSuggestionOperations.actionSuggestions(config.getAvailableActions(), false, true);
         for (String action : CommandSuggestionOperations.filterByPrefix(actions, builder.getRemaining())) {
             builder.suggest(action);
         }
@@ -900,7 +899,11 @@ public class HandShakerCommand{
             Set<String> clientMods = info != null ? info.mods() : null;
             if (clientMods != null) {
                 for (String mod : CommandHelper.sanitizeModSuggestions(clientMods)) {
-                    suggestWithAutoQuote(builder, mod);
+                    String display = CommandHelper.toDisplayModToken(mod);
+                    String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), display);
+                    if (suggestion != null) {
+                        builder.suggest(suggestion);
+                    }
                 }
                 return builder.buildFuture();
             }
@@ -910,7 +913,11 @@ public class HandShakerCommand{
         if (db == null) return builder.buildFuture();
         
         for (String mod : CommandHelper.sanitizeModSuggestions(db.getModPopularity().keySet())) {
-            suggestWithAutoQuote(builder, mod);
+            String display = CommandHelper.toDisplayModToken(mod);
+            String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), display);
+            if (suggestion != null) {
+                builder.suggest(suggestion);
+            }
         }
         return builder.buildFuture();
     }
@@ -918,7 +925,10 @@ public class HandShakerCommand{
     private CompletableFuture<Suggestions> suggestConfiguredMods(
             CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
         for (String mod : config.getModConfigMap().keySet()) {
-            suggestWithAutoQuote(builder, mod);
+            String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), mod);
+            if (suggestion != null) {
+                builder.suggest(suggestion);
+            }
         }
         return builder.buildFuture();
     }
@@ -929,17 +939,23 @@ public class HandShakerCommand{
         if (db == null) return builder.buildFuture();
         
         for (String mod : CommandHelper.sanitizeModSuggestions(db.getModPopularity().keySet())) {
-            suggestWithAutoQuote(builder, mod);
+            String display = CommandHelper.toDisplayModToken(mod);
+            String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), display);
+            if (suggestion != null) {
+                builder.suggest(suggestion);
+            }
         }
         return builder.buildFuture();
     }
 
     private CompletableFuture<Suggestions> suggestPlayers(
             CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
+        List<String> playerNames = new ArrayList<>();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            if (player.getName().toLowerCase().startsWith(builder.getRemaining().toLowerCase())) {
-                builder.suggest(player.getName());
-            }
+            playerNames.add(player.getName());
+        }
+        for (String name : CommandSuggestionOperations.filterByPrefix(playerNames, builder.getRemaining())) {
+            builder.suggest(name);
         }
         return builder.buildFuture();
     }
@@ -947,7 +963,10 @@ public class HandShakerCommand{
     private CompletableFuture<Suggestions> suggestIgnoredMods(
             CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
         for (String mod : config.getIgnoredMods()) {
-            suggestWithAutoQuote(builder, mod);
+            String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), mod);
+            if (suggestion != null) {
+                builder.suggest(suggestion);
+            }
         }
         return builder.buildFuture();
     }
@@ -960,13 +979,6 @@ public class HandShakerCommand{
         return builder.buildFuture();
     }
 
-    private CompletableFuture<Suggestions> suggestBool(
-            CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        for (String bool : CommandSuggestionOperations.booleanSuggestions(builder.getRemaining())) {
-            builder.suggest(bool);
-        }
-        return builder.buildFuture();
-    }
 
     private CompletableFuture<Suggestions> suggestConfigParams(
             CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
@@ -1030,7 +1042,11 @@ public class HandShakerCommand{
                 Set<String> clientMods = info != null ? info.mods() : null;
                 if (clientMods != null) {
                     for (String mod : CommandHelper.sanitizeModSuggestions(clientMods)) {
-                        suggestWithAutoQuote(builder, mod);
+                        String display = CommandHelper.toDisplayModToken(mod);
+                        String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), display);
+                        if (suggestion != null) {
+                            builder.suggest(suggestion);
+                        }
                     }
                 }
             }
@@ -1040,25 +1056,31 @@ public class HandShakerCommand{
         return builder.buildFuture();
     }
 
-    private void suggestWithAutoQuote(SuggestionsBuilder builder, String value) {
-        String remaining = builder.getRemaining();
-        boolean needsQuotes = value.contains(":") || value.contains("+") || value.contains(" ") || value.contains("!");
-        
-        // If user started with a quote, or value needs quotes, suggest with quotes
-        if (remaining.startsWith("\"") || needsQuotes) {
-            String quotedValue = "\"" + value + "\"";
-            // Check against remaining with or without starting quote
-            String checkAgainst = remaining.startsWith("\"") ? remaining.substring(1) : remaining;
-            if (value.toLowerCase().startsWith(checkAgainst.toLowerCase())) {
-                builder.suggest(quotedValue);
+    private CompletableFuture<Suggestions> suggestCurrentModeState(
+            CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
+        try {
+            String listName = ctx.getArgument("list", String.class).toLowerCase(Locale.ROOT);
+            boolean isCurrentlyEnabled = switch (listName) {
+                case "mods_required" -> config.areModsRequiredEnabled();
+                case "mods_blacklisted" -> config.areModsBlacklistedEnabled();
+                case "mods_whitelisted" -> config.areModsWhitelistedEnabled();
+                default -> false;
+            };
+            
+            // Only suggest the opposite of the current state
+            if (isCurrentlyEnabled) {
+                builder.suggest("off");
+            } else {
+                builder.suggest("on");
             }
-        } else {
-            // User hasn't typed quote and value is clean - suggest unquoted
-            if (value.toLowerCase().startsWith(remaining.toLowerCase())) {
-                builder.suggest(value);
-            }
+        } catch (IllegalArgumentException ignored) {
+            // list argument not yet filled - suggest both
+            builder.suggest("on");
+            builder.suggest("off");
         }
+        return builder.buildFuture();
     }
+
 
     // ===== Helpers =====
 
@@ -1072,32 +1094,8 @@ public class HandShakerCommand{
         );
     }
 
-
-
     private static String getModToken(CommandContext<CommandSourceStack> ctx, String argumentName) {
         return ctx.getArgument(argumentName, String.class);
-    }
-
-    private String prettyModName(String modId) {
-        if (modId == null || modId.isBlank()) {
-            return "unknown";
-        }
-        String normalized = modId.replace('_', ' ').replace('-', ' ');
-        String[] words = normalized.split("\\s+");
-        StringBuilder result = new StringBuilder();
-        for (String word : words) {
-            if (word.isEmpty()) {
-                continue;
-            }
-            if (result.length() > 0) {
-                result.append(' ');
-            }
-            result.append(Character.toUpperCase(word.charAt(0)));
-            if (word.length() > 1) {
-                result.append(word.substring(1));
-            }
-        }
-        return result.toString();
     }
 
     private Component sectionHeader(String title) {

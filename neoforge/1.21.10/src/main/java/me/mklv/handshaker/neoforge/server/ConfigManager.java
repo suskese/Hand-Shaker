@@ -73,7 +73,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             case BLACKLISTED -> "blacklisted";
             default -> "allowed";
         };
-        String actionStr = action != null ? action.toString().toLowerCase() : "kick";
+        String actionStr = action != null ? action.toString().toLowerCase(Locale.ROOT) : "kick";
         return setModConfigByString(modId, statusStr, actionStr, warnMessage);
     }
 
@@ -103,7 +103,7 @@ public class ConfigManager extends CommonConfigManagerBase {
 
     public ModStatus getModStatus(String modId) {
         ModConfig cfg = getModConfig(modId);
-        String mode = cfg.getMode().toLowerCase();
+        String mode = cfg.getMode().toLowerCase(Locale.ROOT);
         return switch (mode) {
             case "required" -> ModStatus.REQUIRED;
             case "blacklisted" -> ModStatus.BLACKLISTED;
