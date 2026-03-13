@@ -9,11 +9,14 @@ import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import me.mklv.handshaker.common.commands.ConfigCommandOperations;
 import me.mklv.handshaker.common.commands.InfoCommandOperations;
+import me.mklv.handshaker.common.commands.CommandDataOperations;
 import me.mklv.handshaker.common.commands.CommandHelper;
 import me.mklv.handshaker.common.commands.CommandSuggestionOperations;
 import me.mklv.handshaker.common.commands.CommandVisualOperations;
-import me.mklv.handshaker.common.commands.CommandModUtil;
-import me.mklv.handshaker.common.commands.ModManagementOperations;
+import me.mklv.handshaker.common.commands.CommandRuntimeOperations;
+import me.mklv.handshaker.common.commands.DiagnosticCommand;
+import me.mklv.handshaker.common.commands.IgnoreCommandOperations;
+import me.mklv.handshaker.common.commands.ModRuleCommandOperations;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
@@ -27,6 +30,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.entity.Player;
 
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -74,7 +78,6 @@ public class HandShakerCommand{
 
     private LiteralArgumentBuilder<CommandSourceStack> buildInfoCommand() {
         return Commands.literal("info")
-            .executes(ctx -> showInfoSummary(ctx.getSource()))
             .then(Commands.literal("configured_mods")
                 .executes(ctx -> showConfiguredMods(ctx.getSource(), 1))
                 .then(Commands.argument("page", IntegerArgumentType.integer(1))
@@ -92,7 +95,13 @@ public class HandShakerCommand{
             .then(Commands.literal("mod")
                 .then(Commands.argument("modName", StringArgumentType.string())
                     .suggests(this::suggestAllMods)
-                    .executes(ctx -> showModInfo(ctx.getSource(), getModToken(ctx, "modName")))));
+                    .executes(ctx -> showModInfo(ctx.getSource(), getModToken(ctx, "modName")))))
+            .then(Commands.literal("diagnostic")
+                .executes(ctx -> showDiagnostic(ctx.getSource()))
+                .then(Commands.literal("export")
+                    .executes(ctx -> exportDiagnosticReport(ctx.getSource()))))
+            .then(Commands.literal("export")
+                .executes(ctx -> exportSnapshot(ctx.getSource())));
     }
 
     private LiteralArgumentBuilder<CommandSourceStack> buildConfigCommand() {
@@ -174,14 +183,16 @@ public class HandShakerCommand{
                         .suggests(this::suggestPlayerMods)
                         .then(Commands.argument("status", StringArgumentType.string())
                             .suggests(this::suggestModes)
-                            .executes(ctx -> changePlayerMod(ctx.getSource(), 
+                            .executes(ctx -> changePlayerMod(
+                                ctx.getSource(),
                                 ctx.getArgument("playerName", String.class),
                                 getModToken(ctx, "mod"),
                                 ctx.getArgument("status", String.class),
                                 null))
                             .then(Commands.argument("action", StringArgumentType.string())
                                 .suggests(this::suggestActions)
-                                .executes(ctx -> changePlayerMod(ctx.getSource(), 
+                                .executes(ctx -> changePlayerMod(
+                                    ctx.getSource(),
                                     ctx.getArgument("playerName", String.class),
                                     getModToken(ctx, "mod"),
                                     ctx.getArgument("status", String.class),
@@ -217,51 +228,73 @@ public class HandShakerCommand{
         return 1;
     }
 
-    private int showInfoSummary(CommandSourceStack source) {
-        PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
-        if (db == null) {
-            source.getSender().sendMessage(Component.text("Player history database not available").color(NamedTextColor.RED));
+
+    private int showDiagnostic(CommandSourceStack source) {
+        if (!config.isDiagnosticCommandEnabled()) {
+            source.getSender().sendMessage(Component.text("Diagnostic command is disabled in config").color(NamedTextColor.RED));
             return 0;
         }
-        
-        Map<String, Integer> popularity = db.getModPopularity();
-        int uniqueMods = popularity.size();
-        int configuredMods = config.getModConfigMap().size();
-        int activePlayers = db.getUniqueActivePlayers();
 
-        String statsTitle = "HandShaker Statistics";
-        source.getSender().sendMessage(sectionHeader(statsTitle));
-        
-        List<CommandHelper.InfoField> statFields = List.of(
-            new CommandHelper.InfoField("Unique Mods Detected", String.valueOf(uniqueMods)),
-            new CommandHelper.InfoField("Configured Mods", String.valueOf(configuredMods)),
-            new CommandHelper.InfoField("Active Players", String.valueOf(activePlayers))
-        );
-        
-        for (CommandHelper.InfoField field : statFields) {
-            Component line = Component.text(field.label() + ": ").color(NamedTextColor.YELLOW)
-                .append(Component.text(field.value()).color(NamedTextColor.WHITE));
-            source.getSender().sendMessage(line);
+        PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
+        source.getSender().sendMessage(sectionHeader("HandShaker Diagnostic"));
+        for (String line : DiagnosticCommand.buildDisplayLines(config, db)) {
+            NamedTextColor color = "Database disabled".equals(line) ? NamedTextColor.YELLOW : NamedTextColor.GRAY;
+            source.getSender().sendMessage(Component.text(line).color(color));
         }
-        source.getSender().sendMessage(sectionFooter(statsTitle));
-        source.getSender().sendMessage(Component.empty());
 
-        String statusTitle = "HandShaker Status";
-        source.getSender().sendMessage(sectionHeader(statusTitle));
-        List<CommandHelper.InfoField> statusFields = List.of(
-            new CommandHelper.InfoField("Behavior", config.getBehavior().toString()),
-            new CommandHelper.InfoField("Integrity Mode", config.getIntegrityMode().toString()),
-            new CommandHelper.InfoField("Whitelist Mode", config.isWhitelist() ? "ON" : "OFF"),
-            new CommandHelper.InfoField("Timeout", config.getHandshakeTimeoutSeconds() + "s")
-        );
-        
-        for (CommandHelper.InfoField field : statusFields) {
-            Component line = Component.text(field.label() + ": ").color(NamedTextColor.YELLOW)
-                .append(Component.text(field.value()).color(NamedTextColor.WHITE));
-            source.getSender().sendMessage(line);
+        source.getSender().sendMessage(Component.text("[ Save diagnostic to exports ]").color(NamedTextColor.GREEN)
+            .clickEvent(ClickEvent.runCommand("/handshaker info diagnostic export"))
+            .hoverEvent(HoverEvent.showText(Component.text("Save this diagnostic report to exports folder"))));
+
+        source.getSender().sendMessage(sectionFooter("HandShaker Diagnostic"));
+        return 1;
+    }
+
+    private int exportDiagnosticReport(CommandSourceStack source) {
+        if (!config.isDiagnosticCommandEnabled()) {
+            source.getSender().sendMessage(Component.text("Diagnostic command is disabled in config").color(NamedTextColor.RED));
+            return 0;
         }
-        source.getSender().sendMessage(sectionFooter(statusTitle));
-        
+
+        PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
+        Path exportDir = plugin.getDataFolder().toPath().resolve("exports");
+        DiagnosticCommand.FileExportResult result = DiagnosticCommand.writeDiagnosticReport(
+            config,
+            db,
+            exportDir,
+            System.currentTimeMillis()
+        );
+        if (!result.success()) {
+            source.getSender().sendMessage(Component.text("Diagnostic export failed: " + result.errorMessage()).color(NamedTextColor.RED));
+            return 0;
+        }
+        source.getSender().sendMessage(Component.text("Exported diagnostic: " + result.output().getFileName()).color(NamedTextColor.GREEN));
+        return 1;
+    }
+
+    private int exportSnapshot(CommandSourceStack source) {
+        if (!config.isExportCommandEnabled()) {
+            source.getSender().sendMessage(Component.text("Export command is disabled in config").color(NamedTextColor.RED));
+            return 0;
+        }
+
+        PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
+        if (db == null || !db.isEnabled()) {
+            source.getSender().sendMessage(Component.text("Database is not enabled").color(NamedTextColor.RED));
+            return 0;
+        }
+        Path exportDir = plugin.getDataFolder().toPath().resolve("exports");
+        DiagnosticCommand.FileExportResult result = DiagnosticCommand.writeSnapshot(
+            config,
+            db,
+            exportDir,
+            System.currentTimeMillis()
+        );
+        if (!result.success()) {
+            source.getSender().sendMessage(Component.text("Export failed: " + result.errorMessage()).color(NamedTextColor.RED));
+            return 0;
+        }
+        source.getSender().sendMessage(Component.text("Exported snapshot: " + result.output().getFileName()).color(NamedTextColor.GREEN));
         return 1;
     }
 
@@ -335,10 +368,10 @@ public class HandShakerCommand{
             sendPaginationNavigation(
                 source,
                 page.pageNum() > 1,
-                "/handshakerinfo configured_mods " + (page.pageNum() - 1),
+                "/handshaker info configured_mods " + (page.pageNum() - 1),
                 page.pageNum() < page.totalPages(),
-                "/handshakerinfo configured_mods " + (page.pageNum() + 1),
-                "/handshakerinfo configured_mods <page>"
+                "/handshaker info configured_mods " + (page.pageNum() + 1),
+                "/handshaker info configured_mods <page>"
             );
         }
         source.getSender().sendMessage(sectionFooter(title));
@@ -353,156 +386,34 @@ public class HandShakerCommand{
             return 0;
         }
 
-        InfoCommandOperations.PopularityPageResult paged =
-            InfoCommandOperations.loadPopularityPage(db.getModPopularity(), pageNum, CommandHelper.PAGE_SIZE);
-        if (paged.hasInvalidPage()) {
-            source.getSender().sendMessage(Component.text("Invalid page. Total pages: " + paged.totalPages()).color(NamedTextColor.RED));
-            return 0;
-        }
-
-        List<Map.Entry<String, Integer>> sortedMods = paged.items();
-        CommandHelper.Page<Map.Entry<String, Integer>> page = paged.page();
-
-        String title = "All Mods";
-        source.getSender().sendMessage(sectionHeader(title));
-        source.getSender().sendMessage(Component.text("page: ").color(NamedTextColor.DARK_GRAY)
-            .append(Component.text(page.pageNum()).color(NamedTextColor.WHITE))
-            .append(Component.text(" / ").color(NamedTextColor.DARK_GRAY))
-            .append(Component.text(page.totalPages()).color(NamedTextColor.WHITE)));
-        source.getSender().sendMessage(Component.empty());
-        
-        if (!(source.getSender() instanceof Player player)) {
-            for (int i = page.startIdx(); i < page.endIdx(); i++) {
-                Map.Entry<String, Integer> entry = sortedMods.get(i);
-                String modToken = entry.getKey();
-                int count = entry.getValue();
-                if (config.isIgnored(modToken)) continue;
-
-                ModEntry parsed = ModEntry.parse(modToken);
-                String modId = parsed != null ? parsed.modId() : modToken;
-                String version = parsed != null && parsed.version() != null ? parsed.version() : "unknown";
-                String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : CommandHelper.prettyModName(modId);
-
-                ConfigState.ModConfig modCfg = config.getModConfig(modToken);
-                source.getSender().sendMessage(modeTagComponent(modCfg)
-                    .append(Component.text(" ").color(NamedTextColor.GRAY))
-                    .append(Component.text(displayName).color(NamedTextColor.WHITE))
-                    .append(Component.text(" x" + count).color(NamedTextColor.GRAY)));
-                source.getSender().sendMessage(Component.text("  ID: ").color(NamedTextColor.DARK_GRAY)
-                    .append(Component.text(modId).color(NamedTextColor.GRAY))
-                    .append(Component.text(" | Version: ").color(NamedTextColor.DARK_GRAY))
-                    .append(Component.text(version).color(NamedTextColor.GRAY)));
-            }
-        } else {
-            for (int i = page.startIdx(); i < page.endIdx(); i++) {
-                Map.Entry<String, Integer> entry = sortedMods.get(i);
-                String modToken = entry.getKey();
-                int count = entry.getValue();
-                if (config.isIgnored(modToken)) continue;
-
-                ModEntry parsed = ModEntry.parse(modToken);
-                String modId = parsed != null ? parsed.modId() : modToken;
-                String version = parsed != null && parsed.version() != null ? parsed.version() : "unknown";
-                String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : CommandHelper.prettyModName(modId);
-                
-                ConfigState.ModConfig modCfg = config.getModConfig(modToken);
-                NamedTextColor statusColor = modCfg != null && modCfg.isRequired() ? NamedTextColor.GREEN 
-                    : modCfg != null && modCfg.isBlacklisted() ? NamedTextColor.RED 
-                    : modCfg != null ? NamedTextColor.YELLOW : NamedTextColor.GRAY;
-                
-                String hoverText = modCfg != null ? modCfg.getMode() + "\n\nClick to change mode" : "Detected mod\n\nClick to change mode";
-                
-                List<PlayerHistoryDatabase.PlayerModInfo> playerList = db.getPlayersWithMod(modToken);
-                if (!playerList.isEmpty()) {
-                    StringBuilder playerNames = new StringBuilder();
-                    int shown = 0;
-                    for (PlayerHistoryDatabase.PlayerModInfo playerInfo : playerList) {
-                        if (shown >= 3) {
-                            playerNames.append(", ...");
-                            break;
-                        }
-                        if (playerNames.length() > 0) playerNames.append(", ");
-                        playerNames.append(playerInfo.currentName());
-                        shown++;
+        return executeAsyncDatabase(
+            () -> {
+                InfoCommandOperations.PopularityPageResult paged =
+                    InfoCommandOperations.loadPopularityPage(db.getModPopularity(), pageNum, CommandHelper.PAGE_SIZE);
+                Map<String, String> playerPreviewByMod = new HashMap<>();
+                if (source.getSender() instanceof Player && !paged.hasInvalidPage() && paged.page() != null) {
+                    List<Map.Entry<String, Integer>> sortedMods = paged.items();
+                    CommandHelper.Page<Map.Entry<String, Integer>> page = paged.page();
+                    for (int i = page.startIdx(); i < page.endIdx(); i++) {
+                        String modToken = sortedMods.get(i).getKey();
+                        playerPreviewByMod.put(modToken, buildPlayerPreview(db.getPlayersWithMod(modToken)));
                     }
-                    hoverText = hoverText + "\n\nActive on: " + playerNames;
                 }
-                
-                Component modComponent = buildModComponent(displayName, statusColor, hoverText, CommandVisualOperations.infoModCommand("/handshakerv3", modToken));
-                player.sendMessage(modeTagComponent(modCfg)
-                    .append(Component.text(" ").color(NamedTextColor.GRAY))
-                    .append(modComponent)
-                    .append(Component.text(" x" + count).color(NamedTextColor.GRAY)));
-                player.sendMessage(Component.text("  ID: ").color(NamedTextColor.DARK_GRAY)
-                    .append(Component.text(modId).color(NamedTextColor.GRAY))
-                    .append(Component.text(" | Version: ").color(NamedTextColor.DARK_GRAY))
-                    .append(Component.text(version).color(NamedTextColor.GRAY)));
-            }
-        }
-
-        if (page.totalPages() > 1) {
-            source.getSender().sendMessage(Component.empty());
-            sendPaginationNavigation(
-                source,
-                page.pageNum() > 1,
-                "/handshakerinfo all_mods " + (page.pageNum() - 1),
-                page.pageNum() < page.totalPages(),
-                "/handshakerinfo all_mods " + (page.pageNum() + 1),
-                "/handshakerinfo all_mods <page>"
-            );
-        }
-        source.getSender().sendMessage(sectionFooter(title));
-        
-        return 1;
+                return new AllModsAsyncResult(paged, playerPreviewByMod);
+            },
+            data -> renderAllMods(source, data),
+            throwable -> source.getSender().sendMessage(Component.text("Failed to load mod popularity: " + rootMessage(throwable)).color(NamedTextColor.RED))
+        );
     }
 
     private int showModInfo(CommandSourceStack source, String modName) {
         PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
 
-        InfoCommandOperations.ModInfoResult result =
-            InfoCommandOperations.loadModInfo(db, modName, true);
-        if (!result.success()) {
-            source.getSender().sendMessage(Component.text(result.error()).color(NamedTextColor.RED));
-            return 0;
-        }
-        List<PlayerHistoryDatabase.PlayerModInfo> players = result.players();
-        
-        if (players.isEmpty()) {
-            source.getSender().sendMessage(Component.text("No players found with mod: " + result.displayKey()).color(NamedTextColor.YELLOW));
-            return 1;
-        }
-
-        String title = "Mod: " + result.displayKey();
-        source.getSender().sendMessage(sectionHeader(title));
-        source.getSender().sendMessage(Component.text("Players: " + players.size()).color(NamedTextColor.YELLOW));
-        source.getSender().sendMessage(Component.empty());
-        
-        if (!(source.getSender() instanceof Player)) {
-            List<CommandHelper.ModInfoRow> rows =
-                CommandHelper.buildModInfoRows(players, "Active", "Removed");
-            for (CommandHelper.ModInfoRow row : rows) {
-                source.getSender().sendMessage(Component.text("- ").color(NamedTextColor.GRAY)
-                    .append(Component.text(row.playerName()).color(NamedTextColor.WHITE)));
-                source.getSender().sendMessage(Component.text("  Status: ").color(NamedTextColor.DARK_GRAY)
-                    .append(Component.text(row.statusLabel()).color(
-                        row.statusLabel().equals("Active") ? NamedTextColor.GREEN : NamedTextColor.RED))
-                    .append(Component.text(" | Since: ").color(NamedTextColor.DARK_GRAY))
-                    .append(Component.text(row.firstSeenFormatted()).color(NamedTextColor.GRAY)));
-            }
-        } else {
-            for (PlayerHistoryDatabase.PlayerModInfo playerInfo : players) {
-                source.getSender().sendMessage(Component.text("- ").color(NamedTextColor.GRAY)
-                    .append(Component.text(playerInfo.currentName()).color(NamedTextColor.WHITE)));
-                source.getSender().sendMessage(Component.text("  Status: ").color(NamedTextColor.DARK_GRAY)
-                    .append(Component.text(playerInfo.isActive() ? "Active" : "Removed")
-                        .color(playerInfo.isActive() ? NamedTextColor.GREEN : NamedTextColor.RED))
-                    .append(Component.text(" | Since: ").color(NamedTextColor.DARK_GRAY))
-                    .append(Component.text(playerInfo.getFirstSeenFormatted()).color(NamedTextColor.GRAY)));
-            }
-        }
-        source.getSender().sendMessage(sectionFooter(title));
-        
-        return 1;
+        return executeAsyncDatabase(
+            () -> InfoCommandOperations.loadModInfo(db, modName, true),
+            result -> renderModInfo(source, result),
+            throwable -> source.getSender().sendMessage(Component.text("Failed to load mod info: " + rootMessage(throwable)).color(NamedTextColor.RED))
+        );
     }
 
     private int showPlayerHistory(CommandSourceStack source, String playerName, int pageNum) {
@@ -510,71 +421,25 @@ public class HandShakerCommand{
         Player online = plugin.getServer().getPlayerExact(playerName);
         UUID onlineUuid = online != null ? online.getUniqueId() : null;
 
-        InfoCommandOperations.PlayerHistoryResult result =
-            InfoCommandOperations.loadPlayerHistory(db, playerName, onlineUuid, pageNum, CommandHelper.PAGE_SIZE);
-        if (!result.success()) {
-            source.getSender().sendMessage(Component.text(result.error()).color(NamedTextColor.RED));
-            return 0;
-        }
-
-        List<PlayerHistoryDatabase.ModHistoryEntry> history = result.history();
-        if (history.isEmpty()) {
-            source.getSender().sendMessage(Component.text("No mod history found for: " + playerName).color(NamedTextColor.YELLOW));
-            return 1;
-        }
-        CommandHelper.Page<PlayerHistoryDatabase.ModHistoryEntry> page = result.page();
-
-        String title = "Mod History";
-        source.getSender().sendMessage(sectionHeader(title));
-        source.getSender().sendMessage(Component.text("player: ").color(NamedTextColor.DARK_GRAY)
-            .append(Component.text(playerName).color(NamedTextColor.WHITE))
-            .append(Component.text(" : Page ").color(NamedTextColor.DARK_GRAY))
-            .append(Component.text(page.pageNum()).color(NamedTextColor.WHITE))
-            .append(Component.text(" / ").color(NamedTextColor.DARK_GRAY))
-            .append(Component.text(page.totalPages()).color(NamedTextColor.WHITE)));
-        source.getSender().sendMessage(Component.empty());
-        
-        for (int i = page.startIdx(); i < page.endIdx(); i++) {
-            PlayerHistoryDatabase.ModHistoryEntry entry = history.get(i);
-            String status = entry.isActive() ? "ACTIVE" : "REMOVED";
-            NamedTextColor statusColor = entry.isActive() ? NamedTextColor.GREEN : NamedTextColor.RED;
-            source.getSender().sendMessage(Component.text("- ").color(NamedTextColor.GRAY)
-                .append(Component.text(entry.modName()).color(NamedTextColor.WHITE)));
-            source.getSender().sendMessage(Component.text("  Status: ").color(NamedTextColor.DARK_GRAY)
-                .append(Component.text(status).color(statusColor))
-                .append(Component.text(" | Added: ").color(NamedTextColor.DARK_GRAY))
-                .append(Component.text(entry.getAddedDateFormatted()).color(NamedTextColor.GRAY)));
-        }
-
-        if (page.totalPages() > 1) {
-            source.getSender().sendMessage(Component.empty());
-            String quotedPlayer = CommandVisualOperations.quoted(playerName);
-            sendPaginationNavigation(
-                source,
-                page.pageNum() > 1,
-                "/handshakerinfo player " + quotedPlayer + " " + (page.pageNum() - 1),
-                page.pageNum() < page.totalPages(),
-                "/handshakerinfo player " + quotedPlayer + " " + (page.pageNum() + 1),
-                "/handshakerinfo player \"" + playerName + "\" <page>"
-            );
-        }
-        source.getSender().sendMessage(sectionFooter(title));
-        
-        return 1;
+        return executeAsyncDatabase(
+            () -> InfoCommandOperations.loadPlayerHistory(db, playerName, onlineUuid, pageNum, CommandHelper.PAGE_SIZE),
+            result -> renderPlayerHistory(source, playerName, result),
+            throwable -> source.getSender().sendMessage(Component.text("Failed to load player history: " + rootMessage(throwable)).color(NamedTextColor.RED))
+        );
     }
 
     private int showConfig(CommandSourceStack source) {
         String title = "HandShaker Configuration";
         source.getSender().sendMessage(sectionHeader(title));
         
-        String requiredModpackHash = config.getRequiredModpackHash();
+        String requiredModpackHashes = config.getRequiredModpackHashes().isEmpty() ? "OFF" : String.join(", ", config.getRequiredModpackHashes());
         List<CommandHelper.InfoField> configFields = List.of(
             new CommandHelper.InfoField("Behavior", config.getBehavior().toString()),
             new CommandHelper.InfoField("Integrity Mode", config.getIntegrityMode().toString()),
             new CommandHelper.InfoField("Whitelist Mode", config.isWhitelist() ? "ON" : "OFF"),
             new CommandHelper.InfoField("Bedrock Players", config.isAllowBedrockPlayers() ? "Allowed" : "Blocked"),
             new CommandHelper.InfoField("Player Database", config.isPlayerdbEnabled() ? "Enabled" : "Disabled"),
-            new CommandHelper.InfoField("Modpack Hash", requiredModpackHash != null ? requiredModpackHash : "OFF")
+            new CommandHelper.InfoField("Modpack Hashes", requiredModpackHashes)
         );
         
         for (CommandHelper.InfoField field : configFields) {
@@ -646,10 +511,14 @@ public class HandShakerCommand{
     }
 
     private int addMod(CommandSourceStack source, String mod, String mode, String action) {
-        String resolvedAction = action != null ? action : config.getDefaultActionForMode(mode);
-        config.setModConfig(mod, mode, resolvedAction, null);
-        registerModFingerprint(config, mod);
-        config.save();
+        ModRuleCommandOperations.upsertModRule(
+            mod,
+            mode,
+            action,
+            config::getDefaultActionForMode,
+            config::setModConfig,
+            token -> registerModFingerprint(config, token)
+        );
         source.getSender().sendMessage(Component.text("✓ Added mod '" + mod + "' as " + mode.toLowerCase()).color(NamedTextColor.GREEN));
         plugin.checkAllPlayers();
         return 1;
@@ -668,11 +537,15 @@ public class HandShakerCommand{
             return 0;
         }
 
-        String resolvedAction = action != null ? action : config.getDefaultActionForMode(mode);
-        int added = ModManagementOperations.applyToMods(mods, config::isIgnored, mod -> {
-            config.setModConfig(mod, mode, resolvedAction, null);
-            registerModFingerprint(config, mod);
-        });
+        int added = ModRuleCommandOperations.upsertBulkModRules(
+            mods,
+            config::isIgnored,
+            mode,
+            action,
+            config::getDefaultActionForMode,
+            config::setModConfig,
+            token -> registerModFingerprint(config, token)
+        );
 
         config.save();
         source.getSender().sendMessage(Component.text("✓ Added " + added + " of your mods as " + mode.toLowerCase()).color(NamedTextColor.GREEN));
@@ -681,18 +554,22 @@ public class HandShakerCommand{
     }
 
     private int changeMod(CommandSourceStack source, String mod, String mode, String action) {
-        String resolvedAction = action != null ? action : config.getDefaultActionForMode(mode);
-        config.setModConfig(mod, mode, resolvedAction, null);
-        config.save();
+        ModRuleCommandOperations.upsertModRule(
+            mod,
+            mode,
+            action,
+            config::getDefaultActionForMode,
+            config::setModConfig,
+            null
+        );
         source.getSender().sendMessage(Component.text("✓ Changed " + mod + " to " + mode.toLowerCase()).color(NamedTextColor.GREEN));
         plugin.checkAllPlayers();
         return 1;
     }
 
     private int removeMod(CommandSourceStack source, String mod) {
-        boolean removed = config.removeModConfig(mod);
+        boolean removed = ModRuleCommandOperations.removeModRule(mod, config::removeModConfig);
         if (removed) {
-            config.save();
             source.getSender().sendMessage(Component.text("✓ Removed " + mod).color(NamedTextColor.GREEN));
         } else {
             source.getSender().sendMessage(Component.text(mod + " not found").color(NamedTextColor.YELLOW));
@@ -702,9 +579,12 @@ public class HandShakerCommand{
     }
 
     private int addIgnore(CommandSourceStack source, String mod) {
-        config.addIgnoredMod(mod);
-        config.save();
-        source.getSender().sendMessage(Component.text("✓ Added " + mod + " to ignore list").color(NamedTextColor.GREEN));
+        boolean added = IgnoreCommandOperations.addIgnoredMod(mod, config::isIgnored, config::addIgnoredMod);
+        if (added) {
+            source.getSender().sendMessage(Component.text("✓ Added " + mod + " to ignore list").color(NamedTextColor.GREEN));
+        } else {
+            source.getSender().sendMessage(Component.text(mod + " already in ignore list").color(NamedTextColor.YELLOW));
+        }
         return 1;
     }
 
@@ -721,16 +601,14 @@ public class HandShakerCommand{
             return 0;
         }
 
-        int added = ModManagementOperations.applyToMods(mods, config::isIgnored, config::addIgnoredMod);
-        config.save();
+        int added = IgnoreCommandOperations.addIgnoredMods(mods, config::isIgnored, config::addIgnoredMod);
         source.getSender().sendMessage(Component.text("✓ Added " + added + " mods to ignore list").color(NamedTextColor.GREEN));
         return 1;
     }
 
     private int removeIgnore(CommandSourceStack source, String mod) {
-        boolean removed = config.removeIgnoredMod(mod);
+        boolean removed = IgnoreCommandOperations.removeIgnoredMod(mod, config::removeIgnoredMod);
         if (removed) {
-            config.save();
             source.getSender().sendMessage(Component.text("✓ Removed " + mod + " from ignore list").color(NamedTextColor.GREEN));
         } else {
             source.getSender().sendMessage(Component.text(mod + " not in ignore list").color(NamedTextColor.YELLOW));
@@ -898,12 +776,11 @@ public class HandShakerCommand{
             ClientInfo info = plugin.getClients().get(player.getUniqueId());
             Set<String> clientMods = info != null ? info.mods() : null;
             if (clientMods != null) {
-                for (String mod : CommandHelper.sanitizeModSuggestions(clientMods)) {
-                    String display = CommandHelper.toDisplayModToken(mod);
-                    String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), display);
-                    if (suggestion != null) {
-                        builder.suggest(suggestion);
-                    }
+                List<String> displays = CommandHelper.sanitizeModSuggestions(clientMods).stream()
+                    .map(CommandHelper::toDisplayModToken)
+                    .toList();
+                for (String suggestion : CommandSuggestionOperations.autoQuotedSuggestions(builder.getRemaining(), displays)) {
+                    builder.suggest(suggestion);
                 }
                 return builder.buildFuture();
             }
@@ -912,23 +789,19 @@ public class HandShakerCommand{
         PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
         if (db == null) return builder.buildFuture();
         
-        for (String mod : CommandHelper.sanitizeModSuggestions(db.getModPopularity().keySet())) {
-            String display = CommandHelper.toDisplayModToken(mod);
-            String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), display);
-            if (suggestion != null) {
-                builder.suggest(suggestion);
-            }
+        List<String> displays = CommandHelper.sanitizeModSuggestions(db.getModPopularity().keySet()).stream()
+            .map(CommandHelper::toDisplayModToken)
+            .toList();
+        for (String suggestion : CommandSuggestionOperations.autoQuotedSuggestions(builder.getRemaining(), displays)) {
+            builder.suggest(suggestion);
         }
         return builder.buildFuture();
     }
 
     private CompletableFuture<Suggestions> suggestConfiguredMods(
             CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        for (String mod : config.getModConfigMap().keySet()) {
-            String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), mod);
-            if (suggestion != null) {
-                builder.suggest(suggestion);
-            }
+        for (String suggestion : CommandSuggestionOperations.autoQuotedSuggestions(builder.getRemaining(), config.getModConfigMap().keySet())) {
+            builder.suggest(suggestion);
         }
         return builder.buildFuture();
     }
@@ -938,22 +811,21 @@ public class HandShakerCommand{
         PlayerHistoryDatabase db = plugin.getPlayerHistoryDb();
         if (db == null) return builder.buildFuture();
         
-        for (String mod : CommandHelper.sanitizeModSuggestions(db.getModPopularity().keySet())) {
-            String display = CommandHelper.toDisplayModToken(mod);
-            String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), display);
-            if (suggestion != null) {
-                builder.suggest(suggestion);
-            }
+        List<String> displays = CommandHelper.sanitizeModSuggestions(db.getModPopularity().keySet()).stream()
+            .map(CommandHelper::toDisplayModToken)
+            .toList();
+        for (String suggestion : CommandSuggestionOperations.autoQuotedSuggestions(builder.getRemaining(), displays)) {
+            builder.suggest(suggestion);
         }
         return builder.buildFuture();
     }
 
     private CompletableFuture<Suggestions> suggestPlayers(
             CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        List<String> playerNames = new ArrayList<>();
-        for (Player player : plugin.getServer().getOnlinePlayers()) {
-            playerNames.add(player.getName());
-        }
+        List<String> playerNames = CommandDataOperations.collectPlayerNames(
+            plugin.getServer().getOnlinePlayers(),
+            Player::getName
+        );
         for (String name : CommandSuggestionOperations.filterByPrefix(playerNames, builder.getRemaining())) {
             builder.suggest(name);
         }
@@ -962,11 +834,8 @@ public class HandShakerCommand{
 
     private CompletableFuture<Suggestions> suggestIgnoredMods(
             CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        for (String mod : config.getIgnoredMods()) {
-            String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), mod);
-            if (suggestion != null) {
-                builder.suggest(suggestion);
-            }
+        for (String suggestion : CommandSuggestionOperations.autoQuotedSuggestions(builder.getRemaining(), config.getIgnoredMods())) {
+            builder.suggest(suggestion);
         }
         return builder.buildFuture();
     }
@@ -1041,12 +910,11 @@ public class HandShakerCommand{
                 ClientInfo info = plugin.getClients().get(target.getUniqueId());
                 Set<String> clientMods = info != null ? info.mods() : null;
                 if (clientMods != null) {
-                    for (String mod : CommandHelper.sanitizeModSuggestions(clientMods)) {
-                        String display = CommandHelper.toDisplayModToken(mod);
-                        String suggestion = CommandSuggestionOperations.autoQuotedSuggestion(builder.getRemaining(), display);
-                        if (suggestion != null) {
-                            builder.suggest(suggestion);
-                        }
+                    List<String> displays = CommandHelper.sanitizeModSuggestions(clientMods).stream()
+                        .map(CommandHelper::toDisplayModToken)
+                        .toList();
+                    for (String suggestion : CommandSuggestionOperations.autoQuotedSuggestions(builder.getRemaining(), displays)) {
+                        builder.suggest(suggestion);
                     }
                 }
             }
@@ -1068,15 +936,13 @@ public class HandShakerCommand{
             };
             
             // Only suggest the opposite of the current state
-            if (isCurrentlyEnabled) {
-                builder.suggest("off");
-            } else {
-                builder.suggest("on");
+            for (String state : CommandSuggestionOperations.modeStateSuggestions(isCurrentlyEnabled)) {
+                builder.suggest(state);
             }
         } catch (IllegalArgumentException ignored) {
-            // list argument not yet filled - suggest both
-            builder.suggest("on");
-            builder.suggest("off");
+            for (String state : CommandSuggestionOperations.modeStateSuggestions(null)) {
+                builder.suggest(state);
+            }
         }
         return builder.buildFuture();
     }
@@ -1085,13 +951,248 @@ public class HandShakerCommand{
     // ===== Helpers =====
 
     private void registerModFingerprint(ConfigManager config, String modToken) {
-        CommandModUtil.registerFromCommand(
+        CommandRuntimeOperations.registerModFingerprint(
             modToken,
             plugin.getPlayerHistoryDb(),
             config.isHashMods(),
             config.isModVersioning(),
-            plugin.getClients().values()
+            plugin.getClients().values(),
+            config.isAsyncDatabaseOperations(),
+            command -> plugin.getServer().getAsyncScheduler().runNow(plugin, scheduledTask -> command.run())
         );
+    }
+
+    private <T> int executeAsyncDatabase(
+        java.util.function.Supplier<T> supplier,
+        java.util.function.Consumer<T> onSuccess,
+        java.util.function.Consumer<Throwable> onFailure
+    ) {
+        return CommandRuntimeOperations.executeAsyncDatabase(
+            config.isAsyncDatabaseOperations(),
+            command -> plugin.getServer().getAsyncScheduler().runNow(plugin, task -> command.run()),
+            run -> plugin.getServer().getGlobalRegionScheduler().run(plugin, task -> run.run()),
+            supplier,
+            onSuccess,
+            onFailure,
+            1,
+            0
+        );
+    }
+
+    private void renderAllMods(CommandSourceStack source, AllModsAsyncResult data) {
+        InfoCommandOperations.PopularityPageResult paged = data.paged();
+        if (paged.hasInvalidPage()) {
+            source.getSender().sendMessage(Component.text("Invalid page. Total pages: " + paged.totalPages()).color(NamedTextColor.RED));
+            return;
+        }
+
+        List<Map.Entry<String, Integer>> sortedMods = paged.items();
+        CommandHelper.Page<Map.Entry<String, Integer>> page = paged.page();
+
+        String title = "All Mods";
+        source.getSender().sendMessage(sectionHeader(title));
+        source.getSender().sendMessage(Component.text("page: ").color(NamedTextColor.DARK_GRAY)
+            .append(Component.text(page.pageNum()).color(NamedTextColor.WHITE))
+            .append(Component.text(" / ").color(NamedTextColor.DARK_GRAY))
+            .append(Component.text(page.totalPages()).color(NamedTextColor.WHITE)));
+        source.getSender().sendMessage(Component.empty());
+
+        if (!(source.getSender() instanceof Player player)) {
+            for (int i = page.startIdx(); i < page.endIdx(); i++) {
+                Map.Entry<String, Integer> entry = sortedMods.get(i);
+                String modToken = entry.getKey();
+                int count = entry.getValue();
+                if (config.isIgnored(modToken)) continue;
+
+                ModEntry parsed = ModEntry.parse(modToken);
+                String modId = parsed != null ? parsed.modId() : modToken;
+                String version = parsed != null && parsed.version() != null ? parsed.version() : "unknown";
+                String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : CommandHelper.prettyModName(modId);
+
+                ConfigState.ModConfig modCfg = config.getModConfig(modToken);
+                source.getSender().sendMessage(modeTagComponent(modCfg)
+                    .append(Component.text(" ").color(NamedTextColor.GRAY))
+                    .append(Component.text(displayName).color(NamedTextColor.WHITE))
+                    .append(Component.text(" x" + count).color(NamedTextColor.GRAY)));
+                source.getSender().sendMessage(Component.text("  ID: ").color(NamedTextColor.DARK_GRAY)
+                    .append(Component.text(modId).color(NamedTextColor.GRAY))
+                    .append(Component.text(" | Version: ").color(NamedTextColor.DARK_GRAY))
+                    .append(Component.text(version).color(NamedTextColor.GRAY)));
+            }
+        } else {
+            for (int i = page.startIdx(); i < page.endIdx(); i++) {
+                Map.Entry<String, Integer> entry = sortedMods.get(i);
+                String modToken = entry.getKey();
+                int count = entry.getValue();
+                if (config.isIgnored(modToken)) continue;
+
+                ModEntry parsed = ModEntry.parse(modToken);
+                String modId = parsed != null ? parsed.modId() : modToken;
+                String version = parsed != null && parsed.version() != null ? parsed.version() : "unknown";
+                String displayName = parsed != null && parsed.displayName() != null ? parsed.displayName() : CommandHelper.prettyModName(modId);
+
+                ConfigState.ModConfig modCfg = config.getModConfig(modToken);
+                NamedTextColor statusColor = modCfg != null && modCfg.isRequired() ? NamedTextColor.GREEN
+                    : modCfg != null && modCfg.isBlacklisted() ? NamedTextColor.RED
+                    : modCfg != null ? NamedTextColor.YELLOW : NamedTextColor.GRAY;
+
+                String hoverText = modCfg != null ? modCfg.getMode() + "\n\nClick to change mode" : "Detected mod\n\nClick to change mode";
+                String preview = data.playerPreviewByMod().get(modToken);
+                if (preview != null && !preview.isBlank()) {
+                    hoverText = hoverText + "\n\nActive on: " + preview;
+                }
+
+                Component modComponent = buildModComponent(displayName, statusColor, hoverText, CommandVisualOperations.infoModCommand("/handshakerv3", modToken));
+                player.sendMessage(modeTagComponent(modCfg)
+                    .append(Component.text(" ").color(NamedTextColor.GRAY))
+                    .append(modComponent)
+                    .append(Component.text(" x" + count).color(NamedTextColor.GRAY)));
+                player.sendMessage(Component.text("  ID: ").color(NamedTextColor.DARK_GRAY)
+                    .append(Component.text(modId).color(NamedTextColor.GRAY))
+                    .append(Component.text(" | Version: ").color(NamedTextColor.DARK_GRAY))
+                    .append(Component.text(version).color(NamedTextColor.GRAY)));
+            }
+        }
+
+        if (page.totalPages() > 1) {
+            source.getSender().sendMessage(Component.empty());
+            sendPaginationNavigation(
+                source,
+                page.pageNum() > 1,
+                "/handshaker info all_mods " + (page.pageNum() - 1),
+                page.pageNum() < page.totalPages(),
+                "/handshaker info all_mods " + (page.pageNum() + 1),
+                "/handshaker info all_mods <page>"
+            );
+        }
+        source.getSender().sendMessage(sectionFooter(title));
+    }
+
+    private void renderModInfo(CommandSourceStack source, InfoCommandOperations.ModInfoResult result) {
+        if (!result.success()) {
+            source.getSender().sendMessage(Component.text(result.error()).color(NamedTextColor.RED));
+            return;
+        }
+        List<PlayerHistoryDatabase.PlayerModInfo> players = result.players();
+
+        if (players.isEmpty()) {
+            source.getSender().sendMessage(Component.text("No players found with mod: " + result.displayKey()).color(NamedTextColor.YELLOW));
+            return;
+        }
+
+        String title = "Mod: " + result.displayKey();
+        source.getSender().sendMessage(sectionHeader(title));
+        source.getSender().sendMessage(Component.text("Players: " + players.size()).color(NamedTextColor.YELLOW));
+        source.getSender().sendMessage(Component.empty());
+
+        if (!(source.getSender() instanceof Player)) {
+            List<CommandHelper.ModInfoRow> rows =
+                CommandHelper.buildModInfoRows(players, "Active", "Removed");
+            for (CommandHelper.ModInfoRow row : rows) {
+                source.getSender().sendMessage(Component.text("- ").color(NamedTextColor.GRAY)
+                    .append(Component.text(row.playerName()).color(NamedTextColor.WHITE)));
+                source.getSender().sendMessage(Component.text("  Status: ").color(NamedTextColor.DARK_GRAY)
+                    .append(Component.text(row.statusLabel()).color(
+                        row.statusLabel().equals("Active") ? NamedTextColor.GREEN : NamedTextColor.RED))
+                    .append(Component.text(" | Since: ").color(NamedTextColor.DARK_GRAY))
+                    .append(Component.text(row.firstSeenFormatted()).color(NamedTextColor.GRAY)));
+            }
+        } else {
+            for (PlayerHistoryDatabase.PlayerModInfo playerInfo : players) {
+                source.getSender().sendMessage(Component.text("- ").color(NamedTextColor.GRAY)
+                    .append(Component.text(playerInfo.currentName()).color(NamedTextColor.WHITE)));
+                source.getSender().sendMessage(Component.text("  Status: ").color(NamedTextColor.DARK_GRAY)
+                    .append(Component.text(playerInfo.isActive() ? "Active" : "Removed")
+                        .color(playerInfo.isActive() ? NamedTextColor.GREEN : NamedTextColor.RED))
+                    .append(Component.text(" | Since: ").color(NamedTextColor.DARK_GRAY))
+                    .append(Component.text(playerInfo.getFirstSeenFormatted()).color(NamedTextColor.GRAY)));
+            }
+        }
+        source.getSender().sendMessage(sectionFooter(title));
+    }
+
+    private void renderPlayerHistory(CommandSourceStack source, String playerName, InfoCommandOperations.PlayerHistoryResult result) {
+        if (!result.success()) {
+            source.getSender().sendMessage(Component.text(result.error()).color(NamedTextColor.RED));
+            return;
+        }
+
+        List<PlayerHistoryDatabase.ModHistoryEntry> history = result.history();
+        if (history.isEmpty()) {
+            source.getSender().sendMessage(Component.text("No mod history found for: " + playerName).color(NamedTextColor.YELLOW));
+            return;
+        }
+        CommandHelper.Page<PlayerHistoryDatabase.ModHistoryEntry> page = result.page();
+
+        String title = "Mod History";
+        source.getSender().sendMessage(sectionHeader(title));
+        source.getSender().sendMessage(Component.text("player: ").color(NamedTextColor.DARK_GRAY)
+            .append(Component.text(playerName).color(NamedTextColor.WHITE))
+            .append(Component.text(" : Page ").color(NamedTextColor.DARK_GRAY))
+            .append(Component.text(page.pageNum()).color(NamedTextColor.WHITE))
+            .append(Component.text(" / ").color(NamedTextColor.DARK_GRAY))
+            .append(Component.text(page.totalPages()).color(NamedTextColor.WHITE)));
+        source.getSender().sendMessage(Component.empty());
+
+        for (int i = page.startIdx(); i < page.endIdx(); i++) {
+            PlayerHistoryDatabase.ModHistoryEntry entry = history.get(i);
+            String status = entry.isActive() ? "ACTIVE" : "REMOVED";
+            NamedTextColor statusColor = entry.isActive() ? NamedTextColor.GREEN : NamedTextColor.RED;
+            source.getSender().sendMessage(Component.text("- ").color(NamedTextColor.GRAY)
+                .append(Component.text(entry.modName()).color(NamedTextColor.WHITE)));
+            source.getSender().sendMessage(Component.text("  Status: ").color(NamedTextColor.DARK_GRAY)
+                .append(Component.text(status).color(statusColor))
+                .append(Component.text(" | Added: ").color(NamedTextColor.DARK_GRAY))
+                .append(Component.text(entry.getAddedDateFormatted()).color(NamedTextColor.GRAY)));
+        }
+
+        if (page.totalPages() > 1) {
+            source.getSender().sendMessage(Component.empty());
+            String quotedPlayer = CommandVisualOperations.quoted(playerName);
+            sendPaginationNavigation(
+                source,
+                page.pageNum() > 1,
+                "/handshaker info player " + quotedPlayer + " " + (page.pageNum() - 1),
+                page.pageNum() < page.totalPages(),
+                "/handshaker info player " + quotedPlayer + " " + (page.pageNum() + 1),
+                "/handshaker info player \"" + playerName + "\" <page>"
+            );
+        }
+        source.getSender().sendMessage(sectionFooter(title));
+    }
+
+    private String buildPlayerPreview(List<PlayerHistoryDatabase.PlayerModInfo> playerList) {
+        if (playerList == null || playerList.isEmpty()) {
+            return "";
+        }
+        StringBuilder playerNames = new StringBuilder();
+        int shown = 0;
+        for (PlayerHistoryDatabase.PlayerModInfo playerInfo : playerList) {
+            if (shown >= 3) {
+                playerNames.append(", ...");
+                break;
+            }
+            if (playerNames.length() > 0) {
+                playerNames.append(", ");
+            }
+            playerNames.append(playerInfo.currentName());
+            shown++;
+        }
+        return playerNames.toString();
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable root = throwable;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        return root.getMessage() != null ? root.getMessage() : root.getClass().getSimpleName();
+    }
+
+    private record AllModsAsyncResult(
+        InfoCommandOperations.PopularityPageResult paged,
+        Map<String, String> playerPreviewByMod
+    ) {
     }
 
     private static String getModToken(CommandContext<CommandSourceStack> ctx, String argumentName) {
@@ -1119,27 +1220,27 @@ public class HandShakerCommand{
         String fallbackUsage
     ) {
         if (!(source.getSender() instanceof Player)) {
-            source.getSender().sendMessage(Component.text("Use " + fallbackUsage + " to navigate").color(NamedTextColor.DARK_GRAY));
+            source.getSender().sendMessage(Component.text(CommandVisualOperations.navigateUsageText(fallbackUsage)).color(NamedTextColor.DARK_GRAY));
             return;
         }
 
         Component nav = Component.empty();
         if (hasPrevious) {
-            nav = nav.append(Component.text("[ < Previous page ]").color(NamedTextColor.GREEN)
+            nav = nav.append(Component.text(CommandVisualOperations.previousPageLabel()).color(NamedTextColor.GREEN)
                 .clickEvent(ClickEvent.runCommand(previousCommand))
                 .hoverEvent(HoverEvent.showText(Component.text(previousCommand))));
         } else {
-            nav = nav.append(Component.text("[ < Previous page ]").color(NamedTextColor.DARK_GRAY));
+            nav = nav.append(Component.text(CommandVisualOperations.previousPageLabel()).color(NamedTextColor.DARK_GRAY));
         }
 
         nav = nav.append(Component.text(" "));
 
         if (hasNext) {
-            nav = nav.append(Component.text("[ Next page > ]").color(NamedTextColor.GREEN)
+            nav = nav.append(Component.text(CommandVisualOperations.nextPageLabel()).color(NamedTextColor.GREEN)
                 .clickEvent(ClickEvent.runCommand(nextCommand))
                 .hoverEvent(HoverEvent.showText(Component.text(nextCommand))));
         } else {
-            nav = nav.append(Component.text("[ Next page > ]").color(NamedTextColor.DARK_GRAY));
+            nav = nav.append(Component.text(CommandVisualOperations.nextPageLabel()).color(NamedTextColor.DARK_GRAY));
         }
 
         source.getSender().sendMessage(nav);

@@ -1,5 +1,7 @@
 plugins {
     id 'base'
+    id 'fabric-loom' apply false
+    id 'net.neoforged.moddev' apply false
 }
 
 version = mod_version
@@ -18,10 +20,10 @@ tasks.register('copyCert') {
 
 tasks.register('copyArtifacts') {
     def projectList = [
-        'fabric:1.21.11',
-        'fabric:1.21.10',
-        'neoforge:1.21.10',
-        'neoforge:1.21.11',
+        'handlib:1.21',
+        'handlib:1.21.11',
+        'fabric',
+        'neoforge',
         'paper',
         'velton'
     ]
@@ -40,10 +42,10 @@ tasks.register('copyArtifacts') {
 
     doLast {
         def copyConfigs = [
-            'fabric:1.21.11': '*-s.jar',
-            'fabric:1.21.10': '*-s.jar',
-            'neoforge:1.21.10': '*.jar',
-            'neoforge:1.21.11': '*.jar',
+            'handlib:1.21': '*.jar',
+            'handlib:1.21.11': '*.jar',
+            'fabric': '*-s.jar',
+            'neoforge': '*.jar',
             'paper': '*',
             'velton': '*-signed.jar'
         ]

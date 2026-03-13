@@ -24,7 +24,7 @@ public final class CommandSuggestionOperations {
         "use_hash_for_mods",
         "mod_versioning",
         "runtime_cache",
-        "required_modpack_hash"
+        "required_modpack_hashes"
     );
     public static final List<String> MODE_LISTS = List.of("mods_required", "mods_blacklisted", "mods_whitelisted");
     public static final List<String> MANAGE_SUBCOMMANDS = List.of("add", "change", "remove", "ignore", "player");
@@ -100,7 +100,7 @@ public final class CommandSuggestionOperations {
                  "mod_versioning", "runtime_cache",
                  "whitelist", "allow_bedrock", "playerdb_enabled", "hash_mods" ->
                 BOOLEAN_VALUES;
-            case "required_modpack_hash" -> List.of("off", "current");
+            case "required_modpack_hash", "required_modpack_hashes" -> List.of("off", "current");
             case "default_action", "default" -> actionSuggestions(availableActions, true, true);
             default -> List.of();
         };
@@ -112,7 +112,12 @@ public final class CommandSuggestionOperations {
         }
 
         String remainingValue = remaining == null ? "" : remaining;
-        boolean needsQuotes = value.contains(":") || value.contains("+") || value.contains(" ") || value.contains("!");
+        boolean needsQuotes = value.contains(":")
+            || value.contains("+")
+            || value.contains(" ")
+            || value.contains("!")
+            || value.contains("*")
+            || value.contains("?");
 
         if (remainingValue.startsWith("\"") || needsQuotes) {
             String checkAgainst = remainingValue.startsWith("\"") ? remainingValue.substring(1) : remainingValue;
@@ -126,5 +131,27 @@ public final class CommandSuggestionOperations {
             return value;
         }
         return null;
+    }
+
+    public static List<String> autoQuotedSuggestions(String remaining, Collection<String> values) {
+        List<String> suggestions = new ArrayList<>();
+        if (values == null || values.isEmpty()) {
+            return suggestions;
+        }
+
+        for (String value : values) {
+            String suggestion = autoQuotedSuggestion(remaining, value);
+            if (suggestion != null) {
+                suggestions.add(suggestion);
+            }
+        }
+        return suggestions;
+    }
+
+    public static List<String> modeStateSuggestions(Boolean currentlyEnabled) {
+        if (currentlyEnabled == null) {
+            return List.of("on", "off");
+        }
+        return currentlyEnabled ? List.of("off") : List.of("on");
     }
 }

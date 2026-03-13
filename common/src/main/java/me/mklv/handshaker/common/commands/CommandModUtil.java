@@ -3,6 +3,7 @@ package me.mklv.handshaker.common.commands;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.utils.ClientInfo;
+import me.mklv.handshaker.common.utils.ModCache;
 
 import java.util.Locale;
 
@@ -88,5 +89,6 @@ public final class CommandModUtil {
         }
 
         db.registerModFingerprint(requested.modId(), requestedVersion, resolvedHash);
+        ModCache.invalidate();
     }
 }

@@ -42,6 +42,20 @@ public final class ConfigFileBootstrap {
             }
 
             Path targetFile = configDir.resolve(filename);
+            Path targetParent = targetFile.getParent();
+            if (targetParent != null) {
+                try {
+                    Files.createDirectories(targetParent);
+                } catch (IOException e) {
+                    if (logger != null) {
+                        logger.error("Failed to create target config directory: " + targetParent, e);
+                    }
+                    if (required) {
+                        throw new RuntimeException("Failed to create target config directory: " + targetParent, e);
+                    }
+                    return false;
+                }
+            }
             if (Files.exists(targetFile)) {
                 return false;
             }

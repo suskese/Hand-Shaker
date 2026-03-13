@@ -109,7 +109,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             hashMods,
             modVersioning,
             isHybridCompatibilityEnabled(),
-            getRequiredModpackHash(),
+            getRequiredModpackHashes(),
             collectKnownHashes(),
             ignoredMods,
             whitelistedModsActive,
@@ -118,6 +118,7 @@ public class ConfigManager extends CommonConfigManagerBase {
             requiredModsActive,
             modConfigMap,
             kickMessage,
+            getMessageOrDefault(StandardMessages.KEY_KICK_SPOOFED_MOD, StandardMessages.KICK_SPOOFED_MOD),
             missingWhitelistModMessage,
             getMessageOrDefault(StandardMessages.KEY_MODPACK_HASH_MISMATCH, StandardMessages.MODPACK_HASH_MISMATCH)
         );

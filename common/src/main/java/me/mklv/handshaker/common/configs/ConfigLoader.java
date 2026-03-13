@@ -4,6 +4,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -32,6 +33,7 @@ public final class ConfigLoader {
 
             File configYml = configDir.resolve("config.yml").toFile();
             loadConfigYml(configYml, logger, result);
+            loadMessagesYml(configDir, logger, result);
 
             loadModsYamlFiles(configDir, logger, result, options);
             loadActionsYamlFile(configDir, logger, result, options);
@@ -44,15 +46,16 @@ public final class ConfigLoader {
                                            ConfigFileBootstrap.Logger logger) {
             ConfigFileBootstrap.copyRequired(configDir, "config.yml", resourceBase, logger);
             String[] modsFiles = {
-                "mods-required.yml",
-                "mods-blacklisted.yml",
-                "mods-whitelisted.yml",
-                "mods-ignored.yml",
+                "mod-lists/mods-required.yml",
+                "mod-lists/mods-blacklisted.yml",
+                "mod-lists/mods-whitelisted.yml",
+                "mod-lists/mods-ignored.yml",
                 "mods-actions.yml"
             };
             for (String filename : modsFiles) {
                 ConfigFileBootstrap.copyOptional(configDir, filename, resourceBase, logger);
             }
+            ConfigFileBootstrap.copyOptional(configDir, "messages.yml", resourceBase, logger);
         }
 
         private static void loadConfigYml(File configYml,
@@ -173,19 +176,89 @@ public final class ConfigLoader {
                 result.setModVersioning(readBoolean(root.get("mod-versioning"), true));
             }
 
-            if (root.containsKey("required-modpack-hash")) {
-                String hash = String.valueOf(root.get("required-modpack-hash")).trim().toLowerCase(Locale.ROOT);
-                if (hash.isEmpty() || "off".equals(hash) || "null".equals(hash) || "false".equals(hash)) {
-                    result.setRequiredModpackHash(null);
-                } else {
-                    result.setRequiredModpackHash(hash);
-                }
+            if (root.containsKey("required-modpack-hashes")) {
+                result.setRequiredModpackHashes(parseRequiredModpackHashes(root.get("required-modpack-hashes")));
+            } else if (root.containsKey("required-modpack-hash")) {
+                result.setRequiredModpackHashes(parseRequiredModpackHashes(root.get("required-modpack-hash")));
+                result.setRewriteToV7(true);
             }
 
             if (root.containsKey("default-action")) {
                 String defaultAction = String.valueOf(root.get("default-action")).trim().toLowerCase(Locale.ROOT);
                 if (!defaultAction.isEmpty()) {
                     result.setDefaultAction(defaultAction);
+                }
+            }
+
+            Map<String, Object> advanced = asMap(data.get("advanced-experimental"));
+            if (advanced != null && !advanced.isEmpty()) {
+                Integer rateLimit = readInteger(advanced.get("rate-limit-per-minute"));
+                if (rateLimit != null) {
+                    result.setRateLimitPerMinute(rateLimit);
+                }
+                if (advanced.containsKey("enable-diagnostic-command")) {
+                    result.setDiagnosticCommandEnabled(readBoolean(advanced.get("enable-diagnostic-command"), true));
+                }
+                if (advanced.containsKey("enable-export-command")) {
+                    result.setExportCommandEnabled(readBoolean(advanced.get("enable-export-command"), true));
+                }
+
+                Map<String, Object> database = asMap(advanced.get("database"));
+                if (database != null && !database.isEmpty()) {
+                    if (database.containsKey("async-operations")) {
+                        result.setAsyncDatabaseOperations(readBoolean(database.get("async-operations"), true));
+                    }
+                    Integer pool = readInteger(database.get("pool-size"));
+                    if (pool != null) {
+                        result.setDatabasePoolSize(pool);
+                    }
+                    Integer idleMs = readInteger(database.get("idle-timeout-ms"));
+                    if (idleMs != null) {
+                        result.setDatabaseIdleTimeoutMs(idleMs);
+                    }
+                    Integer maxLifeMs = readInteger(database.get("max-lifetime-ms"));
+                    if (maxLifeMs != null) {
+                        result.setDatabaseMaxLifetimeMs(maxLifeMs);
+                    }
+                    Integer deleteHistoryDays = readInteger(database.get("delete-history-days"));
+                    if (deleteHistoryDays != null) {
+                        result.setDeleteHistoryDays(deleteHistoryDays);
+                    }
+                }
+
+                Map<String, Object> payload = asMap(advanced.get("payload"));
+                if (payload != null && payload.containsKey("compression-enabled")) {
+                    result.setPayloadCompressionEnabled(readBoolean(payload.get("compression-enabled"), true));
+                }
+
+                Map<String, Object> api = asMap(advanced.get("api"));
+                if (api != null && !api.isEmpty()) {
+                    if (api.containsKey("enable-rest-api")) {
+                        result.setRestApiEnabled(readBoolean(api.get("enable-rest-api"), false));
+                    }
+                    Integer restApiPort = readInteger(api.get("rest-api-port"));
+                    if (restApiPort != null) {
+                        result.setRestApiPort(restApiPort);
+                    }
+
+                    Map<String, Object> discordIntegration = asMap(api.get("discord-integration"));
+                    if (discordIntegration != null && !discordIntegration.isEmpty()) {
+                        Map<String, Object> webhook = asMap(discordIntegration.get("webhook"));
+                        if (webhook != null && !webhook.isEmpty()) {
+                            if (webhook.containsKey("enabled")) {
+                                result.setWebhookEnabled(readBoolean(webhook.get("enabled"), false));
+                            }
+                            if (webhook.containsKey("webhook-url")) {
+                                result.setWebhookUrl(String.valueOf(webhook.get("webhook-url")));
+                            }
+                            if (webhook.containsKey("notify-on-ban")) {
+                                result.setWebhookNotifyOnBan(readBoolean(webhook.get("notify-on-ban"), true));
+                            }
+                            if (webhook.containsKey("notify-on-kick")) {
+                                result.setWebhookNotifyOnKick(readBoolean(webhook.get("notify-on-kick"), false));
+                            }
+                        }
+                    }
                 }
             }
 
@@ -198,6 +271,32 @@ public final class ConfigLoader {
                     if (entry.getValue() != null) {
                         result.getMessages().put(entry.getKey(), entry.getValue().toString());
                     }
+                }
+            }
+
+            result.setKickMessage(result.getMessages().getOrDefault("kick", DEFAULT_KICK_MESSAGE));
+            result.setNoHandshakeKickMessage(result.getMessages().getOrDefault("no-handshake", DEFAULT_NO_HANDSHAKE_MESSAGE));
+            result.setMissingWhitelistModMessage(result.getMessages().getOrDefault("missing-whitelist", DEFAULT_MISSING_WHITELIST_MESSAGE));
+            result.setInvalidSignatureKickMessage(result.getMessages().getOrDefault("invalid-signature", DEFAULT_INVALID_SIGNATURE_MESSAGE));
+        }
+
+        private static void loadMessagesYml(Path configDir,
+                                            ConfigFileBootstrap.Logger logger,
+                                            ConfigTypes.ConfigLoadResult result) {
+            File messagesYml = configDir.resolve("messages.yml").toFile();
+            Map<String, Object> messagesData = readYaml(messagesYml, logger);
+            if (messagesData == null || messagesData.isEmpty()) {
+                return;
+            }
+
+            Map<String, Object> messages = asMap(messagesData.get("messages"));
+            if (messages == null || messages.isEmpty()) {
+                return;
+            }
+
+            for (Map.Entry<String, Object> entry : messages.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    result.getMessages().put(entry.getKey(), String.valueOf(entry.getValue()));
                 }
             }
 
@@ -243,7 +342,7 @@ public final class ConfigLoader {
 
             for (Path yamlPath : yamlFiles) {
                 String filenameLower = yamlPath.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (filenameLower.equals("config.yml") || filenameLower.equals("mods-actions.yml")) {
+                if (filenameLower.equals("config.yml") || filenameLower.equals("mods-actions.yml") || filenameLower.equals("messages.yml")) {
                     continue;
                 }
 
@@ -316,8 +415,12 @@ public final class ConfigLoader {
             if (options != null
                 && options.isCreateWhitelistedFileWhenEnabled()
                 && result.areModsWhitelistedEnabled()) {
-                File whitelistedFile = configDir.resolve("mods-whitelisted.yml").toFile();
+                File whitelistedFile = configDir.resolve("mod-lists").resolve("mods-whitelisted.yml").toFile();
                 if (!whitelistedFile.exists()) {
+                    File parent = whitelistedFile.getParentFile();
+                    if (parent != null && !parent.exists()) {
+                        parent.mkdirs();
+                    }
                     createWhitelistedTemplate(whitelistedFile, logger);
                 }
             }
@@ -343,7 +446,7 @@ public final class ConfigLoader {
 
             for (Path yamlPath : yamlFiles) {
                 String filenameLower = yamlPath.getFileName().toString().toLowerCase(Locale.ROOT);
-                if (filenameLower.equals("config.yml") || filenameLower.equals("mods-actions.yml")) {
+                if (filenameLower.equals("config.yml") || filenameLower.equals("mods-actions.yml") || filenameLower.equals("messages.yml")) {
                     continue;
                 }
 
@@ -556,6 +659,46 @@ public final class ConfigLoader {
                 logger.warn("Invalid format in " + fileName + ": expected map or list for optional");
             }
             return true;
+        }
+
+        private static Set<String> parseRequiredModpackHashes(Object value) {
+            Set<String> hashes = new LinkedHashSet<>();
+            if (value == null) {
+                return hashes;
+            }
+
+            if (value instanceof List<?> list) {
+                for (Object entry : list) {
+                    String normalized = normalizeRequiredModpackHash(entry);
+                    if (normalized != null) {
+                        hashes.add(normalized);
+                    }
+                }
+                return hashes;
+            }
+
+            String normalized = normalizeRequiredModpackHash(value);
+            if (normalized != null) {
+                hashes.add(normalized);
+            }
+            return hashes;
+        }
+
+        private static String normalizeRequiredModpackHash(Object value) {
+            if (value == null) {
+                return null;
+            }
+
+            String normalized = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+            if (normalized.isEmpty()
+                || "off".equals(normalized)
+                || "none".equals(normalized)
+                || "null".equals(normalized)
+                || "false".equals(normalized)) {
+                return null;
+            }
+
+            return normalized.matches("[0-9a-f]{64}") ? normalized : null;
         }
 
         private static void createWhitelistedTemplate(File file, ConfigFileBootstrap.Logger logger) {

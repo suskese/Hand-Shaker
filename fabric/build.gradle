@@ -1,4 +1,260 @@
-subprojects {
-    group = rootProject.group
-    version = rootProject.version
+plugins {
+	id 'fabric-loom'
+	id 'maven-publish'
+}
+
+def handlibFabricClasses = project(':handlib:1.21:fabric').layout.buildDirectory.dir('classes/java/main')
+
+version = rootProject.mod_version
+group = rootProject.maven_group
+
+base {
+	archivesName = "${rootProject.archives_base_name}-fabric"
+}
+
+repositories {
+    mavenCentral()
+
+    maven {
+        name = "Fabric"
+        url = "https://maven.fabricmc.net/"
+    }
+
+    maven {
+        name = "ParchmentMC"
+        url = "https://maven.parchmentmc.org"
+    }
+
+    maven {
+        name = "OpenCollab"
+        url = "https://repo.opencollab.dev/main/"
+    }
+
+    maven {
+        name = "Modrinth"
+        url = "https://api.modrinth.com/maven"
+    }
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${minecraft_version}"
+
+	modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+	mappings loom.layered() {
+    	officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${minecraft_version}:${parchment_mappings_version}@zip")
+    }	
+	compileOnly 'org.geysermc.geyser:api:2.9.0-SNAPSHOT'
+	compileOnly 'org.geysermc.floodgate:api:2.2.4-SNAPSHOT'
+	
+	// Common module (shared config, database pooling, logging)
+	include implementation(project(':common'))
+	implementation(files(handlibFabricClasses))
+	// include implementation("maven.modrinth:handlib:1.0.0")
+	// Fabric-specific database dependency (H2)
+	include implementation('com.h2database:h2:2.2.224')
+	include implementation('com.zaxxer:HikariCP:6.2.1')
+	include implementation('org.slf4j:slf4j-api:2.0.16')
+	include implementation('org.yaml:snakeyaml:2.0')
+	compileOnly 'com.zaxxer:HikariCP:6.2.1'
+	include implementation('org.yaml:snakeyaml:2.0')
+	compileOnly "me.lucko:fabric-permissions-api:0.3.1"
+
+
+}
+
+sourceSets.main.java { srcDir '../fabric-common/src/main/java' }
+
+tasks.withType(ProcessResources).configureEach {
+	dependsOn rootProject.tasks.named('copyCert')
+}
+
+tasks.configureEach {
+	if (name in ['compileJava', 'sourcesJar', 'remapJar', 'remapSourcesJar']) {
+		dependsOn(':handlib:1.21:fabric:classes')
+	}
+}
+
+processResources {
+	def version = rootProject.version
+	def supportedVersions = supported_mc_versions
+	from(project(':common').sourceSets.main.resources)
+	filesMatching("fabric.mod.json") {
+		filter { line ->
+			line.replace('${version}', "${version}-1.21.x")
+				.replace('${supported_mc_versions}', supportedVersions)
+		}
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.named('sourcesJar').configure {
+	duplicatesStrategy = 'exclude'
+}
+
+jar {
+	inputs.property "archivesName", project.base.archivesName
+
+	from("LICENSE") {
+		rename { "${it}_${inputs.properties.archivesName}"}
+	}
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			artifactId = rootProject.archives_base_name
+			from components.java
+		}
+	}
+
+	repositories {
+
+	}
+}
+
+afterEvaluate {
+    def envFile = rootProject.file('.env')
+    if (envFile.exists()) {
+        envFile.readLines().each { line ->
+            def (key, value) = line.split('=', 2)
+            if (key && value && !System.getenv(key)) {
+                System.setProperty(key, value)
+            }
+        }
+    }
+
+    tasks.register('signFabricJar', Exec) {
+        group = 'build'
+        description = 'Signs the remapped Fabric client JAR.'
+        dependsOn(tasks.named('remapJar'))
+
+        def remappedJarProvider = tasks.named('remapJar').flatMap { it.outputs.files.elements.map { fs -> fs.first().asFile } }
+        def signedJar = layout.buildDirectory.file("libs/${rootProject.archives_base_name}-fabric-${rootProject.version}-s.jar")
+
+        inputs.file(remappedJarProvider)
+        inputs.file(rootProject.file('.Integrity/keystore.jks'))
+        outputs.file(signedJar)
+
+        executable = 'jarsigner'
+
+        doFirst {
+            def jarToSign = remappedJarProvider.get()
+            if (rootProject.file('.Integrity/keystore.jks').exists()) {
+                println "--> Signing JAR: ${jarToSign.name}"
+                def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
+                args = [
+                    '-keystore', rootProject.file('.Integrity/keystore.jks').absolutePath,
+                    '-storepass', keystorePassword,
+                    '-signedjar', signedJar.get().asFile.absolutePath,
+                    jarToSign.absolutePath,
+                    'handshaker'
+                ]
+            } else {
+                println "--> Keystore not found in Integrity/keystore.jks. Skipping signing."
+                enabled = false
+            }
+        }
+    }
+
+	def computeCanonicalJarHash = { File jarFile ->
+		def digest = java.security.MessageDigest.getInstance('SHA-256')
+		def zip = new java.util.zip.ZipFile(jarFile)
+		try {
+			def entries = java.util.Collections.list(zip.entries())
+				.findAll { !it.isDirectory() }
+				.findAll {
+					def upper = it.name.toUpperCase(java.util.Locale.ROOT)
+					!upper.startsWith('META-INF/') || (
+						!upper.endsWith('.SF')
+							&& !upper.endsWith('.RSA')
+							&& !upper.endsWith('.DSA')
+							&& upper != 'META-INF/MANIFEST.MF'
+							&& upper != 'META-INF/HANDSHAKER.HASH'
+							&& upper != 'META-INF/HANDSHAKER.SIG'
+					)
+				}
+				.sort { a, b -> a.name <=> b.name }
+
+			entries.each { entry ->
+				zip.getInputStream(entry).withCloseable { input ->
+					byte[] buffer = new byte[8192]
+					int read
+					while ((read = input.read(buffer)) > 0) {
+						digest.update(buffer, 0, read)
+					}
+				}
+			}
+		} finally {
+			zip.close()
+		}
+		return digest.digest().encodeHex().toString()
+	}
+
+	tasks.register('embedIntegrityProof') {
+		group = 'build'
+		description = 'Embeds detached integrity proof files into signed Fabric jar.'
+		dependsOn(tasks.named('signFabricJar'))
+
+		doLast {
+			def signedJar = layout.buildDirectory.file("libs/${rootProject.archives_base_name}-fabric-${rootProject.version}-s.jar").get().asFile
+			if (!signedJar.exists()) {
+				throw new GradleException("Signed jar not found: ${signedJar}")
+			}
+
+			def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
+			def keyStoreFile = rootProject.file('.Integrity/keystore.jks')
+			if (!keyStoreFile.exists()) {
+				throw new GradleException('Keystore not found at .Integrity/keystore.jks')
+			}
+
+			def hashHex = computeCanonicalJarHash(signedJar)
+
+			def keyStore = java.security.KeyStore.getInstance('JKS')
+			keyStoreFile.withInputStream { stream ->
+				keyStore.load(stream, keystorePassword.toCharArray())
+			}
+
+			def privateKey = keyStore.getKey('handshaker', keystorePassword.toCharArray())
+			if (!(privateKey instanceof java.security.PrivateKey)) {
+				throw new GradleException('Private key alias handshaker was not found in keystore')
+			}
+
+			def signature = java.security.Signature.getInstance('SHA256withRSA')
+			signature.initSign((java.security.PrivateKey) privateKey)
+			signature.update(hashHex.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+			def sigBytes = signature.sign()
+
+			def tmpDir = layout.buildDirectory.dir('integrityProof').get().asFile
+			tmpDir.mkdirs()
+			def hashFile = new File(tmpDir, 'HANDSHAKER.HASH')
+			def sigFile = new File(tmpDir, 'HANDSHAKER.SIG')
+			hashFile.text = hashHex + '\n'
+			sigFile.bytes = sigBytes
+
+			ant.zip(destfile: signedJar.absolutePath, update: true) {
+				zipfileset(file: hashFile, fullpath: 'META-INF/HANDSHAKER.HASH')
+				zipfileset(file: sigFile, fullpath: 'META-INF/HANDSHAKER.SIG')
+			}
+		}
+	}
+
+    tasks.named('assemble').configure {
+		dependsOn('embedIntegrityProof')
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add("-Xlint:unchecked")
 }

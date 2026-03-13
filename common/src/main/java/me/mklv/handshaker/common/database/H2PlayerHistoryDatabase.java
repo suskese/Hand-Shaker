@@ -14,7 +14,11 @@ public class H2PlayerHistoryDatabase extends PlayerHistoryDatabase {
     private final File dbFile;
 
     public H2PlayerHistoryDatabase(File configDir, Logger logger) {
-        super(logger, true);
+        this(configDir, logger, DatabaseOptions.defaults());
+    }
+
+    public H2PlayerHistoryDatabase(File configDir, Logger logger, DatabaseOptions options) {
+        super(logger, true, options);
         this.dbFile = new File(configDir, "hand-shaker-history");
         initialize();
     }
@@ -24,10 +28,11 @@ public class H2PlayerHistoryDatabase extends PlayerHistoryDatabase {
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl("jdbc:h2:" + dbFile.getAbsolutePath() + ";MODE=MySQL;AUTO_SERVER=TRUE");
         config.setDriverClassName("org.h2.Driver");
-        config.setMaximumPoolSize(5);
+        config.setMaximumPoolSize(options().maximumPoolSize());
+        config.setMinimumIdle(Math.min(2, options().maximumPoolSize()));
         config.setConnectionTimeout(30000);
-        config.setIdleTimeout(600000);
-        config.setMaxLifetime(1800000);
+        config.setIdleTimeout(options().idleTimeoutMs());
+        config.setMaxLifetime(options().maxLifetimeMs());
         return new HikariDataSource(config);
     }
 
@@ -58,6 +63,9 @@ public class H2PlayerHistoryDatabase extends PlayerHistoryDatabase {
 
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_mod_history_uuid ON mod_history(player_uuid)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_mod_history_mod ON mod_history(mod_name)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_mod_history_uuid_removed ON mod_history(player_uuid, removed_date)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_mod_history_mod_removed ON mod_history(mod_name, removed_date)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_mod_history_removed_date ON mod_history(removed_date)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_player_uuid ON player_names(uuid)");
 
             stmt.execute("""

@@ -52,7 +52,7 @@ final class ConfigLoaderSupport {
         if (configDir == null) {
             return Collections.emptyList();
         }
-        try (var stream = Files.list(configDir)) {
+        try (var stream = Files.walk(configDir, 3)) {
             List<Path> out = new ArrayList<>();
             stream
                 .filter(Files::isRegularFile)

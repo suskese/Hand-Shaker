@@ -153,7 +153,7 @@ public final class ConfigCommandOperations {
                     return new MutationResult(false, "Handshake timeout must be a number of seconds", false, false, false);
                 }
             }
-            case "required_modpack_hash" -> {
+            case "required_modpack_hash", "required_modpack_hashes" -> {
                 if (input.equalsIgnoreCase("current")) {
                     if (currentPlayerMods == null || currentPlayerMods.isEmpty()) {
                         return new MutationResult(false, "No client mod list available. Join with HandShaker client first.", false, false, false);
@@ -161,16 +161,16 @@ public final class ConfigCommandOperations {
 
                     String computed = CommandHelper.computeModpackHash(currentPlayerMods, config.isHashMods());
                     config.setRequiredModpackHash(computed);
-                    return new MutationResult(true, "required_modpack_hash set to current client hash: " + computed, true, false, true);
+                    return new MutationResult(true, "required_modpack_hashes set to current client hash: " + computed, true, false, true);
                 }
 
                 String normalized = CommandHelper.normalizeRequiredModpackHash(input);
                 if (normalized == null && !input.equalsIgnoreCase("off") && !input.equalsIgnoreCase("none") && !input.equalsIgnoreCase("null")) {
-                    return new MutationResult(false, "required_modpack_hash must be 64-char SHA-256, 'off', or 'current'", false, false, false);
+                    return new MutationResult(false, "required_modpack_hashes must be a 64-char SHA-256, 'off', or 'current'", false, false, false);
                 }
 
                 config.setRequiredModpackHash(normalized);
-                return new MutationResult(true, "required_modpack_hash " + (normalized == null ? "disabled" : "set"), true, false, true);
+                return new MutationResult(true, "required_modpack_hashes " + (normalized == null ? "disabled" : "set"), true, false, true);
             }
             default -> {
                 return new MutationResult(false, "Unknown config parameter: " + param, false, false, false);

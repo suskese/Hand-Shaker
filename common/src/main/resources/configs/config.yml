@@ -8,7 +8,7 @@ settings:
   handshake-timeout-seconds: 5
   enforce-whitelisted-mod-list: false
   mod-versioning: true
-  required-modpack-hash: off
+  required-modpack-hashes: []
   handshaker-version-compatibility:
     modern-7.0+: true
     hybrid-6.0: false
@@ -23,25 +23,42 @@ settings:
     mods-blacklisted-enabled: true
     mods-whitelisted-enabled: true
   default-action: kick
-messages:
-  kick: "You are using a blacklisted mod: {mod}. Please remove it to join this server."
-  no-handshake: "To connect to this server please download 'Hand-shaker' mod."
-  ban: "You have been banned for using a blacklisted mod: {mod}."
-  bedrock: "Bedrock players are not allowed on this server."  
-  missing-whitelist: "You are missing required mods: {mod}. Please install them to join this server."
-  invalid-signature: "Invalid client signature. Please use the official HandShaker client mod."
-  handshake-corrupted: "Corrupted handshake data"
-  handshake-empty-mod-list: "Invalid handshake: empty mod list"
-  handshake-hash-mismatch: "Invalid handshake: hash mismatch"
-  handshake-missing-hash: "Invalid handshake: missing hash"
-  handshake-missing-jar-hash: "Invalid handshake: missing jar hash"
-  handshake-missing-nonce: "Invalid handshake: missing nonce"
-  handshake-missing-signature: "Invalid handshake: missing signature"
-  handshake-replay: "Replay attack detected"
-  velton-verification-failed: "Anti-cheat verification failed"
-  modpack-hash-mismatch: "Your modpack does not match this server's required modpack."
-  outdated-client: "Your HandShaker mod is outdated. Please update to the latest version to join this server."
-
-  # custom messages for actions can be added here
-  placeholder_examples: "{player}, {mod}, {messages.test_action} for mods-actions.yml"
-  test_action: "Hi, {player}! You are using {mod}! Thanks for using it!"
+advanced-experimental:
+  rate-limit-per-minute: 10
+  enable-diagnostic-command: true
+  enable-export-command: true
+  payload:
+    compression-enabled: true
+  database:
+    async-operations: true
+    pool-size: 15
+    idle-timeout-ms: 300000
+    max-lifetime-ms: 1800000
+    delete-history-days: 30
+  api:
+    enable-rest-api: false
+    rest-api-port: 8080
+    discord-integration:
+      webhook:
+        enabled: false
+        webhook-url: "https://discord.com/api/webhooks/your-webhook-url"
+        notify-on-ban: true
+        notify-on-kick: false
+      bot: #TODO 
+        enabled: false #TODO
+        token: "your-discord-bot-token" #TODO
+        channel-id: "your-discord-channel-id" #TODO
+        buttons: #TODO
+          enabled: false #TODO
+          ban-button: #TODO
+            enabled: true #TODO
+            label: "Ban Player" #TODO
+            style: "DANGER" #TODO - PRIMARY, SECONDARY, SUCCESS, DANGER, LINK
+          kick-button: #TODO
+            enabled: true #TODO
+            label: "Kick Player" #TODO
+            style: "PRIMARY" #TODO - PRIMARY, SECONDARY, SUCCESS, DANGER, LINK
+          approve-button: #TODO
+            enabled: true #TODO
+            label: "Approve player's mod" #TODO
+            style: "SUCCESS" #TODO - PRIMARY, SECONDARY, SUCCESS, DANGER, LINK

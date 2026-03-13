@@ -41,6 +41,7 @@ public final class ConfigWriter {
             }
 
             writeConfigYml(configDir.resolve("config.yml"), logger, data);
+            writeMessagesYml(configDir.resolve("messages.yml"), logger, data);
             writeModsYamlFiles(configDir, logger, data);
         }
 
@@ -56,7 +57,7 @@ public final class ConfigWriter {
             settings.put("handshake-timeout-seconds", data.getHandshakeTimeoutSeconds());
             settings.put("enforce-whitelisted-mod-list", data.isWhitelist());
             settings.put("mod-versioning", data.isModVersioning());
-            settings.put("required-modpack-hash", data.getRequiredModpackHash() != null ? data.getRequiredModpackHash() : "off");
+            settings.put("required-modpack-hashes", new ArrayList<>(data.getRequiredModpackHashes()));
 
             Map<String, Object> compatibility = new LinkedHashMap<>();
             compatibility.put("modern-7.0+", data.isModernCompatibility());
@@ -92,7 +93,17 @@ public final class ConfigWriter {
             root.remove("Runtime_cache");
             root.remove("runtime_cache");
 
-            Map<String, Object> messages = asObjectMap(root.get("messages"));
+            root.remove("messages");
+            writeYamlObject(configPath, root, logger, "config.yml");
+            rewriteRequiredModpackHashesInline(configPath, data.getRequiredModpackHashes(), logger);
+        }
+
+        private static void writeMessagesYml(Path messagesPath,
+                                             ConfigFileBootstrap.Logger logger,
+                                             ConfigTypes.ConfigLoadResult data) {
+            Map<String, Object> root = readYamlObject(messagesPath, logger);
+            Map<String, Object> messages = new LinkedHashMap<>();
+
             if (data.getKickMessage() != null) {
                 messages.put("kick", data.getKickMessage());
             }
@@ -105,15 +116,19 @@ public final class ConfigWriter {
             if (data.getInvalidSignatureKickMessage() != null) {
                 messages.put("invalid-signature", data.getInvalidSignatureKickMessage());
             }
+            // Write ban message default if not already configured in messages.yml
+            if (!data.getMessages().containsKey(ConfigTypes.StandardMessages.KEY_BAN)) {
+                messages.put(ConfigTypes.StandardMessages.KEY_BAN, ConfigTypes.StandardMessages.DEFAULT_BAN_MESSAGE);
+            }
 
             for (Map.Entry<String, String> entry : data.getMessages().entrySet()) {
-                if (entry.getValue() != null) {
+                if (entry.getKey() != null && entry.getValue() != null) {
                     messages.put(entry.getKey(), entry.getValue());
                 }
             }
 
             root.put("messages", messages);
-            writeYamlObject(configPath, root, logger, "config.yml");
+            writeYamlObject(messagesPath, root, logger, "messages.yml");
         }
 
         // private static boolean updateConfigFileInPlace(Path configPath,
@@ -303,14 +318,24 @@ public final class ConfigWriter {
         private static void writeModsYamlFiles(Path configDir,
                                                ConfigFileBootstrap.Logger logger,
                                                ConfigTypes.ConfigLoadResult data) {
-            writeIgnoredMods(configDir.resolve("mods-ignored.yml"), logger, data.getIgnoredMods());
-            writeModeMap(configDir.resolve("mods-required.yml"), logger, "required",
+            Path modListsDir = configDir.resolve("mod-lists");
+            try {
+                Files.createDirectories(modListsDir);
+            } catch (IOException e) {
+                if (logger != null) {
+                    logger.error("Could not create mod-lists directory", e);
+                }
+                return;
+            }
+
+            writeIgnoredMods(modListsDir.resolve("mods-ignored.yml"), logger, data.getIgnoredMods());
+            writeModeMap(modListsDir.resolve("mods-required.yml"), logger, "required",
                 data.getRequiredModsActive(), data.getModConfigMap(), "kick",
                 "mods-required.yml");
-            writeModeMap(configDir.resolve("mods-blacklisted.yml"), logger, "blacklisted",
+            writeModeMap(modListsDir.resolve("mods-blacklisted.yml"), logger, "blacklisted",
                 data.getBlacklistedModsActive(), data.getModConfigMap(), "kick",
                 "mods-blacklisted.yml");
-            writeWhitelistedMods(configDir.resolve("mods-whitelisted.yml"), logger,
+            writeWhitelistedMods(modListsDir.resolve("mods-whitelisted.yml"), logger,
                 data.getWhitelistedModsActive(), data.getModConfigMap(), data.getOptionalModsActive());
         }
 
@@ -411,6 +436,11 @@ public final class ConfigWriter {
                     logger.error("Could not read " + file.getName(), e);
                 }
                 return new LinkedHashMap<>();
+            } catch (RuntimeException e) {
+                if (logger != null) {
+                    logger.warn("Could not parse " + file.getName() + ", rewriting with defaults: " + e.getMessage());
+                }
+                return new LinkedHashMap<>();
             }
         }
 
@@ -425,6 +455,73 @@ public final class ConfigWriter {
                     logger.error("Could not save " + displayName, e);
                 }
             }
+        }
+
+        private static void rewriteRequiredModpackHashesInline(Path configPath,
+                                                               Set<String> requiredModpackHashes,
+                                                               ConfigFileBootstrap.Logger logger) {
+            try {
+                List<String> lines = Files.readAllLines(configPath);
+                List<String> rewritten = new ArrayList<>();
+
+                for (int i = 0; i < lines.size(); i++) {
+                    String line = lines.get(i);
+                    if (line.trim().startsWith("required-modpack-hashes:")) {
+                        String indent = leadingWhitespace(line);
+                        int keyIndent = indent.length();
+                        rewritten.add(indent + "required-modpack-hashes: " + formatInlineYamlList(requiredModpackHashes));
+
+                        while (i + 1 < lines.size()) {
+                            String next = lines.get(i + 1);
+                            String nextTrimmed = next.trim();
+                            int nextIndent = leadingWhitespace(next).length();
+
+                            if (nextTrimmed.isEmpty()) {
+                                break;
+                            }
+                            if (nextTrimmed.startsWith("#")) {
+                                break;
+                            }
+                            if (nextTrimmed.equals("]") || nextTrimmed.equals("[")) {
+                                i++;
+                                continue;
+                            }
+                            if (nextTrimmed.startsWith("- ")) {
+                                i++;
+                                continue;
+                            }
+                            if (nextIndent > keyIndent) {
+                                i++;
+                                continue;
+                            }
+                            break;
+                        }
+                        continue;
+                    }
+                    rewritten.add(line);
+                }
+
+                Files.write(configPath, rewritten);
+            } catch (IOException e) {
+                if (logger != null) {
+                    logger.warn("Failed to rewrite required-modpack-hashes inline: " + e.getMessage());
+                }
+            }
+        }
+
+        private static String formatInlineYamlList(Set<String> values) {
+            if (values == null || values.isEmpty()) {
+                return "[]";
+            }
+            return "[" + String.join(", ", toSortedList(values)) + "]";
+        }
+
+        private static String leadingWhitespace(String value) {
+            int index = 0;
+            while (index < value.length() && Character.isWhitespace(value.charAt(index))) {
+                index++;
+            }
+            return value.substring(0, index);
         }
 
         private static Map<String, Object> asObjectMap(Object value) {

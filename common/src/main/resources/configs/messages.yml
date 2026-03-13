@@ -1,0 +1,23 @@
+messages:
+  kick: "You are using a blacklisted mod: {mod}. Please remove it to join this server."
+  no-handshake: "To connect to this server please download 'Hand-shaker' mod."
+  ban: "You have been banned for using a blacklisted mod: {mod}."
+  bedrock: "Bedrock players are not allowed on this server."  
+  missing-whitelist: "You are missing required mods: {mod}. Please install them to join this server."
+  invalid-signature: "Invalid client signature. Please use the official HandShaker client mod."
+  handshake-corrupted: "Corrupted handshake data"
+  handshake-empty-mod-list: "Invalid handshake: empty mod list"
+  handshake-hash-mismatch: "Invalid handshake: hash mismatch"
+  handshake-missing-hash: "Invalid handshake: missing hash"
+  handshake-missing-jar-hash: "Invalid handshake: missing jar hash"
+  handshake-missing-nonce: "Invalid handshake: missing nonce"
+  handshake-missing-signature: "Invalid handshake: missing signature"
+  handshake-replay: "Replay attack detected"
+  velton-verification-failed: "Anti-cheat verification failed"
+  kick-spoofed-mod: "Detected modified or spoofed mod files: {mod}. Please reinstall/update these mods to join."
+  modpack-hash-mismatch: "Your modpack does not match this server's required modpack."
+  outdated-client: "Your HandShaker mod is outdated. Please update to the latest version to join this server."
+
+  # custom messages for actions can be added here
+  placeholder_examples: "{player}, {mod}, {messages.test_action} for mods-actions.yml"
+  test_action: "Hi, {player}! You are using {mod}! Thanks for using it!"

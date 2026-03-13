@@ -1,0 +1,36 @@
+plugins {
+    id 'net.neoforged.moddev'
+}
+
+version = rootProject.mod_version
+group = rootProject.maven_group
+
+base {
+    archivesName = "${rootProject.archives_base_name}-handlib-neoforge-1.21.11"
+}
+
+neoForge {
+    version = '21.11.36-beta'
+
+    parchment {
+        mappingsVersion = '2025.12.20'
+        minecraftVersion = '1.21.11'
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir '../src/main/java'
+            srcDir 'src/main/java'
+        }
+        resources {
+            srcDir '../resources'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}

@@ -88,6 +88,21 @@ public class PluginProtocolHandler {
                 }
 
                 @Override
+                public boolean isRateLimitEnabled() {
+                    return configManager.getRateLimitPerMinute() > 0;
+                }
+
+                @Override
+                public int getRateLimitPerMinute() {
+                    return configManager.getRateLimitPerMinute();
+                }
+
+                @Override
+                public boolean isPayloadCompressionEnabled() {
+                    return configManager.isPayloadCompressionEnabled();
+                }
+
+                @Override
                 public void logInfo(String format, Object... args) {
                     logger.info(String.format(format, args));
                 }
@@ -149,6 +164,10 @@ public class PluginProtocolHandler {
 
     public void clearNonceHistory(UUID playerId) {
         payloadValidator.clearNonceHistory(playerId);
+    }
+
+    public PayloadValidation getPayloadValidator() {
+        return payloadValidator;
     }
 
 
@@ -424,14 +443,25 @@ public class PluginProtocolHandler {
                 if (HandShakerPlugin.DEBUG) {
                     logger.info("[DEBUG] Executing action for " + player.getName() + ": " + status.getActionName());
                 }
-                executeAction(player, status.getActionName(), status.getMods());
+                executeAction(player, status.getActionName(), status.getMods(), status.getMessage());
             }
 
             if (status.isViolation()) {
                 if (HandShakerPlugin.DEBUG) {
                     logger.info("[DEBUG] Player " + player.getName() + " has violation, kicking");
                 }
-                kickPlayer(player, status.getMessage());
+                boolean isBanAction = "ban".equalsIgnoreCase(status.getActionName());
+                if (isBanAction) {
+                    // Ban webhook already fired by executeAction; show ban message without firing a second kick webhook
+                    String banMsg = configManager.replacePlaceholders(
+                        configManager.getMessageOrDefault(StandardMessages.KEY_BAN, StandardMessages.DEFAULT_BAN_MESSAGE),
+                        player,
+                        status.getMods()
+                    );
+                    player.kick(Component.text(banMsg).color(NamedTextColor.RED));
+                } else {
+                    kickPlayer(player, status.getMessage());
+                }
                 return;
             }
         }
@@ -450,9 +480,14 @@ public class PluginProtocolHandler {
         }
     }
 
-    private void executeAction(Player player, String actionName, Set<String> mods) {
+    private void executeAction(Player player, String actionName, Set<String> mods, String violationMessage) {
         if (actionName == null || actionName.equals("none")) {
             return; // No action to execute
+        }
+
+        if ("ban".equalsIgnoreCase(actionName)) {
+            String banReason = (violationMessage != null && !violationMessage.isBlank()) ? violationMessage : "Action 'ban' executed";
+            plugin.publishWebhookBan(player.getName(), banReason, String.join(", ", mods));
         }
 
         if (actionName.equalsIgnoreCase("log")) {
@@ -499,23 +534,9 @@ public class PluginProtocolHandler {
     }
 
     private void kickPlayer(Player player, String message) {
+        plugin.publishWebhookKick(player.getName(), message, "");
         player.kick(Component.text(message).color(NamedTextColor.RED));
     }
-
-    // private int calculateOffset(byte[] data, int stringLength) {
-    //     // Skip the varint prefix
-    //     int offset = 0;
-    //     int numRead = 0;
-    //     byte read;
-    //     do {
-    //         if (offset >= data.length) return offset;
-    //         read = data[offset++];
-    //         numRead++;
-    //         if (numRead > 5) return offset;
-    //     } while ((read & 0b10000000) != 0);
-        
-    //     return offset + stringLength;
-    // }
 
     private boolean isSha256Hex(String value) {
         if (value == null) {

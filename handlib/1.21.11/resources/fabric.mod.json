@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"id": "handlib",
+	"version": "0.1.0",
+	"name": "Hand Shaker Library",
+	"description": "Shared compatibility library for Hand Shaker mods across loaders and versions",
+	"authors": [
+		"Suskese / IceVallish"
+	],
+	"contact": {
+		"sources": "https://github.com/suskese/hand-shaker",
+		"issues": "https://github.com/suskese/hand-shaker/issues",
+		"homepage": "https://modrinth.com/plugin/hand-shaker"
+	},
+	"license": "MIT",
+	"icon": "assets/icon.png",
+	"environment": "*",
+	"depends": {
+		"fabricloader": ">=0.17.0",
+		"minecraft": ">=1.21.11"
+	}
+}

@@ -26,7 +26,7 @@ public final class ModChecks {
         private final boolean hashMods;
         private final boolean modVersioning;
         private final boolean hybridCompatibility;
-        private final String requiredModpackHash;
+        private final Set<String> requiredModpackHashes;
         private final Map<String, String> knownModHashes;
         private final Set<String> ignoredMods;
         private final Set<String> whitelistedModsActive;
@@ -35,6 +35,7 @@ public final class ModChecks {
         private final Set<String> requiredModsActive;
         private final Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap;
         private final String kickMessage;
+        private final String kickSpoofedModMessage;
         private final String missingWhitelistModMessage;
         private final String modpackHashMismatchMessage;
 
@@ -45,7 +46,7 @@ public final class ModChecks {
                              boolean hashMods,
                              boolean modVersioning,
                              boolean hybridCompatibility,
-                             String requiredModpackHash,
+                             Set<String> requiredModpackHashes,
                              Map<String, String> knownModHashes,
                              Set<String> ignoredMods,
                              Set<String> whitelistedModsActive,
@@ -54,6 +55,7 @@ public final class ModChecks {
                              Set<String> requiredModsActive,
                              Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
                              String kickMessage,
+                             String kickSpoofedModMessage,
                              String missingWhitelistModMessage,
                              String modpackHashMismatchMessage) {
             this.whitelist = whitelist;
@@ -63,7 +65,9 @@ public final class ModChecks {
             this.hashMods = hashMods;
             this.modVersioning = modVersioning;
             this.hybridCompatibility = hybridCompatibility;
-            this.requiredModpackHash = requiredModpackHash;
+            this.requiredModpackHashes = requiredModpackHashes != null
+                ? Collections.unmodifiableSet(new LinkedHashSet<>(requiredModpackHashes))
+                : Collections.emptySet();
             this.knownModHashes = knownModHashes;
             this.ignoredMods = ignoredMods;
             this.whitelistedModsActive = whitelistedModsActive;
@@ -72,6 +76,7 @@ public final class ModChecks {
             this.requiredModsActive = requiredModsActive;
             this.modConfigMap = modConfigMap;
             this.kickMessage = kickMessage;
+            this.kickSpoofedModMessage = kickSpoofedModMessage;
             this.missingWhitelistModMessage = missingWhitelistModMessage;
             this.modpackHashMismatchMessage = modpackHashMismatchMessage;
         }
@@ -104,8 +109,12 @@ public final class ModChecks {
             return hybridCompatibility;
         }
 
+        public Set<String> getRequiredModpackHashes() {
+            return requiredModpackHashes;
+        }
+
         public String getRequiredModpackHash() {
-            return requiredModpackHash;
+            return requiredModpackHashes.isEmpty() ? null : requiredModpackHashes.iterator().next();
         }
 
         public Map<String, String> getKnownModHashes() {
@@ -138,6 +147,10 @@ public final class ModChecks {
 
         public String getKickMessage() {
             return kickMessage;
+        }
+
+        public String getKickSpoofedModMessage() {
+            return kickSpoofedModMessage;
         }
 
         public String getMissingWhitelistModMessage() {
@@ -280,16 +293,25 @@ public final class ModChecks {
             }
 
             Set<String> blacklistedFound = new LinkedHashSet<>();
+            String firstBlacklistedRule = null;
             if (input.areModsBlacklistedEnabled()) {
                 for (String ruleKey : input.getBlacklistedModsActive()) {
                     if (matchesRule(ruleKey, input, parsedMods)) {
-                        blacklistedFound.add(ruleKey);
+                        String matchedMod = findFirstMatchingClientMod(ruleKey, input, parsedMods);
+                        blacklistedFound.add(matchedMod != null ? matchedMod : ruleKey);
+                        if (firstBlacklistedRule == null) {
+                            firstBlacklistedRule = ruleKey;
+                        }
                     }
                 }
             }
 
             if (!blacklistedFound.isEmpty()) {
-                String actionName = resolveActionName(input.getModConfigMap(), blacklistedFound.iterator().next(), "kick");
+                String actionName = resolveActionName(
+                    input.getModConfigMap(),
+                    firstBlacklistedRule != null ? firstBlacklistedRule : blacklistedFound.iterator().next(),
+                    "kick"
+                );
                 String message = replaceModList(input.getKickMessage(), blacklistedFound);
                 return ModCheckResult.violation(message, actionName, blacklistedFound, false, true, false);
             }
@@ -300,10 +322,19 @@ public final class ModChecks {
                 return ModCheckResult.violation(message, actionName, missingRequired, true, false, false);
             }
 
+            Set<String> hashMismatches = collectHashMismatches(input, parsedMods);
+            if (!hashMismatches.isEmpty()) {
+                String baseMessage = input.getKickSpoofedModMessage() != null
+                    ? input.getKickSpoofedModMessage()
+                    : input.getKickMessage();
+                String message = replaceModList(baseMessage, hashMismatches);
+                return ModCheckResult.violation(message, "kick", hashMismatches, false, true, false);
+            }
+
             if (input.isWhitelist()) {
                 Set<String> nonWhitelisted = new LinkedHashSet<>();
                 for (ConfigTypes.ModEntry clientMod : parsedMods) {
-                    if (input.getIgnoredMods().contains(clientMod.modId())) {
+                    if (isIgnored(clientMod, input.getIgnoredMods())) {
                         continue;
                     }
                     if (!isAllowedInWhitelist(clientMod, input)) {
@@ -335,9 +366,9 @@ public final class ModChecks {
                 }
             }
 
-            if (input.getRequiredModpackHash() != null && !input.getRequiredModpackHash().isBlank()) {
+            if (!input.getRequiredModpackHashes().isEmpty()) {
                 String computedHash = computeModpackHash(clientMods, input.isHashMods());
-                if (!input.getRequiredModpackHash().equalsIgnoreCase(computedHash)) {
+                if (!input.getRequiredModpackHashes().contains(computedHash.toLowerCase(Locale.ROOT))) {
                     Set<String> mismatch = new LinkedHashSet<>();
                     mismatch.add("modpack");
                     String baseMessage = input.getModpackHashMismatchMessage() != null
@@ -352,81 +383,40 @@ public final class ModChecks {
         }
 
         private static boolean matchesRule(String ruleKey, ModCheckInput input, List<ConfigTypes.ModEntry> clientMods) {
-            ConfigTypes.ModEntry rule = ConfigTypes.ModEntry.parse(ruleKey);
-            if (rule == null) {
-                return false;
-            }
-
             for (ConfigTypes.ModEntry clientMod : clientMods) {
-                if (!rule.modId().equals(clientMod.modId())) {
-                    continue;
+                if (ruleMatchesClient(ruleKey, clientMod, input)) {
+                    return true;
                 }
-                if (input.isModVersioning() && rule.version() != null
-                    && clientMod.version() != null
-                    && !rule.version().equals(clientMod.version())) {
-                    continue;
-                }
-                if (input.isModVersioning() && rule.version() != null
-                    && clientMod.version() == null
-                    && !input.isHybridCompatibility()) {
-                    continue;
-                }
-                if (!isHashAccepted(clientMod, rule, input)) {
-                    continue;
-                }
-                return true;
             }
             return false;
         }
 
+        private static String findFirstMatchingClientMod(String ruleKey,
+                                                         ModCheckInput input,
+                                                         List<ConfigTypes.ModEntry> clientMods) {
+            if (clientMods == null || clientMods.isEmpty()) {
+                return null;
+            }
+            for (ConfigTypes.ModEntry clientMod : clientMods) {
+                if (ruleMatchesClient(ruleKey, clientMod, input)) {
+                    return clientMod.toDisplayKey();
+                }
+            }
+            return null;
+        }
+
         private static boolean isAllowedInWhitelist(ConfigTypes.ModEntry clientMod, ModCheckInput input) {
             for (String ruleKey : input.getWhitelistedModsActive()) {
-                ConfigTypes.ModEntry rule = ConfigTypes.ModEntry.parse(ruleKey);
-                if (rule == null) {
-                    continue;
+                if (ruleMatchesClient(ruleKey, clientMod, input)) {
+                    return true;
                 }
-                if (!rule.modId().equals(clientMod.modId())) {
-                    continue;
-                }
-                if (input.isModVersioning() && rule.version() != null
-                    && clientMod.version() != null
-                    && !rule.version().equals(clientMod.version())) {
-                    continue;
-                }
-                if (input.isModVersioning() && rule.version() != null
-                    && clientMod.version() == null
-                    && !input.isHybridCompatibility()) {
-                    continue;
-                }
-                if (!isHashAccepted(clientMod, rule, input)) {
-                    continue;
-                }
-                return true;
             }
 
             if (input.getOptionalModsActive() != null) {
                 for (String ruleKey : input.getOptionalModsActive()) {
-                    ConfigTypes.ModEntry rule = ConfigTypes.ModEntry.parse(ruleKey);
-                    if (rule == null) {
-                        continue;
+                    if (ruleMatchesClient(ruleKey, clientMod, input)) {
+                        return true;
                     }
-                    if (!rule.modId().equals(clientMod.modId())) {
-                        continue;
-                    }
-                    if (input.isModVersioning() && rule.version() != null
-                        && clientMod.version() != null
-                        && !rule.version().equals(clientMod.version())) {
-                        continue;
-                    }
-                    if (input.isModVersioning() && rule.version() != null
-                        && clientMod.version() == null
-                        && !input.isHybridCompatibility()) {
-                        continue;
-                    }
-                    if (!isHashAccepted(clientMod, rule, input)) {
-                        continue;
-                    }
-                    return true;
                 }
             }
 
@@ -438,7 +428,54 @@ public final class ModChecks {
             if (exact != null) {
                 return exact;
             }
-            return input.getModConfigMap().get(clientMod.modId());
+
+            ConfigTypes.ConfigState.ModConfig byModId = input.getModConfigMap().get(clientMod.modId());
+            if (byModId != null) {
+                return byModId;
+            }
+
+            for (Map.Entry<String, ConfigTypes.ConfigState.ModConfig> entry : input.getModConfigMap().entrySet()) {
+                if (!WildcardMatcher.containsWildcard(entry.getKey())) {
+                    continue;
+                }
+                if (ruleMatchesClient(entry.getKey(), clientMod, input)) {
+                    return entry.getValue();
+                }
+            }
+
+            return null;
+        }
+
+        private static boolean ruleMatchesClient(String ruleKey, ConfigTypes.ModEntry clientMod, ModCheckInput input) {
+            ConfigTypes.ModEntry rule = ConfigTypes.ModEntry.parse(ruleKey);
+            if (rule == null || clientMod == null) {
+                return false;
+            }
+
+            if (!modIdMatches(rule.modId(), clientMod.modId())) {
+                return false;
+            }
+            if (input.isModVersioning() && rule.version() != null
+                && clientMod.version() != null
+                && !rule.version().equals(clientMod.version())) {
+                return false;
+            }
+            if (input.isModVersioning() && rule.version() != null
+                && clientMod.version() == null
+                && !input.isHybridCompatibility()) {
+                return false;
+            }
+            return isHashAccepted(clientMod, rule, input);
+        }
+
+        private static boolean modIdMatches(String ruleModId, String clientModId) {
+            if (ruleModId == null || clientModId == null) {
+                return false;
+            }
+            if (ruleModId.equals(clientModId)) {
+                return true;
+            }
+            return WildcardMatcher.containsWildcard(ruleModId) && WildcardMatcher.matches(ruleModId, clientModId);
         }
 
         private static boolean isHashAccepted(ConfigTypes.ModEntry clientMod, ModCheckInput input) {
@@ -447,10 +484,6 @@ public final class ModChecks {
 
         private static boolean isHashAccepted(ConfigTypes.ModEntry clientMod, ConfigTypes.ModEntry rule, ModCheckInput input) {
             if (!input.isHashMods()) {
-                return true;
-            }
-
-            if (clientMod.hash() == null) {
                 return true;
             }
 
@@ -466,7 +499,64 @@ public final class ModChecks {
             if (expected == null || expected.isBlank()) {
                 return true;
             }
+            if (clientMod.hash() == null || clientMod.hash().isBlank()) {
+                return false;
+            }
             return expected.equalsIgnoreCase(clientMod.hash());
+        }
+
+        private static Set<String> collectHashMismatches(ModCheckInput input, List<ConfigTypes.ModEntry> parsedMods) {
+            Set<String> mismatches = new LinkedHashSet<>();
+            if (!input.isHashMods() || parsedMods == null || parsedMods.isEmpty()) {
+                return mismatches;
+            }
+
+            Map<String, String> knownHashes = input.getKnownModHashes();
+            if (knownHashes == null || knownHashes.isEmpty()) {
+                return mismatches;
+            }
+
+            for (ConfigTypes.ModEntry clientMod : parsedMods) {
+                if (clientMod == null || isIgnored(clientMod, input.getIgnoredMods())) {
+                    continue;
+                }
+
+                String key = clientMod.toRuleKey(input.isModVersioning());
+                String expected = knownHashes.get(key);
+                if ((expected == null || expected.isBlank()) && input.isModVersioning()) {
+                    expected = knownHashes.get(clientMod.modId());
+                }
+                if (expected == null || expected.isBlank()) {
+                    continue;
+                }
+
+                String actual = clientMod.hash();
+                if (actual == null || actual.isBlank() || !expected.equalsIgnoreCase(actual)) {
+                    mismatches.add(clientMod.toDisplayKey());
+                }
+            }
+
+            return mismatches;
+        }
+
+        private static boolean isIgnored(ConfigTypes.ModEntry clientMod, Set<String> ignoredMods) {
+            if (clientMod == null || ignoredMods == null || ignoredMods.isEmpty()) {
+                return false;
+            }
+
+            if (ignoredMods.contains(clientMod.modId()) || ignoredMods.contains(clientMod.toDisplayKey())) {
+                return true;
+            }
+
+            for (String ignored : ignoredMods) {
+                if (!WildcardMatcher.containsWildcard(ignored)) {
+                    continue;
+                }
+                if (WildcardMatcher.matches(ignored, clientMod.modId()) || WildcardMatcher.matches(ignored, clientMod.toDisplayKey())) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static String resolveActionName(Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,

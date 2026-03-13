@@ -28,11 +28,13 @@ public abstract class PlayerHistoryDatabase {
     protected HikariDataSource dataSource;
     protected final Logger logger;
     private final boolean enabled;
+    private final DatabaseOptions options;
     private final CachedValue<Map<String, Integer>> modPopularityCache = new CachedValue<>(CACHE_TTL_MS);
 
-    protected PlayerHistoryDatabase(Logger logger, boolean enabled) {
+    protected PlayerHistoryDatabase(Logger logger, boolean enabled, DatabaseOptions options) {
         this.logger = logger;
         this.enabled = enabled;
+        this.options = options != null ? options : DatabaseOptions.defaults();
     }
 
     protected final void initialize() {
@@ -286,6 +288,41 @@ public abstract class PlayerHistoryDatabase {
         return 0;
     }
 
+    public List<PlayerSummaryInfo> getPlayersWithActiveMods() {
+        if (!isEnabled()) {
+            return new ArrayList<>();
+        }
+
+        List<PlayerSummaryInfo> players = new ArrayList<>();
+        String sql = """
+            SELECT
+                mh.player_uuid,
+                pn.current_name,
+                COUNT(DISTINCT mh.mod_name) AS mod_count
+            FROM mod_history mh
+            JOIN player_names pn ON mh.player_uuid = pn.uuid
+            WHERE mh.removed_date IS NULL
+            GROUP BY mh.player_uuid, pn.current_name
+            ORDER BY mod_count DESC, pn.current_name ASC
+            """;
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                players.add(new PlayerSummaryInfo(
+                    UUID.fromString(rs.getString("player_uuid")),
+                    rs.getString("current_name"),
+                    rs.getInt("mod_count")
+                ));
+            }
+        } catch (SQLException e) {
+            logWarn("Failed to get players with active mods: %s", e.getMessage());
+        }
+
+        return players;
+    }
+
     public void registerModFingerprint(String modToken, boolean versioningEnabled) {
         ModEntry entry = ModEntry.parse(modToken);
         if (entry == null) {
@@ -379,6 +416,56 @@ public abstract class PlayerHistoryDatabase {
         }
     }
 
+    /**
+     * Deletes mod history rows with a removal date older than {@code days} days.
+     * Only removes rows where {@code removed_date IS NOT NULL} (i.e. already-gone mods),
+     * never touches currently-active entries.
+     *
+     * @param days positive number of days; values {@code <= 0} are a no-op
+     * @return number of rows deleted, or -1 if the DB is disabled or an error occurred
+     */
+    public int deleteOldHistory(int days) {
+        if (!isEnabled() || days <= 0) {
+            return -1;
+        }
+        long cutoffMs = System.currentTimeMillis() - (long) days * 24L * 60L * 60L * 1000L;
+        java.sql.Timestamp cutoff = new java.sql.Timestamp(cutoffMs);
+        String sql = "DELETE FROM mod_history WHERE removed_date IS NOT NULL AND removed_date < ?";
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, cutoff);
+            int deleted = ps.executeUpdate();
+            if (deleted > 0) {
+                modPopularityCache.invalidate();
+                logger.info("Purged {} stale mod-history rows older than {} days", deleted, days);
+            }
+            return deleted;
+        } catch (SQLException e) {
+            logWarn("Failed to delete old history: %s", e.getMessage());
+            return -1;
+        }
+    }
+
+    public PoolStats getPoolStats() {
+        if (!isEnabled() || dataSource == null) {
+            return new PoolStats(0, 0, 0, -1);
+        }
+        var mxBean = dataSource.getHikariPoolMXBean();
+        if (mxBean == null) {
+            return new PoolStats(0, 0, 0, -1);
+        }
+        return new PoolStats(
+            mxBean.getActiveConnections(),
+            mxBean.getIdleConnections(),
+            mxBean.getThreadsAwaitingConnection(),
+            options.maximumPoolSize()
+        );
+    }
+
+    protected DatabaseOptions options() {
+        return options;
+    }
+
     protected abstract HikariDataSource createDataSource() throws Exception;
 
     protected abstract void createTables() throws SQLException;
@@ -470,10 +557,28 @@ public abstract class PlayerHistoryDatabase {
         }
     }
 
+    public record PlayerSummaryInfo(UUID uuid, String currentName, int modCount) {
+    }
+
     public interface Logger {
         void info(String message, Object... args);
         void warn(String message, Object... args);
         void error(String message, Throwable e);
         void debug(String message);
     }
+
+    public record DatabaseOptions(int maximumPoolSize, long idleTimeoutMs, long maxLifetimeMs) {
+        public static DatabaseOptions defaults() {
+            return new DatabaseOptions(15, 300_000L, 1_800_000L);
+        }
+
+        public static DatabaseOptions of(int maximumPoolSize, long idleTimeoutMs, long maxLifetimeMs) {
+            int safePool = Math.max(1, maximumPoolSize);
+            long safeIdle = Math.max(10_000L, idleTimeoutMs);
+            long safeLifetime = Math.max(30_000L, maxLifetimeMs);
+            return new DatabaseOptions(safePool, safeIdle, safeLifetime);
+        }
+    }
+
+    public record PoolStats(int activeConnections, int idleConnections, int awaitingThreads, int maxPoolSize) {}
 }

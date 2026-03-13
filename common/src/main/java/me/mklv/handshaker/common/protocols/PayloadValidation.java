@@ -4,6 +4,8 @@ import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.protocols.LegacyVersion.ClientProfile;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.HashUtils;
+import me.mklv.handshaker.common.utils.PayloadCompression;
+import me.mklv.handshaker.common.utils.RateLimiter;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
 
 import java.util.*;
@@ -22,6 +24,7 @@ public class PayloadValidation {
     private final SignatureVerifier signatureVerifier;
     private final Map<String, Long> usedNonces = new ConcurrentHashMap<>();
     private final Map<UUID, ClientInfo> clients;
+    private final RateLimiter rateLimiter;
     private boolean debugMode = false;
 
     public PayloadValidation(PayloadValidationCallbacks callbacks, SignatureVerifier signatureVerifier, 
@@ -29,6 +32,8 @@ public class PayloadValidation {
         this.callbacks = callbacks;
         this.signatureVerifier = signatureVerifier;
         this.clients = clients;
+        int perMinute = callbacks != null ? callbacks.getRateLimitPerMinute() : 10;
+        this.rateLimiter = new RateLimiter(Math.max(1, perMinute), 60);
     }
 
     public void setDebugMode(boolean debug) {
@@ -41,6 +46,22 @@ public class PayloadValidation {
      */
     public ValidationResult validateModList(UUID playerId, String playerName, String modListPayload, 
                                            String modListHash, String nonce) {
+        if (callbacks.isRateLimitEnabled() && !rateLimiter.tryConsume(playerId)) {
+            callbacks.logWarning("Rate limit exceeded for %s while sending mod list payload", playerName);
+            return new ValidationResult(false, "Too many handshake payloads. Please retry shortly.");
+        }
+
+        String decodedPayload = modListPayload;
+        if (callbacks.isPayloadCompressionEnabled()) {
+            Optional<String> inflated = PayloadCompression.decodeEnvelope(modListPayload);
+            if (inflated.isEmpty()) {
+                callbacks.logWarning("Failed to decode compressed mod list payload from %s", playerName);
+                return new ValidationResult(false, callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_CORRUPTED,
+                    StandardMessages.HANDSHAKE_CORRUPTED));
+            }
+            decodedPayload = inflated.get();
+        }
+
         // 1. Validate nonce
         if (nonce == null || nonce.isEmpty()) {
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
@@ -58,7 +79,7 @@ public class PayloadValidation {
         }
 
         // 3. Validate mod list exists
-        if (modListPayload == null || modListPayload.isBlank()) {
+        if (decodedPayload == null || decodedPayload.isBlank()) {
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_EMPTY_MOD_LIST,
                 StandardMessages.HANDSHAKE_EMPTY_MOD_LIST);
             callbacks.logWarning("Received empty mod list from %s. Rejecting.", playerName);
@@ -73,7 +94,7 @@ public class PayloadValidation {
 
         // 5. Verify hash matches payload (modern/hybrid path)
         if (!hashMissingOrInvalid) {
-            String calculatedHash = HashUtils.sha256Hex(modListPayload);
+            String calculatedHash = HashUtils.sha256Hex(decodedPayload);
             if (!calculatedHash.equals(modListHash)) {
                 hashMissingOrInvalid = true;
                 if (debugMode) {
@@ -83,7 +104,7 @@ public class PayloadValidation {
             }
         }
 
-        ClientProfile profile = LegacyVersion.detectByPayload(modListPayload, modListHash, hashMissingOrInvalid);
+        ClientProfile profile = LegacyVersion.detectByPayload(decodedPayload, modListHash, hashMissingOrInvalid);
         if (debugMode) {
             callbacks.logInfo("Detected mod-list profile for %s: %s", playerName, profile.name().toLowerCase(Locale.ROOT));
         }
@@ -108,7 +129,7 @@ public class PayloadValidation {
 
         // 6. Parse mod list
         Set<String> mods = new HashSet<>();
-        for (String s : modListPayload.split(",")) {
+        for (String s : decodedPayload.split(",")) {
             if (!s.isBlank()) {
                 mods.add(s.trim().toLowerCase(Locale.ROOT));
             }
@@ -148,6 +169,11 @@ public class PayloadValidation {
      */
     public ValidationResult validateIntegrity(UUID playerId, String playerName, byte[] clientSignature, 
                                              String jarHash, String nonce) {
+        if (callbacks.isRateLimitEnabled() && !rateLimiter.tryConsume(playerId)) {
+            callbacks.logWarning("Rate limit exceeded for %s while sending integrity payload", playerName);
+            return new ValidationResult(false, "Too many handshake payloads. Please retry shortly.");
+        }
+
         ClientInfo previousInfo = clients.get(playerId);
         ClientProfile profile = LegacyVersion.detectByMods(previousInfo != null ? previousInfo.mods() : Collections.emptySet());
         if (debugMode) {
@@ -299,6 +325,11 @@ public class PayloadValidation {
      * Checks: nonce validity, signature hash existence.
      */
     public ValidationResult validateVelton(UUID playerId, String playerName, String signatureHash, String nonce) {
+        if (callbacks.isRateLimitEnabled() && !rateLimiter.tryConsume(playerId)) {
+            callbacks.logWarning("Rate limit exceeded for %s while sending velton payload", playerName);
+            return new ValidationResult(false, "Too many handshake payloads. Please retry shortly.");
+        }
+
         // 1. Validate nonce
         if (nonce == null || nonce.isEmpty()) {
             String message = callbacks.getMessageOrDefault(StandardMessages.KEY_HANDSHAKE_MISSING_NONCE,
@@ -394,6 +425,10 @@ public class PayloadValidation {
         usedNonces.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
+    public void cleanupExpiredNoncesNow() {
+        cleanupExpiredNonces();
+    }
+
     private boolean markNonceUsed(UUID playerId, String nonce) {
         cleanupExpiredNonces();
         String nonceKey = buildNonceKey(playerId, nonce);
@@ -437,6 +472,9 @@ public class PayloadValidation {
         boolean isHybridCompatibilityEnabled();
         boolean isLegacyCompatibilityEnabled();
         boolean isUnsignedCompatibilityEnabled();
+        default boolean isRateLimitEnabled() { return true; }
+        default int getRateLimitPerMinute() { return 10; }
+        default boolean isPayloadCompressionEnabled() { return true; }
         void logInfo(String format, Object... args);
         void logWarning(String format, Object... args);
         void syncPlayerMods(UUID playerId, String playerName, Set<String> mods);

@@ -63,6 +63,7 @@ public final class ConfigTypes {
         }
 
         public static final String KEY_KICK = "kick";
+        public static final String KEY_BAN = "ban";
         public static final String KEY_BEDROCK = "bedrock";
         public static final String KEY_NO_HANDSHAKE = "no-handshake";
         public static final String KEY_MISSING_WHITELIST = "missing-whitelist";
@@ -78,9 +79,12 @@ public final class ConfigTypes {
         public static final String KEY_HANDSHAKE_REPLAY = "handshake-replay";
         public static final String KEY_VELTON_FAILED = "velton-verification-failed";
         public static final String KEY_MODPACK_HASH_MISMATCH = "modpack-hash-mismatch";
+        public static final String KEY_KICK_SPOOFED_MOD = "kick-spoofed-mod";
 
         public static final String DEFAULT_KICK_MESSAGE =
             "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
+        public static final String DEFAULT_BAN_MESSAGE =
+            "You have been banned from this server.";
         public static final String DEFAULT_BEDROCK_MESSAGE =
             "Bedrock players are not allowed on this server.";
         public static final String DEFAULT_NO_HANDSHAKE_MESSAGE =
@@ -103,6 +107,8 @@ public final class ConfigTypes {
 
         public static final String VELTON_VERIFICATION_FAILED = "Anti-cheat verification failed";
         public static final String MODPACK_HASH_MISMATCH = "Your modpack does not match this server's required modpack.";
+        public static final String KICK_SPOOFED_MOD =
+            "Detected modified or spoofed mod files: {mod}. Please reinstall/update these mods to join.";
     }
 
     public record ModEntry(String modId, String version, String hash, String displayName) {
@@ -303,10 +309,25 @@ public final class ConfigTypes {
         private boolean hashMods = true;
         private boolean runtimeCache = false;
         private boolean modVersioning = true;
-        private String requiredModpackHash;
+        private final Set<String> requiredModpackHashes = new LinkedHashSet<>();
         private String defaultAction = "kick";
         private boolean whitelist = false;
         private int handshakeTimeoutSeconds = 5;
+        private int rateLimitPerMinute = 10;
+        private boolean diagnosticCommandEnabled = true;
+        private boolean exportCommandEnabled = true;
+        private boolean asyncDatabaseOperations = true;
+        private int databasePoolSize = 15;
+        private long databaseIdleTimeoutMs = 300_000L;
+        private long databaseMaxLifetimeMs = 1_800_000L;
+        private int deleteHistoryDays = 0;
+        private boolean payloadCompressionEnabled = true;
+        private boolean restApiEnabled = false;
+        private int restApiPort = 8080;
+        private boolean webhookEnabled = false;
+        private String webhookUrl = "";
+        private boolean webhookNotifyOnBan = true;
+        private boolean webhookNotifyOnKick = false;
 
         private final Map<String, String> messages = new LinkedHashMap<>();
         private final Map<String, ConfigState.ModConfig> modConfigMap = new LinkedHashMap<>();
@@ -490,12 +511,51 @@ public final class ConfigTypes {
             this.modVersioning = modVersioning;
         }
 
+        public Set<String> getRequiredModpackHashes() {
+            return new LinkedHashSet<>(requiredModpackHashes);
+        }
+
+        public void setRequiredModpackHashes(Set<String> requiredModpackHashes) {
+            this.requiredModpackHashes.clear();
+            if (requiredModpackHashes == null) {
+                return;
+            }
+
+            for (String hash : requiredModpackHashes) {
+                String normalized = normalizeModpackHash(hash);
+                if (normalized != null) {
+                    this.requiredModpackHashes.add(normalized);
+                }
+            }
+        }
+
         public String getRequiredModpackHash() {
-            return requiredModpackHash;
+            return requiredModpackHashes.isEmpty() ? null : requiredModpackHashes.iterator().next();
         }
 
         public void setRequiredModpackHash(String requiredModpackHash) {
-            this.requiredModpackHash = requiredModpackHash;
+            this.requiredModpackHashes.clear();
+            String normalized = normalizeModpackHash(requiredModpackHash);
+            if (normalized != null) {
+                this.requiredModpackHashes.add(normalized);
+            }
+        }
+
+        private static String normalizeModpackHash(String value) {
+            if (value == null) {
+                return null;
+            }
+
+            String normalized = value.trim().toLowerCase(Locale.ROOT);
+            if (normalized.isEmpty()
+                || normalized.equals("off")
+                || normalized.equals("none")
+                || normalized.equals("null")
+                || normalized.equals("false")) {
+                return null;
+            }
+
+            return normalized.matches("[0-9a-f]{64}") ? normalized : null;
         }
 
         public String getDefaultAction() {
@@ -520,6 +580,126 @@ public final class ConfigTypes {
 
         public void setHandshakeTimeoutSeconds(int handshakeTimeoutSeconds) {
             this.handshakeTimeoutSeconds = handshakeTimeoutSeconds;
+        }
+
+        public int getRateLimitPerMinute() {
+            return rateLimitPerMinute;
+        }
+
+        public void setRateLimitPerMinute(int rateLimitPerMinute) {
+            this.rateLimitPerMinute = Math.max(1, rateLimitPerMinute);
+        }
+
+        public boolean isDiagnosticCommandEnabled() {
+            return diagnosticCommandEnabled;
+        }
+
+        public void setDiagnosticCommandEnabled(boolean diagnosticCommandEnabled) {
+            this.diagnosticCommandEnabled = diagnosticCommandEnabled;
+        }
+
+        public boolean isExportCommandEnabled() {
+            return exportCommandEnabled;
+        }
+
+        public void setExportCommandEnabled(boolean exportCommandEnabled) {
+            this.exportCommandEnabled = exportCommandEnabled;
+        }
+
+        public boolean isAsyncDatabaseOperations() {
+            return asyncDatabaseOperations;
+        }
+
+        public void setAsyncDatabaseOperations(boolean asyncDatabaseOperations) {
+            this.asyncDatabaseOperations = asyncDatabaseOperations;
+        }
+
+        public int getDatabasePoolSize() {
+            return databasePoolSize;
+        }
+
+        public void setDatabasePoolSize(int databasePoolSize) {
+            this.databasePoolSize = Math.max(1, databasePoolSize);
+        }
+
+        public long getDatabaseIdleTimeoutMs() {
+            return databaseIdleTimeoutMs;
+        }
+
+        public void setDatabaseIdleTimeoutMs(long databaseIdleTimeoutMs) {
+            this.databaseIdleTimeoutMs = Math.max(10_000L, databaseIdleTimeoutMs);
+        }
+
+        public long getDatabaseMaxLifetimeMs() {
+            return databaseMaxLifetimeMs;
+        }
+
+        public int getDeleteHistoryDays() {
+            return deleteHistoryDays;
+        }
+
+        public void setDeleteHistoryDays(int deleteHistoryDays) {
+            this.deleteHistoryDays = Math.max(0, deleteHistoryDays);
+        }
+
+        public void setDatabaseMaxLifetimeMs(long databaseMaxLifetimeMs) {
+            this.databaseMaxLifetimeMs = Math.max(30_000L, databaseMaxLifetimeMs);
+        }
+
+        public boolean isPayloadCompressionEnabled() {
+            return payloadCompressionEnabled;
+        }
+
+        public void setPayloadCompressionEnabled(boolean payloadCompressionEnabled) {
+            this.payloadCompressionEnabled = payloadCompressionEnabled;
+        }
+
+        public boolean isRestApiEnabled() {
+            return restApiEnabled;
+        }
+
+        public void setRestApiEnabled(boolean restApiEnabled) {
+            this.restApiEnabled = restApiEnabled;
+        }
+
+        public int getRestApiPort() {
+            return restApiPort;
+        }
+
+        public void setRestApiPort(int restApiPort) {
+            this.restApiPort = Math.max(1, restApiPort);
+        }
+
+        public boolean isWebhookEnabled() {
+            return webhookEnabled;
+        }
+
+        public void setWebhookEnabled(boolean webhookEnabled) {
+            this.webhookEnabled = webhookEnabled;
+        }
+
+        public String getWebhookUrl() {
+            return webhookUrl;
+        }
+
+        public void setWebhookUrl(String webhookUrl) {
+            this.webhookUrl = webhookUrl == null ? "" : webhookUrl.trim();
+        }
+
+        public boolean isWebhookNotifyOnBan() {
+            return webhookNotifyOnBan;
+        }
+
+        public void setWebhookNotifyOnBan(boolean webhookNotifyOnBan) {
+            this.webhookNotifyOnBan = webhookNotifyOnBan;
+        }
+
+        public boolean isWebhookNotifyOnKick() {
+            return webhookNotifyOnKick;
+        }
+
+        public void setWebhookNotifyOnKick(boolean webhookNotifyOnKick) {
+            this.webhookNotifyOnKick = webhookNotifyOnKick;
         }
 
         public Map<String, String> getMessages() {

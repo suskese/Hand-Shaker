@@ -1,9 +1,11 @@
 package me.mklv.handshaker.common.configs;
 
 import me.mklv.handshaker.common.utils.ModCache;
+import me.mklv.handshaker.common.utils.WildcardMatcher;
 
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -39,10 +41,25 @@ public final class ConfigRuntime {
                                                          boolean hashMods,
                                                          boolean runtimeCache,
                                                          boolean modVersioning,
-                                                         String requiredModpackHash,
+                                                         Set<String> requiredModpackHashes,
                                                          String defaultAction,
                                                          boolean whitelist,
                                                          int handshakeTimeoutSeconds,
+                                                         int rateLimitPerMinute,
+                                                         boolean diagnosticCommandEnabled,
+                                                         boolean exportCommandEnabled,
+                                                         boolean asyncDatabaseOperations,
+                                                         int databasePoolSize,
+                                                         long databaseIdleTimeoutMs,
+                                                         long databaseMaxLifetimeMs,
+                                                         int deleteHistoryDays,
+                                                         boolean payloadCompressionEnabled,
+                                                         boolean restApiEnabled,
+                                                         int restApiPort,
+                                                         boolean webhookEnabled,
+                                                         String webhookUrl,
+                                                         boolean webhookNotifyOnBan,
+                                                         boolean webhookNotifyOnKick,
                                                          Map<String, String> messages,
                                                          Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
                                                          Set<String> ignoredMods,
@@ -72,10 +89,25 @@ public final class ConfigRuntime {
                 hashMods,
                 runtimeCache,
                 modVersioning,
-                requiredModpackHash,
+                requiredModpackHashes,
                 defaultAction,
                 whitelist,
                 handshakeTimeoutSeconds,
+                rateLimitPerMinute,
+                diagnosticCommandEnabled,
+                exportCommandEnabled,
+                asyncDatabaseOperations,
+                databasePoolSize,
+                databaseIdleTimeoutMs,
+                databaseMaxLifetimeMs,
+                deleteHistoryDays,
+                payloadCompressionEnabled,
+                restApiEnabled,
+                restApiPort,
+                webhookEnabled,
+                webhookUrl,
+                webhookNotifyOnBan,
+                webhookNotifyOnKick,
                 messages,
                 modConfigMap,
                 ignoredMods,
@@ -218,8 +250,23 @@ public final class ConfigRuntime {
         protected boolean hashMods = true;
         protected boolean runtimeCache = false;
         protected boolean modVersioning = true;
-        protected String requiredModpackHash;
+        protected final Set<String> requiredModpackHashes = new LinkedHashSet<>();
         protected String defaultAction = "kick";
+        protected int rateLimitPerMinute = 10;
+        protected boolean diagnosticCommandEnabled = true;
+        protected boolean exportCommandEnabled = true;
+        protected boolean asyncDatabaseOperations = true;
+        protected int databasePoolSize = 15;
+        protected long databaseIdleTimeoutMs = 300_000L;
+        protected long databaseMaxLifetimeMs = 1_800_000L;
+        protected int deleteHistoryDays = 0;
+        protected boolean payloadCompressionEnabled = true;
+        protected boolean restApiEnabled = false;
+        protected int restApiPort = 8080;
+        protected boolean webhookEnabled = false;
+        protected String webhookUrl = "";
+        protected boolean webhookNotifyOnBan = true;
+        protected boolean webhookNotifyOnKick = false;
 
         protected final Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap = new LinkedHashMap<>();
         protected boolean whitelist = false;
@@ -277,11 +324,27 @@ public final class ConfigRuntime {
             hashMods = result.isHashMods();
             runtimeCache = result.isRuntimeCache();
             modVersioning = result.isModVersioning();
-            requiredModpackHash = result.getRequiredModpackHash();
+            requiredModpackHashes.clear();
+            requiredModpackHashes.addAll(result.getRequiredModpackHashes());
             defaultAction = result.getDefaultAction() != null && !result.getDefaultAction().isBlank()
                 ? result.getDefaultAction().toLowerCase(Locale.ROOT)
                 : "kick";
             whitelist = result.isWhitelist();
+            rateLimitPerMinute = result.getRateLimitPerMinute();
+            diagnosticCommandEnabled = result.isDiagnosticCommandEnabled();
+            exportCommandEnabled = result.isExportCommandEnabled();
+            asyncDatabaseOperations = result.isAsyncDatabaseOperations();
+            databasePoolSize = result.getDatabasePoolSize();
+            databaseIdleTimeoutMs = result.getDatabaseIdleTimeoutMs();
+            databaseMaxLifetimeMs = result.getDatabaseMaxLifetimeMs();
+            deleteHistoryDays = result.getDeleteHistoryDays();
+            payloadCompressionEnabled = result.isPayloadCompressionEnabled();
+            restApiEnabled = result.isRestApiEnabled();
+            restApiPort = result.getRestApiPort();
+            webhookEnabled = result.isWebhookEnabled();
+            webhookUrl = result.getWebhookUrl();
+            webhookNotifyOnBan = result.isWebhookNotifyOnBan();
+            webhookNotifyOnKick = result.isWebhookNotifyOnKick();
 
             customMessages.clear();
             customMessages.putAll(result.getMessages());
@@ -331,10 +394,25 @@ public final class ConfigRuntime {
                 hashMods,
                 runtimeCache,
                 modVersioning,
-                requiredModpackHash,
+                requiredModpackHashes,
                 defaultAction,
                 whitelist,
                 handshakeTimeoutSeconds,
+                rateLimitPerMinute,
+                diagnosticCommandEnabled,
+                exportCommandEnabled,
+                asyncDatabaseOperations,
+                databasePoolSize,
+                databaseIdleTimeoutMs,
+                databaseMaxLifetimeMs,
+                deleteHistoryDays,
+                payloadCompressionEnabled,
+                restApiEnabled,
+                restApiPort,
+                webhookEnabled,
+                webhookUrl,
+                webhookNotifyOnBan,
+                webhookNotifyOnKick,
                 customMessages,
                 modConfigMap,
                 ignoredMods,
@@ -460,16 +538,84 @@ public final class ConfigRuntime {
             return modVersioning;
         }
 
+        public Set<String> getRequiredModpackHashes() {
+            return Collections.unmodifiableSet(requiredModpackHashes);
+        }
+
         public String getRequiredModpackHash() {
-            return requiredModpackHash;
+            return requiredModpackHashes.isEmpty() ? null : requiredModpackHashes.iterator().next();
         }
 
         public String getDefaultAction() {
             return defaultAction;
         }
 
+        public int getRateLimitPerMinute() {
+            return rateLimitPerMinute;
+        }
+
+        public boolean isDiagnosticCommandEnabled() {
+            return diagnosticCommandEnabled;
+        }
+
+        public boolean isExportCommandEnabled() {
+            return exportCommandEnabled;
+        }
+
+        public boolean isAsyncDatabaseOperations() {
+            return asyncDatabaseOperations;
+        }
+
+        public int getDatabasePoolSize() {
+            return databasePoolSize;
+        }
+
+        public long getDatabaseIdleTimeoutMs() {
+            return databaseIdleTimeoutMs;
+        }
+
+        public long getDatabaseMaxLifetimeMs() {
+            return databaseMaxLifetimeMs;
+        }
+
+        public int getDeleteHistoryDays() {
+            return deleteHistoryDays;
+        }
+
+        public boolean isPayloadCompressionEnabled() {
+            return payloadCompressionEnabled;
+        }
+
+        public boolean isRestApiEnabled() {
+            return restApiEnabled;
+        }
+
+        public int getRestApiPort() {
+            return restApiPort;
+        }
+
+        public boolean isWebhookEnabled() {
+            return webhookEnabled;
+        }
+
+        public String getWebhookUrl() {
+            return webhookUrl;
+        }
+
+        public boolean isWebhookNotifyOnBan() {
+            return webhookNotifyOnBan;
+        }
+
+        public boolean isWebhookNotifyOnKick() {
+            return webhookNotifyOnKick;
+        }
+
         public String getDefaultActionForMode(String mode) {
-            return defaultAction;
+            String normalizedMode = mode == null ? "" : mode.trim().toLowerCase(Locale.ROOT);
+            if (ConfigTypes.ConfigState.MODE_BLACKLISTED.equals(normalizedMode)) {
+                return defaultAction;
+            }
+            return "none";
         }
 
         public ConfigTypes.ActionDefinition getAction(String actionName) {
@@ -487,6 +633,10 @@ public final class ConfigRuntime {
 
         public Set<String> getAvailableActions() {
             return Collections.unmodifiableSet(actionsMap.keySet());
+        }
+
+        public Map<String, String> getMessages() {
+            return Collections.unmodifiableMap(messagesMap);
         }
 
         public void setBehavior(String value) {
@@ -609,12 +759,31 @@ public final class ConfigRuntime {
             ModCache.invalidate();
         }
 
-        public void setRequiredModpackHash(String hash) {
-            if (hash == null) {
-                this.requiredModpackHash = null;
-            } else {
+        public void setRequiredModpackHashes(Set<String> hashes) {
+            this.requiredModpackHashes.clear();
+            if (hashes == null) {
+                return;
+            }
+
+            for (String hash : hashes) {
+                if (hash == null) {
+                    continue;
+                }
                 String normalized = hash.trim().toLowerCase(Locale.ROOT);
-                this.requiredModpackHash = normalized.isEmpty() ? null : normalized;
+                if (normalized.matches("[0-9a-f]{64}")) {
+                    this.requiredModpackHashes.add(normalized);
+                }
+            }
+        }
+
+        public void setRequiredModpackHash(String hash) {
+            this.requiredModpackHashes.clear();
+            if (hash == null) {
+                return;
+            }
+            String normalized = hash.trim().toLowerCase(Locale.ROOT);
+            if (normalized.matches("[0-9a-f]{64}")) {
+                this.requiredModpackHashes.add(normalized);
             }
         }
 
@@ -648,7 +817,21 @@ public final class ConfigRuntime {
             if (normalized.isEmpty()) {
                 return false;
             }
-            return ignoredMods.contains(normalized);
+            if (ignoredMods.contains(normalized)) {
+                return true;
+            }
+
+            ConfigTypes.ModEntry entry = ConfigTypes.ModEntry.parse(normalized);
+            String modOnly = entry != null ? entry.modId() : normalized;
+            for (String ignored : ignoredMods) {
+                if (!WildcardMatcher.containsWildcard(ignored)) {
+                    continue;
+                }
+                if (WildcardMatcher.matches(ignored, normalized) || WildcardMatcher.matches(ignored, modOnly)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public boolean isModIgnored(String modId) {
@@ -707,6 +890,25 @@ public final class ConfigRuntime {
             String normalized = modId.toLowerCase(Locale.ROOT);
             ConfigTypes.ConfigState.ModConfig cfg = modConfigMap.get(normalized);
             if (cfg != null) return cfg;
+
+            ConfigTypes.ModEntry entry = ConfigTypes.ModEntry.parse(normalized);
+            String modOnly = entry != null ? entry.modId() : normalized;
+            cfg = modConfigMap.get(modOnly);
+            if (cfg != null) return cfg;
+
+            for (Map.Entry<String, ConfigTypes.ConfigState.ModConfig> candidate : modConfigMap.entrySet()) {
+                String ruleKey = candidate.getKey();
+                if (!WildcardMatcher.containsWildcard(ruleKey)) {
+                    continue;
+                }
+                ConfigTypes.ModEntry rule = ConfigTypes.ModEntry.parse(ruleKey);
+                if (rule == null || rule.modId() == null) {
+                    continue;
+                }
+                if (WildcardMatcher.matches(rule.modId(), modOnly)) {
+                    return candidate.getValue();
+                }
+            }
 
             String defaultModeStr = whitelist ? ConfigTypes.ConfigState.MODE_BLACKLISTED : ConfigTypes.ConfigState.MODE_ALLOWED;
             return new ConfigTypes.ConfigState.ModConfig(defaultModeStr, defaultAction, null);

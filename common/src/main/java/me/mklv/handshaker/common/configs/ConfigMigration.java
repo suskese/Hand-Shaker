@@ -48,8 +48,14 @@ public final class ConfigMigration {
             File blacklistedYml = configDir.resolve("mods-blacklisted.yml").toFile();
             File whitelistedYml = configDir.resolve("mods-whitelisted.yml").toFile();
             File ignoredYml = configDir.resolve("mods-ignored.yml").toFile();
+            File requiredYmlNested = configDir.resolve("mod-lists").resolve("mods-required.yml").toFile();
+            File blacklistedYmlNested = configDir.resolve("mod-lists").resolve("mods-blacklisted.yml").toFile();
+            File whitelistedYmlNested = configDir.resolve("mod-lists").resolve("mods-whitelisted.yml").toFile();
+            File ignoredYmlNested = configDir.resolve("mod-lists").resolve("mods-ignored.yml").toFile();
 
-            if (configYml.exists() && (requiredYml.exists() || blacklistedYml.exists() || whitelistedYml.exists() || ignoredYml.exists())) {
+            if (configYml.exists() && (
+                requiredYml.exists() || blacklistedYml.exists() || whitelistedYml.exists() || ignoredYml.exists()
+                    || requiredYmlNested.exists() || blacklistedYmlNested.exists() || whitelistedYmlNested.exists() || ignoredYmlNested.exists())) {
                 if (v3ConfigFile.exists()) {
                     if (!v3ConfigFile.delete()) {
                         logWarn(logger, "Could not delete old v3 config file: " + v3ConfigFile.getName());
@@ -236,22 +242,22 @@ public final class ConfigMigration {
             }
 
             if (!requiredMods.isEmpty()) {
-                File requiredFile = new File(dataFolder, "mods-required.yml");
+                File requiredFile = new File(new File(dataFolder, "mod-lists"), "mods-required.yml");
                 saveModsYaml(requiredFile, "required", new ArrayList<>(requiredMods), requiredActions);
             }
 
             if (!blacklistedMods.isEmpty()) {
-                File blacklistedFile = new File(dataFolder, "mods-blacklisted.yml");
+                File blacklistedFile = new File(new File(dataFolder, "mod-lists"), "mods-blacklisted.yml");
                 saveBlacklistedYaml(blacklistedFile, blacklistedActions);
             }
 
             if (!whitelistedMods.isEmpty()) {
-                File whitelistedFile = new File(dataFolder, "mods-whitelisted.yml");
+                File whitelistedFile = new File(new File(dataFolder, "mod-lists"), "mods-whitelisted.yml");
                 saveModsYaml(whitelistedFile, "whitelisted", new ArrayList<>(whitelistedMods), whitelistedActions);
             }
 
             if (!ignoredMods.isEmpty()) {
-                File ignoredFile = new File(dataFolder, "mods-ignored.yml");
+                File ignoredFile = new File(new File(dataFolder, "mod-lists"), "mods-ignored.yml");
                 saveModsYaml(ignoredFile, "ignored", new ArrayList<>(ignoredMods), null);
             }
         }

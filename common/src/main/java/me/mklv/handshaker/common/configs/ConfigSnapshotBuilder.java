@@ -28,10 +28,25 @@ public final class ConfigSnapshotBuilder {
                                                      boolean hashMods,
                                                      boolean runtimeCache,
                                                      boolean modVersioning,
-                                                     String requiredModpackHash,
+                                                     Set<String> requiredModpackHashes,
                                                      String defaultAction,
                                                      boolean whitelist,
                                                      int handshakeTimeoutSeconds,
+                                                     int rateLimitPerMinute,
+                                                     boolean diagnosticCommandEnabled,
+                                                     boolean exportCommandEnabled,
+                                                     boolean asyncDatabaseOperations,
+                                                     int databasePoolSize,
+                                                     long databaseIdleTimeoutMs,
+                                                     long databaseMaxLifetimeMs,
+                                                     int deleteHistoryDays,
+                                                     boolean payloadCompressionEnabled,
+                                                     boolean restApiEnabled,
+                                                     int restApiPort,
+                                                     boolean webhookEnabled,
+                                                     String webhookUrl,
+                                                     boolean webhookNotifyOnBan,
+                                                     boolean webhookNotifyOnKick,
                                                      Map<String, String> messages,
                                                      Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
                                                      Set<String> ignoredMods,
@@ -61,10 +76,25 @@ public final class ConfigSnapshotBuilder {
         snapshot.setHashMods(hashMods);
         snapshot.setRuntimeCache(runtimeCache);
         snapshot.setModVersioning(modVersioning);
-        snapshot.setRequiredModpackHash(requiredModpackHash);
+        snapshot.setRequiredModpackHashes(requiredModpackHashes);
         snapshot.setDefaultAction(defaultAction);
         snapshot.setWhitelist(whitelist);
         snapshot.setHandshakeTimeoutSeconds(handshakeTimeoutSeconds);
+        snapshot.setRateLimitPerMinute(rateLimitPerMinute);
+        snapshot.setDiagnosticCommandEnabled(diagnosticCommandEnabled);
+        snapshot.setExportCommandEnabled(exportCommandEnabled);
+        snapshot.setAsyncDatabaseOperations(asyncDatabaseOperations);
+        snapshot.setDatabasePoolSize(databasePoolSize);
+        snapshot.setDatabaseIdleTimeoutMs(databaseIdleTimeoutMs);
+        snapshot.setDatabaseMaxLifetimeMs(databaseMaxLifetimeMs);
+        snapshot.setDeleteHistoryDays(deleteHistoryDays);
+        snapshot.setPayloadCompressionEnabled(payloadCompressionEnabled);
+        snapshot.setRestApiEnabled(restApiEnabled);
+        snapshot.setRestApiPort(restApiPort);
+        snapshot.setWebhookEnabled(webhookEnabled);
+        snapshot.setWebhookUrl(webhookUrl);
+        snapshot.setWebhookNotifyOnBan(webhookNotifyOnBan);
+        snapshot.setWebhookNotifyOnKick(webhookNotifyOnKick);
 
         Map<String, String> messageSnapshot = messages != null ? messages : Collections.emptyMap();
         snapshot.getMessages().putAll(messageSnapshot);

@@ -1,0 +1,61 @@
+plugins {
+    id 'base'
+    id 'maven-publish'
+}
+
+version = rootProject.mod_version
+group = rootProject.maven_group
+
+base {
+	archivesName = "handlib-1.21"
+}
+
+def fabricJar = project(':handlib:1.21:fabric').layout.buildDirectory.file("libs/${rootProject.archives_base_name}-handlib-fabric-1.21-${rootProject.mod_version}.jar")
+def neoJar = project(':handlib:1.21:neoforge').layout.buildDirectory.file("libs/${rootProject.archives_base_name}-handlib-neoforge-1.21-${rootProject.mod_version}.jar")
+
+tasks.register('jar', Jar) {
+	dependsOn(':handlib:1.21:fabric:assemble', ':handlib:1.21:neoforge:assemble')
+	archiveBaseName = base.archivesName.get()
+	archiveVersion = project.version.toString()
+	destinationDirectory = layout.buildDirectory.dir('libs').get().asFile
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+	from({ zipTree(fabricJar.get().asFile) }) {
+        include 'fabric.mod.json'
+        include 'hand-shaker.mixins.json'
+        include 'assets/**'
+        include 'me/mklv/handlib/fabric/**'
+    include 'me/mklv/handlib/text/**'
+	}
+	from({ zipTree(neoJar.get().asFile) }) {
+        include 'META-INF/neoforge.mods.toml'
+        include 'me/mklv/handlib/neoforge/**'
+	}
+}
+
+tasks.named('assemble') {
+	dependsOn(tasks.named('jar'))
+}
+
+publishing {
+    publications {
+        handlibJar(MavenPublication) {
+            artifact tasks.named('jar')
+            groupId = project.group
+            artifactId = base.archivesName.get()
+            version = project.version.toString()
+        }
+    }
+    repositories {
+        mavenLocal()
+        // TODO: Configure remote repository (e.g., GitHub Packages, Modrinth Maven)
+        // maven {
+        //     name = "GitHubPackages"
+        //     url = "https://maven.pkg.github.com/suskese/hand-shaker"
+        //     credentials {
+        //         username = findProperty("github.user") ?: System.getenv("GITHUB_ACTOR")
+        //         password = findProperty("github.token") ?: System.getenv("GITHUB_TOKEN")
+        //     }
+        // }
+    }
+}

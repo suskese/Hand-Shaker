@@ -13,6 +13,10 @@ final class ConfigMigrationIoSupport {
     }
 
     static void saveModsYaml(File file, String key, List<String> mods, Map<String, String> actionMap) throws IOException {
+        File parent = file.getParentFile();
+        if (parent != null) {
+            parent.mkdirs();
+        }
         StringBuilder yaml = new StringBuilder();
 
         if ("required".equals(key)) {
@@ -49,6 +53,10 @@ final class ConfigMigrationIoSupport {
     }
 
     static void saveBlacklistedYaml(File file, Map<String, String> blacklistMap) throws IOException {
+        File parent = file.getParentFile();
+        if (parent != null) {
+            parent.mkdirs();
+        }
         StringBuilder yaml = new StringBuilder();
         yaml.append("# Blacklisted mods: modname: kick/ban\n\n");
         yaml.append("blacklisted:\n");
@@ -63,6 +71,10 @@ final class ConfigMigrationIoSupport {
     }
 
     static void saveAsYaml(File file, Map<String, Object> data) throws IOException {
+        File parent = file.getParentFile();
+        if (parent != null) {
+            parent.mkdirs();
+        }
         StringBuilder yaml = new StringBuilder();
 
         for (Map.Entry<String, Object> entry : data.entrySet()) {
