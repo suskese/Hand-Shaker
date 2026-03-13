@@ -34,4 +34,4 @@ include 'handlib:1.21.11:neoforge'
 
 include 'paper'
 include 'fabric'
-include 'neoforge'
+// include 'neoforge'

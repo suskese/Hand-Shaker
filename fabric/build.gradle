@@ -3,6 +3,12 @@ plugins {
 	id 'maven-publish'
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
 def handlibFabricClasses = project(':handlib:1.21:fabric').layout.buildDirectory.dir('classes/java/main')
 
 version = rootProject.mod_version
@@ -89,14 +95,14 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 21
+	it.options.release = 25
 }
 
 java {
 	withSourcesJar()
 
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
 }
 
 tasks.named('sourcesJar').configure {
