@@ -1,3 +1,5 @@
+>[!CAUTION]
+> **This project has been archived due being hard to update/fix and big changes to projects structure itself. Please use refreshed version from [IceVallish-Studio/HandShaker](https://github.com/IceVallish-Studio/HandShaker) for up-to-date and newer source code.**
 # 🤝 HandShaker 6.0.2
 
 >[!WARNING]
