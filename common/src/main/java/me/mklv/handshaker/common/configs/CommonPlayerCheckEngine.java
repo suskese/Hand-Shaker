@@ -14,6 +14,7 @@ import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Collection;
 
 public final class CommonPlayerCheckEngine {
     private CommonPlayerCheckEngine() {
@@ -33,6 +34,10 @@ public final class CommonPlayerCheckEngine {
         void publishKick(String playerName, String reason, String mods);
 
         boolean hasBypassPermission();
+
+        default Collection<ClassLoader> additionalBedrockClassLoaders() {
+            return null;
+        }
     }
 
     public static void checkPlayer(CommonConfigManagerBase config,
@@ -46,7 +51,8 @@ public final class CommonPlayerCheckEngine {
         boolean bedrockPlayer = BedrockPlayer.isBedrockPlayer(
             playerId,
             playerName,
-            bridge::warn
+            bridge::warn,
+            bridge.additionalBedrockClassLoaders()
         );
         if (bedrockPlayer) {
             if (config.isAllowBedrockPlayers()) {
@@ -64,18 +70,27 @@ public final class CommonPlayerCheckEngine {
             return;
         }
 
+        // Skip check if already performed during this session (prevents duplicate webhook events)
+        if (info != null && info.handshakeChecked()) {
+            return;
+        }
+
         boolean hasMod = info != null && !info.mods().isEmpty();
 
         if (config.getIntegrityMode() == IntegrityMode.SIGNED && hasMod) {
             if (info.integrityNonce() == null && isTimeoutCheck) {
                 bridge.warn("Kicking " + playerName + " - mod client but no integrity data sent in SIGNED mode");
-                bridge.disconnect(config.getInvalidSignatureKickMessage());
-                return;
+                if (executeActions) {
+                    bridge.disconnect(config.getInvalidSignatureKickMessage());
+                    return;
+                }
             }
             if (info.integrityNonce() != null && !info.signatureVerified()) {
                 bridge.warn("Kicking " + playerName + " - integrity check FAILED in SIGNED mode");
-                bridge.disconnect(config.getInvalidSignatureKickMessage());
-                return;
+                if (executeActions) {
+                    bridge.disconnect(config.getInvalidSignatureKickMessage());
+                    return;
+                }
             }
         }
 
@@ -131,6 +146,23 @@ public final class CommonPlayerCheckEngine {
                             " (blacklisted mods: " + result.getMods() + ")");
                     }
 
+                    // Disconnect BEFORE executing commands so the disconnect message is shown before Minecraft's ban system
+                    if (result.getMessage() != null) {
+                        boolean isBanAction = "ban".equalsIgnoreCase(result.getActionName());
+                        if (!isBanAction) {
+                            bridge.publishKick(playerName, result.getMessage(), String.join(", ", result.getMods()));
+                        }
+                        String disconnectMsg = isBanAction
+                            ? MessagePlaceholderExpander.expand(
+                                config.getMessageOrDefault(StandardMessages.KEY_BAN, StandardMessages.DEFAULT_BAN_MESSAGE),
+                                playerName,
+                                String.join(", ", result.getMods()),
+                                config.getMessages()
+                            )
+                            : result.getMessage();
+                        bridge.disconnect(disconnectMsg);
+                    }
+
                     executeCommands(
                         config,
                         actionDef,
@@ -141,7 +173,8 @@ public final class CommonPlayerCheckEngine {
                 }
             }
 
-            if (result.getMessage() != null) {
+            if (result.getMessage() != null && !(result.isBlacklistedViolation())) {
+                // Only handle non-violation messages here (already handled above for blacklisted violations)
                 boolean isBanAction = "ban".equalsIgnoreCase(result.getActionName());
                 if (!isBanAction) {
                     bridge.publishKick(playerName, result.getMessage(), String.join(", ", result.getMods()));

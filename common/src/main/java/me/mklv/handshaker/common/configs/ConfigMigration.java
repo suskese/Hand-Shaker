@@ -115,16 +115,22 @@ public final class ConfigMigration {
             if (behavior == null) {
                 behavior = "strict";
             }
-            mainConfig.put("behavior", behavior.toLowerCase());
-            mainConfig.put("# Options: strict, vanilla", null);
+            boolean forceHandshakerMod = behavior.equalsIgnoreCase("strict");
+            mainConfig.put("handshaker-enforcement", forceHandshakerMod);
+            mainConfig.put("# handshaker-enforcement: true = strict, false = vanilla", null);
             mainConfig.put("", null);
 
             String integrity = getStringByKeys(root, "integrity-mode", "Integrity");
             if (integrity == null) {
                 integrity = "signed";
             }
-            mainConfig.put("integrity-mode", integrity.toLowerCase());
-            mainConfig.put("# Options: signed, dev", null);
+            Map<String, Object> compatibility = new LinkedHashMap<>();
+            compatibility.put("modern-7.0+", true);
+            compatibility.put("hybrid-6.0", false);
+            compatibility.put("legacy-3.0+", false);
+            compatibility.put("unsigned", integrity.equalsIgnoreCase("dev"));
+            mainConfig.put("handshaker-version-compatibility", compatibility);
+            mainConfig.put("# unsigned=true maps to legacy dev/integrity mode", null);
             mainConfig.put("", null);
 
             Boolean whitelist = getBooleanByKeys(root, "whitelist");
@@ -132,22 +138,22 @@ public final class ConfigMigration {
                 String defaultMode = getStringByKeys(root, "default-mode", "Default Mode");
                 whitelist = defaultMode != null && defaultMode.equalsIgnoreCase("blacklisted");
             }
-            mainConfig.put("whitelist", whitelist);
-            mainConfig.put("# Whitelist mode: true = only allowed mods, false = allowed by default", null);
+            mainConfig.put("whitelist-enforcement", whitelist);
+            mainConfig.put("# whitelist-enforcement: true = only allowed mods, false = allowed by default", null);
             mainConfig.put("", null);
 
             Boolean allowBedrock = getBooleanByKeys(root, "allow-bedrock-players", "Allow Bedrock Players");
             if (allowBedrock == null) {
                 allowBedrock = false;
             }
-            mainConfig.put("allow-bedrock-players", allowBedrock);
+            mainConfig.put("bedrock-policy", allowBedrock);
             mainConfig.put("", null);
 
             Boolean playerdbEnabled = getBooleanByKeys(root, "playerdb-enabled");
             if (playerdbEnabled == null) {
                 playerdbEnabled = false;
             }
-            mainConfig.put("playerdb-enabled", playerdbEnabled);
+            mainConfig.put("database", playerdbEnabled);
             mainConfig.put("", null);
 
             mainConfig.put("# Kick Messages - customize as needed", null);

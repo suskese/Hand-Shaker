@@ -7,7 +7,11 @@ import me.mklv.handshaker.neoforge.NetworkSetup;
 import me.mklv.handshaker.common.api.local.ApiDataProvider;
 import me.mklv.handshaker.common.api.local.ApiServerConfig;
 import me.mklv.handshaker.common.api.local.LocalRestApiServer;
-import me.mklv.handshaker.common.api.discord.WebhookDispatcher;
+import me.mklv.handshaker.common.api.module.EventBus;
+import me.mklv.handshaker.common.api.module.HandShakerEvent;
+import me.mklv.handshaker.common.api.module.HandShakerModule;
+import me.mklv.handshaker.common.api.module.ModuleContext;
+import me.mklv.handshaker.common.api.module.ModuleLoader;
 import me.mklv.handshaker.common.configs.ConfigMigration.ConfigMigrator;
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 import me.mklv.handshaker.common.server.ServerApiProviderFactory;
@@ -42,33 +46,40 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.slf4j.Logger;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 @Mod(HandShakerServerMod.MOD_ID)
 public class HandShakerServerMod {
-    public static final String MOD_ID = "hand-shaker";
+    public static final String MOD_ID = "hand_shaker";
     public static final Logger LOGGER = LogUtils.getLogger();
     private static HandShakerServerMod instance;
 
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
-    private ConfigManager blacklistConfig;
+    private ConfigManager configManager;
     private PlayerHistoryDatabase playerHistoryDb;
     private PayloadValidation payloadValidator;
     private MinecraftServer server;
 
     private SignatureVerifier signatureVerifier;
     private LocalRestApiServer localRestApiServer;
-    private WebhookDispatcher webhookDispatcher;
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final EventBus eventBus = new EventBus();
+    private final List<HandShakerModule> loadedModules = new ArrayList<>();
+    private final Map<String, com.sun.net.httpserver.HttpHandler> pendingModuleRoutes = new LinkedHashMap<>();
+    private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     public HandShakerServerMod(IEventBus modEventBus) {
         instance = this;
@@ -99,8 +110,8 @@ public class HandShakerServerMod {
             }
         );
 
-        blacklistConfig = new ConfigManager();
-        blacklistConfig.load();
+        configManager = new ConfigManager();
+        configManager.load();
 
         LegacyVersion.initializeTrustedHybridHashes(getClass(), new LegacyVersion.LogSink() {
             @Override
@@ -116,58 +127,58 @@ public class HandShakerServerMod {
 
         loadPublicCertificate();
 
-        if (blacklistConfig.isPlayerdbEnabled()) {
+        if (configManager.isPlayerdbEnabled()) {
             PlayerHistoryDatabase.DatabaseOptions options = PlayerHistoryDatabase.DatabaseOptions.of(
-                blacklistConfig.getDatabasePoolSize(),
-                blacklistConfig.getDatabaseIdleTimeoutMs(),
-                blacklistConfig.getDatabaseMaxLifetimeMs()
+                configManager.getDatabasePoolSize(),
+                configManager.getDatabaseIdleTimeoutMs(),
+                configManager.getDatabaseMaxLifetimeMs()
             );
             playerHistoryDb = new H2PlayerHistoryDatabase(configDir.toFile(), LoggerAdapter.fromLoaderDatabaseLogger(LOGGER), options);
         }
 
+        loadModules();
         startLocalRestApiIfEnabled();
-        startWebhookIfEnabled();
 
         payloadValidator = new PayloadValidation(
             new PayloadValidationCallbacks() {
                 @Override
                 public String getMessageOrDefault(String key, String defaultMessage) {
-                    return blacklistConfig.getMessageOrDefault(key, defaultMessage);
+                    return configManager.getMessageOrDefault(key, defaultMessage);
                 }
 
                 @Override
                 public boolean isModernCompatibilityEnabled() {
-                    return blacklistConfig.isModernCompatibilityEnabled();
+                    return configManager.isModernCompatibilityEnabled();
                 }
 
                 @Override
                 public boolean isHybridCompatibilityEnabled() {
-                    return blacklistConfig.isHybridCompatibilityEnabled();
+                    return configManager.isHybridCompatibilityEnabled();
                 }
 
                 @Override
                 public boolean isLegacyCompatibilityEnabled() {
-                    return blacklistConfig.isLegacyCompatibilityEnabled();
+                    return configManager.isLegacyCompatibilityEnabled();
                 }
 
                 @Override
                 public boolean isUnsignedCompatibilityEnabled() {
-                    return blacklistConfig.isUnsignedCompatibilityEnabled();
+                    return configManager.isUnsignedCompatibilityEnabled();
                 }
 
                 @Override
                 public boolean isRateLimitEnabled() {
-                    return blacklistConfig.getRateLimitPerMinute() > 0;
+                    return configManager.getRateLimitPerMinute() > 0;
                 }
 
                 @Override
                 public int getRateLimitPerMinute() {
-                    return blacklistConfig.getRateLimitPerMinute();
+                    return configManager.getRateLimitPerMinute();
                 }
 
                 @Override
                 public boolean isPayloadCompressionEnabled() {
-                    return blacklistConfig.isPayloadCompressionEnabled();
+                    return configManager.isPayloadCompressionEnabled();
                 }
 
                 @Override
@@ -183,8 +194,8 @@ public class HandShakerServerMod {
                 @Override
                 public void syncPlayerMods(UUID playerId, String playerName, Set<String> mods) {
                     if (playerHistoryDb != null) {
-                        if (blacklistConfig.isAsyncDatabaseOperations() && blacklistConfig.isRuntimeCache()) {
-                            scheduler.submit(() -> {
+                        if (configManager.isAsyncDatabaseOperations() && configManager.isRuntimeCache()) {
+                            submitSafely(() -> {
                                 try {
                                     playerHistoryDb.syncPlayerMods(playerId, playerName, mods);
                                 } catch (Exception e) {
@@ -200,10 +211,10 @@ public class HandShakerServerMod {
                 @Override
                 public void checkPlayer(UUID playerId, String playerName, ClientInfo info) {
                     if (server == null) return;
-                    @SuppressWarnings("null")
+                
                     ServerPlayer player = server.getPlayerList().getPlayer(playerId);
                     if (player != null) {
-                        blacklistConfig.checkPlayer(player, info);
+                        configManager.checkPlayer(player, info);
                     }
                 }
             },
@@ -220,7 +231,7 @@ public class HandShakerServerMod {
         return instance;
     }
 
-    @SuppressWarnings("null")
+
     public void handleModsList(final ModsListPayload payload, final IPayloadContext context) {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
@@ -233,14 +244,14 @@ public class HandShakerServerMod {
                 }
             } catch (Exception e) {
                 LOGGER.error("Failed to process mod list from {}. Terminating connection.", player.getName().getString(), e);
-                player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                player.connection.disconnect(Component.literal(configManager.getMessageOrDefault(
                     StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED)));
             }
         });
     }
 
-    @SuppressWarnings("null")
+
     public void handleIntegrity(final IntegrityPayload payload, final IPayloadContext context) {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
@@ -253,27 +264,27 @@ public class HandShakerServerMod {
                 }
             } catch (Exception e) {
                 LOGGER.error("Failed to process integrity payload from {}. Terminating connection.", player.getName().getString(), e);
-                player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                player.connection.disconnect(Component.literal(configManager.getMessageOrDefault(
                     StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED)));
             }
         });
     }
 
-    @SuppressWarnings("null")
+
     public void handleVelton(final VeltonPayload payload, final IPayloadContext context) {
         context.enqueueWork(() -> {
             if (!(context.player() instanceof ServerPlayer player)) return;
             try {
                 ValidationResult result = payloadValidator.validateVelton(
-                    player.getUUID(), player.getName().getString(), payload.signatureHash(), payload.nonce());
+                    player.getUUID(), player.getName().getString(), payload.jarHash(), payload.nonce());
                 
                 if (!result.success) {
                     player.connection.disconnect(Component.literal(result.errorMessage));
                 }
             } catch (Exception e) {
                 LOGGER.error("Failed to process Velton payload from {}. Terminating connection.", player.getName().getString(), e);
-                player.connection.disconnect(Component.literal(blacklistConfig.getMessageOrDefault(
+                player.connection.disconnect(Component.literal(configManager.getMessageOrDefault(
                     StandardMessages.KEY_HANDSHAKE_CORRUPTED,
                     StandardMessages.HANDSHAKE_CORRUPTED)));
             }
@@ -283,12 +294,16 @@ public class HandShakerServerMod {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         this.server = event.getServer();
-        scheduler.scheduleAtFixedRate(() -> payloadValidator.cleanupExpiredNoncesNow(), 5, 5, TimeUnit.MINUTES);
-        int days = blacklistConfig.getDeleteHistoryDays();
+        ensureSchedulerActive();
+        scheduleAtFixedRateSafely(() -> {
+            payloadValidator.cleanupExpiredNoncesNow();
+            payloadValidator.cleanupIdleRateLimiterBuckets();
+        }, 5, 5, TimeUnit.MINUTES);
+        int days = configManager.getDeleteHistoryDays();
         if (days > 0) {
-            scheduler.scheduleAtFixedRate(() -> {
+            scheduleAtFixedRateSafely(() -> {
                 if (playerHistoryDb != null) {
-                    playerHistoryDb.deleteOldHistory(blacklistConfig.getDeleteHistoryDays());
+                    playerHistoryDb.deleteOldHistory(configManager.getDeleteHistoryDays());
                 }
             }, 1, 1, TimeUnit.HOURS);
         }
@@ -296,10 +311,15 @@ public class HandShakerServerMod {
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
-        if (webhookDispatcher != null) {
-            webhookDispatcher.shutdown();
-            webhookDispatcher = null;
+        for (HandShakerModule module : loadedModules) {
+            try {
+                module.onDisable();
+            } catch (Exception e) {
+                LOGGER.warn("[ModuleLoader] Module '{}' failed on disable: {}", module.getId(), e.getMessage());
+            }
         }
+        loadedModules.clear();
+        eventBus.shutdown();
         if (localRestApiServer != null) {
             localRestApiServer.stop();
             localRestApiServer = null;
@@ -313,15 +333,54 @@ public class HandShakerServerMod {
     @SubscribeEvent
     public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
-        
-        scheduler.schedule(() -> {
+
+        payloadValidator.clearNonceHistory(player.getUUID());
+        clients.put(player.getUUID(), new ClientInfo(Collections.emptySet(), false, false, null, null, null));
+
+        scheduleSafely(() -> {
             if (server == null) return;
             server.execute(() -> {
                 if (player.connection == null) return;
+                if (server.getPlayerList().getPlayer(player.getUUID()) == null) return;
                 ClientInfo info = clients.computeIfAbsent(player.getUUID(), uuid -> new ClientInfo(Collections.emptySet(), false, false, null, null, null));
-                blacklistConfig.checkPlayer(player, info);
+                if (info.handshakeChecked()) return; // Skip if already checked (prevents duplicate ban execution)
+                configManager.checkPlayer(player, info);
             });
-        }, blacklistConfig.getHandshakeTimeoutSeconds(), TimeUnit.SECONDS);
+        }, configManager.getHandshakeTimeoutSeconds(), TimeUnit.SECONDS);
+    }
+
+    private void ensureSchedulerActive() {
+        if (scheduler.isShutdown() || scheduler.isTerminated()) {
+            scheduler = Executors.newSingleThreadScheduledExecutor();
+            LOGGER.info("Scheduler recreated for new server session");
+        }
+    }
+
+    private void submitSafely(Runnable task) {
+        ensureSchedulerActive();
+        try {
+            scheduler.submit(task);
+        } catch (RejectedExecutionException ex) {
+            LOGGER.warn("Scheduler rejected async task (state transition), skipping task");
+        }
+    }
+
+    private void scheduleSafely(Runnable task, long delay, TimeUnit unit) {
+        ensureSchedulerActive();
+        try {
+            scheduler.schedule(task, delay, unit);
+        } catch (RejectedExecutionException ex) {
+            LOGGER.warn("Scheduler rejected delayed task (state transition), skipping task");
+        }
+    }
+
+    private void scheduleAtFixedRateSafely(Runnable task, long initialDelay, long period, TimeUnit unit) {
+        ensureSchedulerActive();
+        try {
+            scheduler.scheduleAtFixedRate(task, initialDelay, period, unit);
+        } catch (RejectedExecutionException ex) {
+            LOGGER.warn("Scheduler rejected repeating task (state transition), skipping task");
+        }
     }
 
     @SubscribeEvent
@@ -335,8 +394,8 @@ public class HandShakerServerMod {
         HandShakerCommand.register(event.getDispatcher());
     }
 
-    public ConfigManager getBlacklistConfig() {
-        return blacklistConfig;
+    public ConfigManager getConfigManager() {
+        return configManager;
     }
 
     public PlayerHistoryDatabase getPlayerHistoryDb() {
@@ -363,8 +422,17 @@ public class HandShakerServerMod {
     public void checkAllPlayers() {
         if (server == null) return;
         LOGGER.info("Re-checking all online players...");
+
+        // Force re-validation by clearing per-session checked markers.
+        for (UUID uuid : new HashSet<>(clients.keySet())) {
+            ClientInfo info = clients.get(uuid);
+            if (info != null) {
+                clients.put(uuid, info.withHandshakeChecked(false));
+            }
+        }
+
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            blacklistConfig.checkPlayer(player, clients.getOrDefault(player.getUUID(), new ClientInfo(Collections.emptySet(), false, false, null, null, null)));
+            configManager.checkPlayer(player, clients.getOrDefault(player.getUUID(), new ClientInfo(Collections.emptySet(), false, false, null, null, null)));
         }
     }
 
@@ -379,7 +447,7 @@ public class HandShakerServerMod {
 
     public record ModsListPayload(String mods, String modListHash, String nonce) implements CustomPacketPayload {
         public static final CustomPacketPayload.Type<ModsListPayload> TYPE = PayloadTypeCompat.payloadType("hand-shaker", "mods");
-        @SuppressWarnings("null")
+    
         public static final StreamCodec<ByteBuf, ModsListPayload> CODEC = StreamCodec.composite(
                 ByteBufCodecs.STRING_UTF8, ModsListPayload::mods,
                 ByteBufCodecs.STRING_UTF8, ModsListPayload::modListHash,
@@ -406,15 +474,48 @@ public class HandShakerServerMod {
             }
         );
         signatureVerifier = security.signatureVerifier();
+        if (configManager != null) {
+            configManager.setSignatureVerificationAvailable(security.publicKey() != null);
+        }
+    }
+
+    private void loadModules() {
+        Path modulesDir = configManager.getConfigDirPath().resolve("Modules");
+        ApiDataProvider dataProvider = createApiProvider();
+        List<HandShakerModule> found = ModuleLoader.loadFrom(
+                modulesDir, getClass().getClassLoader(), LOGGER);
+        for (HandShakerModule module : found) {
+            String moduleId = module.getId();
+            ModuleContext ctx = new ModuleContext() {
+                @Override public ApiDataProvider dataProvider() { return dataProvider; }
+                @Override public EventBus eventBus() { return eventBus; }
+                @Override public org.slf4j.Logger logger(String cat) { return org.slf4j.LoggerFactory.getLogger(cat); }
+                @Override public Path dataFolder() {
+                    Path dir = modulesDir.resolve(moduleId);
+                    try { Files.createDirectories(dir); } catch (Exception ignored) {}
+                    return dir;
+                }
+                @Override public void registerApiRoute(String subPath, com.sun.net.httpserver.HttpHandler handler) {
+                    pendingModuleRoutes.put("/api/v1/modules/" + subPath, handler);
+                }
+            };
+            try {
+                module.onEnable(ctx);
+                loadedModules.add(module);
+            } catch (Exception e) {
+                LOGGER.warn("[ModuleLoader] Module '{}' failed to enable: {}", moduleId, e.getMessage());
+            }
+        }
     }
 
     private void startLocalRestApiIfEnabled() {
-        if (blacklistConfig == null || !blacklistConfig.isRestApiEnabled()) {
+        if (configManager == null || !configManager.isRestApiEnabled()) {
             return;
         }
 
-        ApiServerConfig apiConfig = new ApiServerConfig(true, blacklistConfig.getRestApiPort(), "");
+        ApiServerConfig apiConfig = new ApiServerConfig(true, configManager.getRestApiPort(), configManager.getRestApiKey());
         localRestApiServer = new LocalRestApiServer(apiConfig, createApiProvider(), LOGGER);
+        pendingModuleRoutes.forEach(localRestApiServer::addRoute);
         try {
             localRestApiServer.start();
         } catch (IOException e) {
@@ -451,25 +552,21 @@ public class HandShakerServerMod {
         );
     }
 
-    private void startWebhookIfEnabled() {
-        webhookDispatcher = ServerSecurityWebhookSupport.createWebhookDispatcher(blacklistConfig, LOGGER);
-    }
-
     public void publishWebhookKick(String playerName, String reason, String mod) {
-        ServerSecurityWebhookSupport.publishKick(webhookDispatcher, playerName, reason, mod);
+        eventBus.fire(new HandShakerEvent.PlayerKicked(playerName, mod, reason));
     }
 
     public void publishWebhookBan(String playerName, String reason, String mod) {
-        ServerSecurityWebhookSupport.publishBan(webhookDispatcher, playerName, reason, mod);
+        eventBus.fire(new HandShakerEvent.PlayerBanned(playerName, mod, reason));
     }
 
     private boolean isDebugMode() {
-        return blacklistConfig != null && blacklistConfig.isDebug();
+        return configManager != null && configManager.isDebug();
     }
 
     public record IntegrityPayload(byte[] signature, String jarHash, String nonce) implements CustomPacketPayload {
         public static final CustomPacketPayload.Type<IntegrityPayload> TYPE = PayloadTypeCompat.payloadType("hand-shaker", "integrity");
-        @SuppressWarnings("null")
+    
         public static final StreamCodec<ByteBuf, IntegrityPayload> CODEC = StreamCodec.composite(
                 ByteBufCodecs.BYTE_ARRAY, IntegrityPayload::signature,
                 ByteBufCodecs.STRING_UTF8, IntegrityPayload::jarHash,
@@ -478,11 +575,12 @@ public class HandShakerServerMod {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record VeltonPayload(String signatureHash, String nonce) implements CustomPacketPayload {
+    public record VeltonPayload(byte[] signature, String jarHash, String nonce) implements CustomPacketPayload {
         public static final CustomPacketPayload.Type<VeltonPayload> TYPE = PayloadTypeCompat.payloadType("velton", "signature");
-        @SuppressWarnings("null")
+    
         public static final StreamCodec<ByteBuf, VeltonPayload> CODEC = StreamCodec.composite(
-                ByteBufCodecs.STRING_UTF8, VeltonPayload::signatureHash,
+                ByteBufCodecs.BYTE_ARRAY, VeltonPayload::signature,
+                ByteBufCodecs.STRING_UTF8, VeltonPayload::jarHash,
                 ByteBufCodecs.STRING_UTF8, VeltonPayload::nonce,
                 VeltonPayload::new);
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }

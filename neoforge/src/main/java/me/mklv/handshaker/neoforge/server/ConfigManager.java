@@ -14,6 +14,8 @@ import me.mklv.handshaker.common.protocols.CollectKnownHashes;
 import me.mklv.handshaker.common.utils.ModCache;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.permissions.Permission;
 import net.neoforged.fml.loading.FMLPaths;
 
 import java.io.*;
@@ -23,6 +25,10 @@ public class ConfigManager extends CommonConfigManagerBase {
     private final File configDir;
 
     public enum ModStatus { REQUIRED, ALLOWED, BLACKLISTED }
+
+        /** Named bypass permission for MC 26.1 vanilla permission system. */
+        private static final Permission BYPASS_PERMISSION =
+                Permission.Atom.create(Identifier.fromNamespaceAndPath("handshaker", "bypass"));
 
     public ConfigManager() {
         File configRootDir = FMLPaths.CONFIGDIR.get().toFile();
@@ -138,7 +144,6 @@ public class ConfigManager extends CommonConfigManagerBase {
         saveCommon(configDir.toPath(), saveLogger);
     }
 
-    @SuppressWarnings("null")
     public void checkPlayer(ServerPlayer player, ClientInfo info) {
         CommonPlayerCheckEngine.checkPlayer(
             this,
@@ -161,7 +166,35 @@ public class ConfigManager extends CommonConfigManagerBase {
 
                 @Override
                 public void disconnect(String message) {
-                    player.connection.disconnect(net.minecraft.network.chat.Component.literal(message));
+                    if (player.connection == null) {
+                        return;
+                    }
+
+                    HandShakerServerMod serverMod = HandShakerServerMod.getInstance();
+                    if (serverMod == null || serverMod.getServer() == null) {
+                        return;
+                    }
+
+                    MinecraftServer server = serverMod.getServer();
+                    if (server.getPlayerList().getPlayer(player.getUUID()) == null) {
+                        return;
+                    }
+
+                    String reason = (message == null || message.isBlank())
+                        ? getNoHandshakeKickMessage()
+                        : message;
+
+                    try {
+                        String command = "kick " + player.getName().getString() + " " + reason;
+                        server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), command);
+                        return;
+                    } catch (Exception ex) {
+                        HandShakerServerMod.LOGGER.warn("Failed to execute kick command with custom reason, falling back to direct disconnect: {}", ex.getMessage());
+                    }
+
+                    if (server.getPlayerList().getPlayer(player.getUUID()) != null && player.connection != null) {
+                        player.connection.disconnect(net.minecraft.network.chat.Component.literal(reason));
+                    }
                 }
 
                 @Override
@@ -193,7 +226,7 @@ public class ConfigManager extends CommonConfigManagerBase {
 
                 @Override
                 public boolean hasBypassPermission() {
-                    return false;
+                    return player.permissions().hasPermission(BYPASS_PERMISSION);
                 }
             }
         );

@@ -3,6 +3,7 @@ package me.mklv.handshaker.common.configs;
 import me.mklv.handshaker.common.utils.ModCache;
 import me.mklv.handshaker.common.utils.WildcardMatcher;
 
+import java.util.Iterator;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -47,7 +48,6 @@ public final class ConfigRuntime {
                                                          int handshakeTimeoutSeconds,
                                                          int rateLimitPerMinute,
                                                          boolean diagnosticCommandEnabled,
-                                                         boolean exportCommandEnabled,
                                                          boolean asyncDatabaseOperations,
                                                          int databasePoolSize,
                                                          long databaseIdleTimeoutMs,
@@ -56,10 +56,7 @@ public final class ConfigRuntime {
                                                          boolean payloadCompressionEnabled,
                                                          boolean restApiEnabled,
                                                          int restApiPort,
-                                                         boolean webhookEnabled,
-                                                         String webhookUrl,
-                                                         boolean webhookNotifyOnBan,
-                                                         boolean webhookNotifyOnKick,
+                                                         String restApiKey,
                                                          Map<String, String> messages,
                                                          Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
                                                          Set<String> ignoredMods,
@@ -95,7 +92,6 @@ public final class ConfigRuntime {
                 handshakeTimeoutSeconds,
                 rateLimitPerMinute,
                 diagnosticCommandEnabled,
-                exportCommandEnabled,
                 asyncDatabaseOperations,
                 databasePoolSize,
                 databaseIdleTimeoutMs,
@@ -104,10 +100,7 @@ public final class ConfigRuntime {
                 payloadCompressionEnabled,
                 restApiEnabled,
                 restApiPort,
-                webhookEnabled,
-                webhookUrl,
-                webhookNotifyOnBan,
-                webhookNotifyOnKick,
+                restApiKey,
                 messages,
                 modConfigMap,
                 ignoredMods,
@@ -254,7 +247,6 @@ public final class ConfigRuntime {
         protected String defaultAction = "kick";
         protected int rateLimitPerMinute = 10;
         protected boolean diagnosticCommandEnabled = true;
-        protected boolean exportCommandEnabled = true;
         protected boolean asyncDatabaseOperations = true;
         protected int databasePoolSize = 15;
         protected long databaseIdleTimeoutMs = 300_000L;
@@ -263,10 +255,8 @@ public final class ConfigRuntime {
         protected boolean payloadCompressionEnabled = true;
         protected boolean restApiEnabled = false;
         protected int restApiPort = 8080;
-        protected boolean webhookEnabled = false;
-        protected String webhookUrl = "";
-        protected boolean webhookNotifyOnBan = true;
-        protected boolean webhookNotifyOnKick = false;
+        protected String restApiKey = "";
+        protected boolean signatureVerificationAvailable = true;
 
         protected final Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap = new LinkedHashMap<>();
         protected boolean whitelist = false;
@@ -332,7 +322,6 @@ public final class ConfigRuntime {
             whitelist = result.isWhitelist();
             rateLimitPerMinute = result.getRateLimitPerMinute();
             diagnosticCommandEnabled = result.isDiagnosticCommandEnabled();
-            exportCommandEnabled = result.isExportCommandEnabled();
             asyncDatabaseOperations = result.isAsyncDatabaseOperations();
             databasePoolSize = result.getDatabasePoolSize();
             databaseIdleTimeoutMs = result.getDatabaseIdleTimeoutMs();
@@ -341,10 +330,7 @@ public final class ConfigRuntime {
             payloadCompressionEnabled = result.isPayloadCompressionEnabled();
             restApiEnabled = result.isRestApiEnabled();
             restApiPort = result.getRestApiPort();
-            webhookEnabled = result.isWebhookEnabled();
-            webhookUrl = result.getWebhookUrl();
-            webhookNotifyOnBan = result.isWebhookNotifyOnBan();
-            webhookNotifyOnKick = result.isWebhookNotifyOnKick();
+            restApiKey = result.getRestApiKey();
 
             customMessages.clear();
             customMessages.putAll(result.getMessages());
@@ -400,7 +386,6 @@ public final class ConfigRuntime {
                 handshakeTimeoutSeconds,
                 rateLimitPerMinute,
                 diagnosticCommandEnabled,
-                exportCommandEnabled,
                 asyncDatabaseOperations,
                 databasePoolSize,
                 databaseIdleTimeoutMs,
@@ -409,10 +394,7 @@ public final class ConfigRuntime {
                 payloadCompressionEnabled,
                 restApiEnabled,
                 restApiPort,
-                webhookEnabled,
-                webhookUrl,
-                webhookNotifyOnBan,
-                webhookNotifyOnKick,
+                restApiKey,
                 customMessages,
                 modConfigMap,
                 ignoredMods,
@@ -436,6 +418,14 @@ public final class ConfigRuntime {
 
         public ConfigTypes.ConfigState.IntegrityMode getIntegrityMode() {
             return unsignedCompatibility ? ConfigTypes.ConfigState.IntegrityMode.DEV : ConfigTypes.ConfigState.IntegrityMode.SIGNED;
+        }
+
+        public String getDisplayedIntegrityMode() {
+            ConfigTypes.ConfigState.IntegrityMode mode = getIntegrityMode();
+            if (mode == ConfigTypes.ConfigState.IntegrityMode.SIGNED && !signatureVerificationAvailable) {
+                return "UNSIGNED";
+            }
+            return mode.toString();
         }
 
         public boolean isForceHandshakerMod() {
@@ -558,10 +548,6 @@ public final class ConfigRuntime {
             return diagnosticCommandEnabled;
         }
 
-        public boolean isExportCommandEnabled() {
-            return exportCommandEnabled;
-        }
-
         public boolean isAsyncDatabaseOperations() {
             return asyncDatabaseOperations;
         }
@@ -594,20 +580,16 @@ public final class ConfigRuntime {
             return restApiPort;
         }
 
-        public boolean isWebhookEnabled() {
-            return webhookEnabled;
+        public String getRestApiKey() {
+            return restApiKey;
         }
 
-        public String getWebhookUrl() {
-            return webhookUrl;
+        public boolean isSignatureVerificationAvailable() {
+            return signatureVerificationAvailable;
         }
 
-        public boolean isWebhookNotifyOnBan() {
-            return webhookNotifyOnBan;
-        }
-
-        public boolean isWebhookNotifyOnKick() {
-            return webhookNotifyOnKick;
+        public void setSignatureVerificationAvailable(boolean available) {
+            this.signatureVerificationAvailable = available;
         }
 
         public String getDefaultActionForMode(String mode) {
@@ -806,7 +788,37 @@ public final class ConfigRuntime {
             if (normalized.isEmpty()) {
                 return false;
             }
-            return ignoredMods.remove(normalized);
+
+            boolean removed = ignoredMods.remove(normalized);
+
+            ConfigTypes.ModEntry entry = ConfigTypes.ModEntry.parse(normalized);
+            String modOnly = entry != null ? entry.modId() : normalized;
+
+            if (!modOnly.equals(normalized)) {
+                removed |= ignoredMods.remove(modOnly);
+            }
+
+            Iterator<String> it = ignoredMods.iterator();
+            while (it.hasNext()) {
+                String ignored = it.next();
+                if (ignored == null) {
+                    continue;
+                }
+
+                if (ignored.equalsIgnoreCase(normalized) || ignored.equalsIgnoreCase(modOnly)) {
+                    it.remove();
+                    removed = true;
+                    continue;
+                }
+
+                ConfigTypes.ModEntry ignoredEntry = ConfigTypes.ModEntry.parse(ignored);
+                if (ignoredEntry != null && ignoredEntry.modId().equalsIgnoreCase(modOnly)) {
+                    it.remove();
+                    removed = true;
+                }
+            }
+
+            return removed;
         }
 
         public boolean isIgnored(String modId) {

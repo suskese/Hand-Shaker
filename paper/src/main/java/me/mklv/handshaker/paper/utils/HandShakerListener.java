@@ -8,6 +8,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
@@ -23,9 +24,13 @@ public class HandShakerListener implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+
+        clients.put(playerId, new ClientInfo(Collections.emptySet(), false, false, null, null, null));
+        plugin.clearNonceHistory(playerId);
         
         // Record join time for debug timing
-        plugin.recordPlayerJoin(player.getUniqueId());
+        plugin.recordPlayerJoin(playerId);
 
         int timeoutSeconds = plugin.getConfigManager().getHandshakeTimeoutSeconds();
         long delayTicks = Math.max(1, timeoutSeconds) * 20L;

@@ -1,6 +1,7 @@
 package me.mklv.handshaker.fabric;
 
 import me.mklv.handlib.network.PayloadTypeCompat;
+import me.mklv.handlib.fabric.PayloadTypeRegistry;
 import me.mklv.handshaker.common.loader.CommonClientHandshakeOrchestrator;
 import me.mklv.handshaker.common.loader.CommonClientHashPayloadService;
 import net.fabricmc.api.ClientModInitializer;
@@ -11,7 +12,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,8 +28,8 @@ public class HandShaker implements ClientModInitializer {
 		payloadService.precomputeAtBoot();
 
 		// Register payload types for 1.21 custom payload system
-		PayloadTypeRegistry.playC2S().register(ModsListPayload.TYPE, ModsListPayload.CODEC);
-		PayloadTypeRegistry.playC2S().register(IntegrityPayload.TYPE, IntegrityPayload.CODEC);
+		PayloadTypeRegistry.registerServerboundPlay(ModsListPayload.TYPE, ModsListPayload.CODEC);
+		PayloadTypeRegistry.registerServerboundPlay(IntegrityPayload.TYPE, IntegrityPayload.CODEC);
 
 		// Register event handlers to send data on server join
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {

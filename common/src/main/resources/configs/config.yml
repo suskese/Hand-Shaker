@@ -3,21 +3,20 @@
 settings:
   config-version: 7
   debug: false
-  force-handshaker-mod: true
-  allow-bedrock-players: false
-  handshake-timeout-seconds: 5
-  enforce-whitelisted-mod-list: false
+  handshaker-enforcement: true
+  bedrock-policy: false
+  timeout-seconds: 5
+  whitelist-enforcement: false
   mod-versioning: true
-  required-modpack-hashes: []
+  modpack-hashes: []
+  database: false
+  use-hash-for-mods: true
+  runtime-cache: false
   handshaker-version-compatibility:
     modern-7.0+: true
     hybrid-6.0: false
     legacy-3.0+: false
     unsigned: false  
-  player-database:
-    enabled: false
-    use-hash-for-mods: true
-    runtime-cache: false
   custom-lists:
     mods-required-enabled: true
     mods-blacklisted-enabled: true
@@ -26,7 +25,6 @@ settings:
 advanced-experimental:
   rate-limit-per-minute: 10
   enable-diagnostic-command: true
-  enable-export-command: true
   payload:
     compression-enabled: true
   database:
@@ -38,27 +36,4 @@ advanced-experimental:
   api:
     enable-rest-api: false
     rest-api-port: 8080
-    discord-integration:
-      webhook:
-        enabled: false
-        webhook-url: "https://discord.com/api/webhooks/your-webhook-url"
-        notify-on-ban: true
-        notify-on-kick: false
-      bot: #TODO 
-        enabled: false #TODO
-        token: "your-discord-bot-token" #TODO
-        channel-id: "your-discord-channel-id" #TODO
-        buttons: #TODO
-          enabled: false #TODO
-          ban-button: #TODO
-            enabled: true #TODO
-            label: "Ban Player" #TODO
-            style: "DANGER" #TODO - PRIMARY, SECONDARY, SUCCESS, DANGER, LINK
-          kick-button: #TODO
-            enabled: true #TODO
-            label: "Kick Player" #TODO
-            style: "PRIMARY" #TODO - PRIMARY, SECONDARY, SUCCESS, DANGER, LINK
-          approve-button: #TODO
-            enabled: true #TODO
-            label: "Approve player's mod" #TODO
-            style: "SUCCESS" #TODO - PRIMARY, SECONDARY, SUCCESS, DANGER, LINK
+    # api-key: ""  # Set a non-empty value to require X-Api-Key header authentication

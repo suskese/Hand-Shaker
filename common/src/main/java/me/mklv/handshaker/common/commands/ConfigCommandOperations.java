@@ -34,17 +34,13 @@ public final class ConfigCommandOperations {
         String input = value == null ? "" : value.trim();
 
         switch (key) {
-            case "force_handshaker_mod", "behavior" -> {
+            case "handshaker_enforcement" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
                 if (enabled == null) {
-                    if (input.equalsIgnoreCase("STRICT") || input.equalsIgnoreCase("VANILLA")) {
-                        enabled = input.equalsIgnoreCase("STRICT");
-                    } else {
-                        return new MutationResult(false, "force_handshaker_mod must be true/false or on/off", false, false, false);
-                    }
+                    return new MutationResult(false, "handshaker_enforcement must be true/false or on/off", false, false, false);
                 }
                 config.setForceHandshakerMod(enabled);
-                return new MutationResult(true, "force_handshaker_mod set to " + enabled, true, false, true);
+                return new MutationResult(true, "handshaker_enforcement set to " + enabled, true, false, true);
             }
             case "compat_modern" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
@@ -70,14 +66,10 @@ public final class ConfigCommandOperations {
                 config.setLegacyCompatibilityEnabled(enabled);
                 return new MutationResult(true, "compat_legacy set to " + enabled, true, false, false);
             }
-            case "compat_unsigned", "integrity" -> {
+            case "compat_unsigned" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
                 if (enabled == null) {
-                    if (input.equalsIgnoreCase("SIGNED") || input.equalsIgnoreCase("DEV")) {
-                        enabled = input.equalsIgnoreCase("DEV");
-                    } else {
-                        return new MutationResult(false, "compat_unsigned must be true/false or on/off", false, false, false);
-                    }
+                    return new MutationResult(false, "compat_unsigned must be true/false or on/off", false, false, false);
                 }
                 config.setUnsignedCompatibilityEnabled(enabled);
                 return new MutationResult(true, "compat_unsigned set to " + enabled, true, false, false);
@@ -96,26 +88,26 @@ public final class ConfigCommandOperations {
                 config.setDefaultAction(normalizedAction);
                 return new MutationResult(true, "default_action set to " + normalizedAction, true, false, false);
             }
-            case "enforce_whitelisted_mod_list", "whitelist" -> {
+            case "whitelist_enforcement" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
                 if (enabled == null) {
-                    return new MutationResult(false, "enforce_whitelisted_mod_list must be true/false or on/off", false, false, false);
+                    return new MutationResult(false, "whitelist_enforcement must be true/false or on/off", false, false, false);
                 }
                 config.setWhitelist(enabled);
-                return new MutationResult(true, "enforce_whitelisted_mod_list " + (enabled ? "enabled" : "disabled"), true, false, true);
+                return new MutationResult(true, "whitelist_enforcement " + (enabled ? "enabled" : "disabled"), true, false, true);
             }
-            case "allow_bedrock_players", "allow_bedrock" -> {
+            case "bedrock_policy" -> {
                 Boolean allow = CommandHelper.parseEnableFlag(input);
                 if (allow == null) {
-                    return new MutationResult(false, "allow_bedrock_players must be true/false or on/off", false, false, false);
+                    return new MutationResult(false, "bedrock_policy must be true/false or on/off", false, false, false);
                 }
                 config.setAllowBedrockPlayers(allow);
                 return new MutationResult(true, "Bedrock players " + (allow ? "allowed" : "blocked"), true, false, true);
             }
-            case "player_database_enabled", "playerdb_enabled" -> {
+            case "database" -> {
                 Boolean enabled = CommandHelper.parseEnableFlag(input);
                 if (enabled == null) {
-                    return new MutationResult(false, "player_database_enabled must be true/false or on/off", false, false, false);
+                    return new MutationResult(false, "database must be true/false or on/off", false, false, false);
                 }
                 config.setPlayerdbEnabled(enabled);
                 return new MutationResult(true, "Player database " + (enabled ? "enabled" : "disabled"), true, false, false);
@@ -144,16 +136,16 @@ public final class ConfigCommandOperations {
                 config.setRuntimeCache(enabled);
                 return new MutationResult(true, "runtime_cache " + (enabled ? "enabled" : "disabled"), true, false, false);
             }
-            case "handshake_timeout_seconds", "handshake_timeout" -> {
+            case "timeout_seconds", "timeout" -> {
                 try {
                     int seconds = Integer.parseInt(input);
                     config.setHandshakeTimeoutSeconds(seconds);
-                    return new MutationResult(true, "handshake_timeout_seconds set to " + Math.max(1, seconds), true, false, false);
+                    return new MutationResult(true, "timeout_seconds set to " + Math.max(1, seconds), true, false, false);
                 } catch (NumberFormatException ex) {
-                    return new MutationResult(false, "Handshake timeout must be a number of seconds", false, false, false);
+                    return new MutationResult(false, "Timeout must be a number of seconds", false, false, false);
                 }
             }
-            case "required_modpack_hash", "required_modpack_hashes" -> {
+            case "modpack_hashes" -> {
                 if (input.equalsIgnoreCase("current")) {
                     if (currentPlayerMods == null || currentPlayerMods.isEmpty()) {
                         return new MutationResult(false, "No client mod list available. Join with HandShaker client first.", false, false, false);
@@ -161,16 +153,16 @@ public final class ConfigCommandOperations {
 
                     String computed = CommandHelper.computeModpackHash(currentPlayerMods, config.isHashMods());
                     config.setRequiredModpackHash(computed);
-                    return new MutationResult(true, "required_modpack_hashes set to current client hash: " + computed, true, false, true);
+                    return new MutationResult(true, "modpack_hashes set to current client hash: " + computed, true, false, true);
                 }
 
                 String normalized = CommandHelper.normalizeRequiredModpackHash(input);
                 if (normalized == null && !input.equalsIgnoreCase("off") && !input.equalsIgnoreCase("none") && !input.equalsIgnoreCase("null")) {
-                    return new MutationResult(false, "required_modpack_hashes must be a 64-char SHA-256, 'off', or 'current'", false, false, false);
+                    return new MutationResult(false, "modpack_hashes must be a 64-char SHA-256, 'off', or 'current'", false, false, false);
                 }
 
                 config.setRequiredModpackHash(normalized);
-                return new MutationResult(true, "required_modpack_hashes " + (normalized == null ? "disabled" : "set"), true, false, true);
+                return new MutationResult(true, "modpack_hashes " + (normalized == null ? "disabled" : "set"), true, false, true);
             }
             default -> {
                 return new MutationResult(false, "Unknown config parameter: " + param, false, false, false);
@@ -213,7 +205,7 @@ public final class ConfigCommandOperations {
                     ModListToggler.toggleListDetailed(configDir, normalizedList, enable, logger);
 
                 if (toggleResult.status() == ModListToggler.ToggleStatus.NOT_FOUND) {
-                    return new MutationResult(false, "Unknown list file: " + listName + " (expected <name>.yml in config/HandShaker)", false, false, false);
+                    return new MutationResult(false, "Unknown list file: " + listName + " (expected <name>.yml in config/HandShaker or config/HandShaker/mod-lists)", false, false, false);
                 }
 
                 if (toggleResult.status() == ModListToggler.ToggleStatus.UPDATE_FAILED) {

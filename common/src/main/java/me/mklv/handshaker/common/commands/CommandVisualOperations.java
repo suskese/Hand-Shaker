@@ -1,11 +1,49 @@
 package me.mklv.handshaker.common.commands;
 
+import java.util.Map;
 import java.util.Locale;
 
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 
 public final class CommandVisualOperations {
     private CommandVisualOperations() {
+    }
+
+    public static final class Colors {
+        private static final int DEFAULT_COLOR = 0xB19859;
+
+        private static final Map<String, Integer> COLORS = Map.of(
+            "dirtyGold", 0xB19859,
+            "successGreen", 0x4CAF50,
+            "warningAmber", 0xFFB300,
+            "errorRed", 0xD32F2F,
+            "infoBlue", 0x1976D2,
+
+            "gray",0xAAAAAA,
+            "darkGray", 0x555555,
+            "yellow", 0xFFFF55,
+            "white", 0xFFFFFF,
+            "aqua", 0x55FFFF
+
+        );
+
+        public static final int DIRTY_GOLD_COLOR = COLORS.get("dirtyGold");
+        public static final int SUCCESS_GREEN_COLOR = COLORS.get("successGreen");
+        public static final int WARNING_AMBER_COLOR = COLORS.get("warningAmber");
+        public static final int ERROR_RED_COLOR = COLORS.get("errorRed");
+        public static final int INFO_BLUE_COLOR = COLORS.get("infoBlue");
+        public static final int GRAY = COLORS.get("gray");
+        public static final int DARK_GRAY = COLORS.get("darkGray");
+        public static final int YELLOW = COLORS.get("yellow");
+        public static final int WHITE = COLORS.get("white");
+        public static final int AQUA = COLORS.get("aqua");
+
+        private Colors() {
+        }
+
+        public static int color(String key) {
+            return COLORS.getOrDefault(key, DEFAULT_COLOR);
+        }
     }
 
     public static String sectionHeaderText(String title) {
@@ -87,4 +125,5 @@ public final class CommandVisualOperations {
     public static String infoModCommand(String commandRoot, String modToken) {
         return commandRoot + " info mod " + quoted(modToken);
     }
+
 }

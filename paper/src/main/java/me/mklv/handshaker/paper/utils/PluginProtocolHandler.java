@@ -2,17 +2,14 @@ package me.mklv.handshaker.paper.utils;
 
 import me.mklv.handshaker.paper.ConfigManager;
 import me.mklv.handshaker.paper.HandShakerPlugin;
-import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
-import me.mklv.handshaker.common.configs.ConfigTypes.ActionDefinition;
+import me.mklv.handshaker.common.configs.CommonPlayerCheckEngine;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
-import me.mklv.handshaker.common.protocols.BedrockPlayer;
 import me.mklv.handshaker.common.protocols.CertLoader;
 import me.mklv.handshaker.common.protocols.PayloadValidation;
 import me.mklv.handshaker.common.protocols.PayloadValidation.PayloadValidationCallbacks;
 import me.mklv.handshaker.common.protocols.PayloadValidation.ValidationResult;
 import me.mklv.handshaker.common.utils.ClientInfo;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
-import me.mklv.handshaker.common.utils.ModChecks.ModCheckResult;
 import me.mklv.handshaker.common.configs.ConfigTypes.StandardMessages;
 
 import net.kyori.adventure.text.Component;
@@ -29,7 +26,6 @@ public class PluginProtocolHandler {
     private static final Pattern SHA256_HEX = Pattern.compile("^[a-f0-9]{64}$");
 
     private final HandShakerPlugin plugin;
-    private final Map<UUID, ClientInfo> clients;
     private final Logger logger;
     private final SignatureVerifier signatureVerifier;
     private final PayloadDecoder payloadDecoder;
@@ -38,13 +34,13 @@ public class PluginProtocolHandler {
 
     public PluginProtocolHandler(HandShakerPlugin plugin, Map<UUID, ClientInfo> clients) {
         this.plugin = plugin;
-        this.clients = clients;
         this.logger = plugin.getLogger();
         this.configManager = plugin.getConfigManager();
         this.payloadDecoder = new PayloadDecoder(logger);
         
         // Load public key for signature verification
         PublicKey publicKey = loadPublicCertificate();
+        configManager.setSignatureVerificationAvailable(publicKey != null);
         this.signatureVerifier = new SignatureVerifier(publicKey, new SignatureVerifier.LogSink() {
             @Override
             public void info(String message) {
@@ -246,10 +242,6 @@ public class PluginProtocolHandler {
                 return;
             }
 
-            // Ensure fabric flag is set for this player
-            clients.putIfAbsent(player.getUniqueId(), new ClientInfo(
-                true, new HashSet<>(), false, false, null, null, null, false));
-
             // Delegate to unified validator
             ValidationResult result = payloadValidator.validateModList(player.getUniqueId(), player.getName(), 
                 payload, modListHash, nonce);
@@ -317,10 +309,6 @@ public class PluginProtocolHandler {
                 return;
             }
 
-            // Ensure fabric flag is set for this player
-            clients.putIfAbsent(player.getUniqueId(), new ClientInfo(
-                true, new HashSet<>(), false, false, null, null, null, false));
-
             // Delegate to unified validator
             ValidationResult result = payloadValidator.validateIntegrity(player.getUniqueId(), player.getName(), 
                 clientSignature, jarHash, nonce);
@@ -356,10 +344,6 @@ public class PluginProtocolHandler {
             }
             String nonce = (String) nonceResult.value;
 
-            // Ensure fabric flag is set for this player
-            clients.putIfAbsent(player.getUniqueId(), new ClientInfo(
-                true, new HashSet<>(), false, false, null, null, null, false));
-
             // Delegate to unified validator
             ValidationResult result = payloadValidator.validateVelton(player.getUniqueId(), player.getName(), 
                 jarHash, nonce);
@@ -378,96 +362,61 @@ public class PluginProtocolHandler {
     }
 
     public void checkPlayer(Player player, Map<UUID, ClientInfo> clients, boolean isTimeoutCheck) {
-        boolean bedrockPlayer = isBedrockPlayer(player);
-        if (bedrockPlayer) {
-            if (configManager.isAllowBedrockPlayers()) {
-                logger.info("Bedrock player " + player.getName() + " allowed to join without mod checks");
-                return;
-            }
+        ClientInfo info = clients.getOrDefault(
+            player.getUniqueId(),
+            new ClientInfo(Collections.emptySet(), false, false, null, null, null)
+        );
 
-            kickPlayer(player, configManager.getMessageOrDefault(
-                StandardMessages.KEY_BEDROCK,
-                StandardMessages.DEFAULT_BEDROCK_MESSAGE
-            ));
-            return;
-        }
-
-        ClientInfo info = clients.get(player.getUniqueId());
-        if (info == null) {
-            if (configManager.getBehavior() == ConfigState.Behavior.STRICT) {
-                kickPlayer(player, configManager.getNoHandshakeKickMessage());
-            }
-            return;
-        }
-
-        // Skip if already checked
-        if (info.checked()) {
-            return;
-        }
-
-        // Handshake presence check
-        if (configManager.getBehavior() == ConfigState.Behavior.STRICT && !info.fabric()) {
-            kickPlayer(player, configManager.getNoHandshakeKickMessage());
-            return;
-        }
-
-        // Integrity Check (only if client has the mod or behavior is STRICT)
-        // Only enforce signature verification if this is a timeout check (player has had time to send integrity)
-        // During initial mod list reception, allow time for integrity payload to arrive
-        if (info.fabric() && configManager.getIntegrityMode() == ConfigState.IntegrityMode.SIGNED) {
-            if (info.integrityNonce() != null && !info.signatureVerified()) {
-                // Integrity payload was received but verification FAILED
-                kickPlayer(player, configManager.getInvalidSignatureKickMessage());
-                return;
-            } else if (info.integrityNonce() == null && isTimeoutCheck) {
-                // Timeout check and no integrity data received - this is a security violation
-                kickPlayer(player, configManager.getInvalidSignatureKickMessage());
-                return;
-            }
-        }
-
-        Set<String> mods = info.mods();
-
-        // Check player and execute action if needed
-        ModCheckResult status = configManager.checkPlayerWithAction(player, mods);
-        
-        if (HandShakerPlugin.DEBUG) {
-            logger.info("[DEBUG] checkPlayerWithAction returned: " + (status != null ? "status(" + status.getActionName() + ")" : "null"));
-        }
-        
-        if (status != null) {
-            // Execute action first (if any), then kick if this is a violation.
-            // This allows blacklist/required/whitelist actions (ban, log, custom commands) to run.
-            boolean shouldRunAction = !(status.isViolation() && "kick".equalsIgnoreCase(status.getActionName()));
-            if (player.isOnline() && shouldRunAction) {
-                if (HandShakerPlugin.DEBUG) {
-                    logger.info("[DEBUG] Executing action for " + player.getName() + ": " + status.getActionName());
+        CommonPlayerCheckEngine.checkPlayer(
+            configManager,
+            player.getUniqueId(),
+            player.getName(),
+            info,
+            !isTimeoutCheck,
+            isTimeoutCheck,
+            configManager.collectKnownHashesForChecks(),
+            new CommonPlayerCheckEngine.Bridge() {
+                @Override
+                public void info(String message) {
+                    logger.info(message);
                 }
-                executeAction(player, status.getActionName(), status.getMods(), status.getMessage());
-            }
 
-            if (status.isViolation()) {
-                if (HandShakerPlugin.DEBUG) {
-                    logger.info("[DEBUG] Player " + player.getName() + " has violation, kicking");
+                @Override
+                public void warn(String message) {
+                    logger.warning(message);
                 }
-                boolean isBanAction = "ban".equalsIgnoreCase(status.getActionName());
-                if (isBanAction) {
-                    // Ban webhook already fired by executeAction; show ban message without firing a second kick webhook
-                    String banMsg = configManager.replacePlaceholders(
-                        configManager.getMessageOrDefault(StandardMessages.KEY_BAN, StandardMessages.DEFAULT_BAN_MESSAGE),
-                        player,
-                        status.getMods()
-                    );
-                    player.kick(Component.text(banMsg).color(NamedTextColor.RED));
-                } else {
-                    kickPlayer(player, status.getMessage());
-                }
-                return;
-            }
-        }
 
-        // Mark as checked to prevent double execution
-        clients.put(player.getUniqueId(), info.withChecked(true));
+                @Override
+                public void disconnect(String message) {
+                    player.kick(Component.text(message).color(NamedTextColor.RED));
+                }
+
+                @Override
+                public void executeServerCommand(String command) {
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+                }
+
+                @Override
+                public void publishBan(String playerName, String reason, String mods) {
+                    plugin.publishWebhookBan(playerName, reason, mods);
+                }
+
+                @Override
+                public void publishKick(String playerName, String reason, String mods) {
+                    plugin.publishWebhookKick(playerName, reason, mods);
+                }
+
+                @Override
+                public boolean hasBypassPermission() {
+                    return player.hasPermission("handshaker.bypass");
+                }
+
+                @Override
+                public Collection<ClassLoader> additionalBedrockClassLoaders() {
+                    return getBedrockClassLoaders();
+                }
+            }
+        );
         
         // Log timing in debug mode
         if (HandShakerPlugin.DEBUG) {
@@ -477,59 +426,6 @@ public class PluginProtocolHandler {
                 logger.info("[TIMER] Player " + player.getName() + " fully checked in " + elapsed + "ms");
                 plugin.removeJoinTimestamp(player.getUniqueId());
             }
-        }
-    }
-
-    private void executeAction(Player player, String actionName, Set<String> mods, String violationMessage) {
-        if (actionName == null || actionName.equals("none")) {
-            return; // No action to execute
-        }
-
-        if ("ban".equalsIgnoreCase(actionName)) {
-            String banReason = (violationMessage != null && !violationMessage.isBlank()) ? violationMessage : "Action 'ban' executed";
-            plugin.publishWebhookBan(player.getName(), banReason, String.join(", ", mods));
-        }
-
-        if (actionName.equalsIgnoreCase("log")) {
-            String logMessage = configManager.replacePlaceholders("Mod check violation: {player} using {mod}", player, mods);
-            logger.info(logMessage);
-            return;
-        }
-
-        ActionDefinition action = configManager.getAction(actionName);
-        if (action == null) {
-            logger.warning("Action '" + actionName + "' not found in mods-actions.yml");
-            return;
-        }
-
-        if (HandShakerPlugin.DEBUG) {
-            logger.info("[DEBUG] Executing action '" + actionName + "' for player " + player.getName());
-        }
-        
-        try {
-            plugin.getServer().getGlobalRegionScheduler().run(plugin, task -> {
-                for (String command : action.getCommands()) {
-                    String processedCommand = configManager.replacePlaceholders(command, player, mods);
-                    try {
-                        if (HandShakerPlugin.DEBUG) {
-                            logger.info("[DEBUG] Executing command: " + processedCommand);
-                        }
-                        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), processedCommand);
-                        logger.fine("Executed action '" + actionName + "' command: " + processedCommand);
-                    } catch (Exception e) {
-                        logger.warning("Failed to execute action '" + actionName + "' command: " + processedCommand + " - " + e.getMessage());
-                    }
-                }
-
-                if (action.shouldLog()) {
-                    String logMessage = configManager.replacePlaceholders("Action '" + actionName + "' executed for {player} using {mod}", player, mods);
-                    logger.info(logMessage);
-                }
-            });
-        } catch (Exception e) {
-            logger.warning("Failed to schedule command execution for action '" + actionName + "': " + e.getMessage());
-            logger.log(java.util.logging.Level.WARNING,
-                "Action execution scheduling failed for '" + actionName + "'", e);
         }
     }
 
@@ -545,7 +441,7 @@ public class PluginProtocolHandler {
         return SHA256_HEX.matcher(value.trim().toLowerCase(Locale.ROOT)).matches();
     }
 
-    private boolean isBedrockPlayer(Player player) {
+    private Collection<ClassLoader> getBedrockClassLoaders() {
         List<ClassLoader> classLoaders = new ArrayList<>(2);
 
         Plugin floodgate = Bukkit.getPluginManager().getPlugin("floodgate");
@@ -564,17 +460,7 @@ public class PluginProtocolHandler {
             classLoaders.add(geyser.getClass().getClassLoader());
         }
 
-        return BedrockPlayer.isBedrockPlayer(
-            player.getUniqueId(),
-            player.getName(),
-            new BedrockPlayer.LogSink() {
-                @Override
-                public void warn(String message) {
-                    logger.warning(message);
-                }
-            },
-            classLoaders
-        );
+        return classLoaders;
     }
 
 }

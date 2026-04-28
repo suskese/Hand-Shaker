@@ -1,21 +1,16 @@
 plugins {
-	id 'fabric-loom'
+	id 'net.fabricmc.fabric-loom'
 	id 'maven-publish'
 }
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
-    }
-}
-
-def handlibFabricClasses = project(':handlib:1.21:fabric').layout.buildDirectory.dir('classes/java/main')
+def githubUser = (findProperty('github.user') ?: rootProject.ext.dotEnv['github.user'] ?: rootProject.ext.dotEnv['GITHUB_ACTOR'] ?: System.getenv('GITHUB_ACTOR'))?.toString()
+def githubToken = (findProperty('github.token') ?: rootProject.ext.dotEnv['github.token'] ?: rootProject.ext.dotEnv['GITHUB_TOKEN'] ?: System.getenv('GITHUB_TOKEN'))?.toString()
 
 version = rootProject.mod_version
 group = rootProject.maven_group
 
 base {
-	archivesName = "${rootProject.archives_base_name}-fabric"
+	archivesName = "${rootProject.mod_id}-fabric"
 }
 
 repositories {
@@ -23,7 +18,7 @@ repositories {
 
     maven {
         name = "Fabric"
-        url = "https://maven.fabricmc.net/"
+		url = "https://maven.fabricmc.net/"
     }
 
     maven {
@@ -40,55 +35,45 @@ repositories {
         name = "Modrinth"
         url = "https://api.modrinth.com/maven"
     }
-}
-
-dependencies {
-	minecraft "com.mojang:minecraft:${minecraft_version}"
-
-	modImplementation "net.fabricmc:fabric-loader:${loader_version}"
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
-	mappings loom.layered() {
-    	officialMojangMappings()
-        parchment("org.parchmentmc.data:parchment-${minecraft_version}:${parchment_mappings_version}@zip")
-    }	
-	compileOnly 'org.geysermc.geyser:api:2.9.0-SNAPSHOT'
-	compileOnly 'org.geysermc.floodgate:api:2.2.4-SNAPSHOT'
-	
-	// Common module (shared config, database pooling, logging)
-	include implementation(project(':common'))
-	implementation(files(handlibFabricClasses))
-	// include implementation("maven.modrinth:handlib:1.0.0")
-	// Fabric-specific database dependency (H2)
-	include implementation('com.h2database:h2:2.2.224')
-	include implementation('com.zaxxer:HikariCP:6.2.1')
-	include implementation('org.slf4j:slf4j-api:2.0.16')
-	include implementation('org.yaml:snakeyaml:2.0')
-	compileOnly 'com.zaxxer:HikariCP:6.2.1'
-	include implementation('org.yaml:snakeyaml:2.0')
-	compileOnly "me.lucko:fabric-permissions-api:0.3.1"
-
-
-}
-
-sourceSets.main.java { srcDir '../fabric-common/src/main/java' }
-
-tasks.withType(ProcessResources).configureEach {
-	dependsOn rootProject.tasks.named('copyCert')
-}
-
-tasks.configureEach {
-	if (name in ['compileJava', 'sourcesJar', 'remapJar', 'remapSourcesJar']) {
-		dependsOn(':handlib:1.21:fabric:classes')
+    maven {
+        name = "Handlib"
+		url = "https://maven.pkg.github.com/IceVallish-Studio/Handlib"
+        credentials {
+            username = githubUser
+            password = githubToken
+		}
 	}
 }
 
+dependencies {
+	minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_dependency}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_api_version}"	
+
+	include implementation(project(':common'))
+	// include implementation("maven.modrinth:handlib:1.0.0")
+	implementation("me.mklv:handlib-${rootProject.handlib_version}")
+	include implementation("com.h2database:h2:${rootProject.h2database}")
+	include implementation("org.yaml:snakeyaml:${rootProject.snakeyaml}")
+	include implementation("org.slf4j:slf4j-api:${rootProject.slf4japi}")
+	include implementation("com.zaxxer:HikariCP:${rootProject.HikariCP}")
+	compileOnly "com.zaxxer:HikariCP:${rootProject.HikariCP}"
+	compileOnly "org.geysermc.geyser:api:${rootProject.geyser_api_version}"
+	compileOnly "org.geysermc.floodgate:api:${rootProject.floodgate_api_version}"
+	compileOnly "me.lucko:fabric-permissions-api:0.3.1"
+}
+
+tasks.withType(ProcessResources).configureEach {
+	dependsOn rootProject.tasks.named('01-copyCertificate')
+}
+
 processResources {
-	def version = rootProject.version
+	def version = rootProject.mod_version
 	def supportedVersions = supported_mc_versions
 	from(project(':common').sourceSets.main.resources)
 	filesMatching("fabric.mod.json") {
 		filter { line ->
-			line.replace('${version}', "${version}-1.21.x")
+			line.replace('${version}', "${version}-26.1")
 				.replace('${supported_mc_versions}', supportedVersions)
 		}
 	}
@@ -120,7 +105,7 @@ jar {
 publishing {
 	publications {
 		create("mavenJava", MavenPublication) {
-			artifactId = rootProject.archives_base_name
+			artifactId = rootProject.mod_id
 			from components.java
 		}
 	}
@@ -131,35 +116,21 @@ publishing {
 }
 
 afterEvaluate {
-    def envFile = rootProject.file('.env')
-    if (envFile.exists()) {
-        envFile.readLines().each { line ->
-            def (key, value) = line.split('=', 2)
-            if (key && value && !System.getenv(key)) {
-                System.setProperty(key, value)
-            }
-        }
-    }
-
     tasks.register('signFabricJar', Exec) {
         group = 'build'
         description = 'Signs the remapped Fabric client JAR.'
-        dependsOn(tasks.named('remapJar'))
-
-        def remappedJarProvider = tasks.named('remapJar').flatMap { it.outputs.files.elements.map { fs -> fs.first().asFile } }
-        def signedJar = layout.buildDirectory.file("libs/${rootProject.archives_base_name}-fabric-${rootProject.version}-s.jar")
-
-        inputs.file(remappedJarProvider)
+        dependsOn(tasks.named('jar'))
+		def signedJar = layout.buildDirectory.file("libs/${rootProject.mod_id}-fabric-${rootProject.mod_version}-s.jar")
         inputs.file(rootProject.file('.Integrity/keystore.jks'))
         outputs.file(signedJar)
 
         executable = 'jarsigner'
 
         doFirst {
-            def jarToSign = remappedJarProvider.get()
+            def jarToSign = tasks.named('jar').get().archiveFile.get().asFile
             if (rootProject.file('.Integrity/keystore.jks').exists()) {
                 println "--> Signing JAR: ${jarToSign.name}"
-                def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
+                def keystorePassword = rootProject.ext.resolveSecret('KEYSTORE_PASSWORD') ?: 'password'
                 args = [
                     '-keystore', rootProject.file('.Integrity/keystore.jks').absolutePath,
                     '-storepass', keystorePassword,
@@ -214,15 +185,15 @@ afterEvaluate {
 		dependsOn(tasks.named('signFabricJar'))
 
 		doLast {
-			def signedJar = layout.buildDirectory.file("libs/${rootProject.archives_base_name}-fabric-${rootProject.version}-s.jar").get().asFile
+			def signedJar = layout.buildDirectory.file("libs/${rootProject.mod_id}-fabric-${rootProject.mod_version}-s.jar").get().asFile
 			if (!signedJar.exists()) {
-				throw new GradleException("Signed jar not found: ${signedJar}")
+				println("Signed jar not found: ${signedJar}")
 			}
 
-			def keystorePassword = System.getenv('KEYSTORE_PASSWORD') ?: System.getProperty('KEYSTORE_PASSWORD') ?: 'password'
+			def keystorePassword = rootProject.ext.resolveSecret('KEYSTORE_PASSWORD') ?: 'password'
 			def keyStoreFile = rootProject.file('.Integrity/keystore.jks')
 			if (!keyStoreFile.exists()) {
-				throw new GradleException('Keystore not found at .Integrity/keystore.jks')
+				println('Keystore not found at .Integrity/keystore.jks')
 			}
 
 			def hashHex = computeCanonicalJarHash(signedJar)
@@ -234,7 +205,7 @@ afterEvaluate {
 
 			def privateKey = keyStore.getKey('handshaker', keystorePassword.toCharArray())
 			if (!(privateKey instanceof java.security.PrivateKey)) {
-				throw new GradleException('Private key alias handshaker was not found in keystore')
+				println('Private key alias handshaker was not found in keystore')
 			}
 
 			def signature = java.security.Signature.getInstance('SHA256withRSA')

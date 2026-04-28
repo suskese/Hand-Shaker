@@ -8,19 +8,19 @@ group = project.maven_group
 version = project.mod_version + "-" + project.plugin_version
 
 base {
-    archivesName = "${project.archives_base_name}-paper"
+    archivesName = "${project.mod_id}-paper"
 }
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
 repositories {
     mavenCentral()
-    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
     maven { url = 'https://repo.opencollab.dev/main/' }
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
 }
 
 dependencies {
@@ -33,22 +33,22 @@ dependencies {
     implementation 'org.xerial:sqlite-jdbc:3.47.1.0'
 
     compileOnly "io.papermc.paper:paper-api:${paper_api}"
-    compileOnly 'org.geysermc.geyser:api:2.9.0-SNAPSHOT'
-    compileOnly 'org.geysermc.floodgate:api:2.2.4-SNAPSHOT'
+    compileOnly "org.geysermc.geyser:api:${rootProject.geyser_api_version}"
+    compileOnly "org.geysermc.floodgate:api:${rootProject.floodgate_api_version}"
 
-    compileOnly 'com.zaxxer:HikariCP:6.2.1'
-    compileOnly 'org.yaml:snakeyaml:2.0'
-    compileOnly 'org.slf4j:slf4j-api:2.0.16'
+    compileOnly "com.zaxxer:HikariCP:${rootProject.HikariCP}"
+    compileOnly "org.yaml:snakeyaml:${rootProject.snakeyaml}"
+    compileOnly "org.slf4j:slf4j-api:${rootProject.slf4japi}"
     
 }
 
 tasks.withType(JavaCompile).configureEach {
-    options.release = 21
+    options.release = 25
 }
 
 def projectVersion = project.version
 processResources {
-    dependsOn rootProject.tasks.named('copyCert')
+    dependsOn rootProject.tasks.named('01-copyCertificate')
     filteringCharset = 'UTF-8'
     filesMatching(['paper-plugin.yml']) { 
         filter { line -> line.replace('${version}', projectVersion) } 

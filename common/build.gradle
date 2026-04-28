@@ -3,11 +3,11 @@ plugins {
     id 'maven-publish'
 }
 
-group = project.maven_group
-version = project.mod_version
+version = rootProject.mod_version
+group = rootProject.maven_group
 
 base {
-    archivesName = "${project.archives_base_name}-common"
+    archivesName = "${rootProject.mod_id}-common"
 }
 
 java {
@@ -22,10 +22,10 @@ repositories {
 
 dependencies {
     // Shared dependencies - used by all platforms
-    implementation 'com.zaxxer:HikariCP:6.2.1'
-    implementation 'org.slf4j:slf4j-api:2.0.16'
-    implementation 'com.google.code.gson:gson:2.10.1'
-    compileOnly 'org.yaml:snakeyaml:2.0'
+    implementation "com.zaxxer:HikariCP:${rootProject.HikariCP}"
+    implementation "org.slf4j:slf4j-api:${rootProject.slf4japi}"
+    implementation "com.google.code.gson:gson:${rootProject.gson}"
+    compileOnly "org.yaml:snakeyaml:${rootProject.snakeyaml}"
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -33,5 +33,5 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.named('processResources') {
-    dependsOn rootProject.tasks.named('copyCert')
+    dependsOn rootProject.tasks.named('01-copyCertificate')
 }

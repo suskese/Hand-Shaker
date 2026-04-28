@@ -5,9 +5,11 @@ import me.mklv.handshaker.common.api.local.ApiDataProvider;
 import me.mklv.handshaker.common.api.local.ApiModels;
 import me.mklv.handshaker.common.api.local.ApiServerConfig;
 import me.mklv.handshaker.common.api.local.LocalRestApiServer;
-import me.mklv.handshaker.common.api.discord.WebhookConfig;
-import me.mklv.handshaker.common.api.discord.WebhookDispatcher;
-import me.mklv.handshaker.common.api.discord.WebhookEventType;
+import me.mklv.handshaker.common.api.module.EventBus;
+import me.mklv.handshaker.common.api.module.HandShakerEvent;
+import me.mklv.handshaker.common.api.module.HandShakerModule;
+import me.mklv.handshaker.common.api.module.ModuleContext;
+import me.mklv.handshaker.common.api.module.ModuleLoader;
 import me.mklv.handshaker.paper.utils.HandShakerListener;
 import me.mklv.handshaker.common.database.PlayerHistoryDatabase;
 import me.mklv.handshaker.common.database.SQLitePlayerHistoryDatabase;
@@ -21,11 +23,12 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,15 +43,17 @@ public class HandShakerPlugin extends JavaPlugin {
 
     private final Map<UUID, ClientInfo> clients = new ConcurrentHashMap<>();
     private final Map<UUID, Long> joinTimestamps = new ConcurrentHashMap<>();
+    private final EventBus eventBus = new EventBus();
+    private final List<HandShakerModule> loadedModules = new ArrayList<>();
+    private final Map<String, com.sun.net.httpserver.HttpHandler> pendingModuleRoutes = new LinkedHashMap<>();
     private ConfigManager configManager;
     private PlayerHistoryDatabase playerHistoryDb;
     private PluginProtocolHandler protocolHandler;
     private LocalRestApiServer localRestApiServer;
-    private WebhookDispatcher webhookDispatcher;
 
     @Override
-    public void onEnable()
- {        loadConfiguration();
+    public void onEnable(){
+        loadConfiguration();
         LegacyVersion.initializeTrustedHybridHashes(getClass(), new LegacyVersion.LogSink() {
             @Override
             public void info(String message) {
@@ -62,12 +67,13 @@ public class HandShakerPlugin extends JavaPlugin {
         }, DEBUG);
 
         loadDatabase();
+        loadModules();
         startLocalRestApiIfEnabled();
-        startWebhookIfEnabled();
 
         getServer().getAsyncScheduler().runAtFixedRate(this, task -> {
             if (protocolHandler != null) {
                 protocolHandler.getPayloadValidator().cleanupExpiredNoncesNow();
+                protocolHandler.getPayloadValidator().cleanupIdleRateLimiterBuckets();
             }
         }, 5, 5, java.util.concurrent.TimeUnit.MINUTES);
 
@@ -149,10 +155,15 @@ public class HandShakerPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        if (webhookDispatcher != null) {
-            webhookDispatcher.shutdown();
-            webhookDispatcher = null;
+        for (HandShakerModule module : loadedModules) {
+            try {
+                module.onDisable();
+            } catch (Exception e) {
+                getLogger().warning("[ModuleLoader] Module '" + module.getId() + "' failed on disable: " + e.getMessage());
+            }
         }
+        loadedModules.clear();
+        eventBus.shutdown();
         if (localRestApiServer != null) {
             localRestApiServer.stop();
             localRestApiServer = null;
@@ -193,11 +204,11 @@ public class HandShakerPlugin extends JavaPlugin {
 
     public void checkAllPlayers() {
         getLogger().info("Re-checking all online players...");
-        // Reset checked flags for all players
+        // Reset handshake-checked flags for all players
         for (UUID uuid : new java.util.HashSet<>(clients.keySet())) {
             ClientInfo info = clients.get(uuid);
             if (info != null) {
-                clients.put(uuid, info.withChecked(false));
+                clients.put(uuid, info.withHandshakeChecked(false));
             }
         }
         // Re-check all online players with timeout enforcement
@@ -234,14 +245,40 @@ public class HandShakerPlugin extends JavaPlugin {
     }
 
     public void publishWebhookKick(String playerName, String reason, String mod) {
-        if (webhookDispatcher != null) {
-            webhookDispatcher.publish(WebhookEventType.PLAYER_KICKED, playerName, mod, reason);
-        }
+        eventBus.fire(new HandShakerEvent.PlayerKicked(playerName, mod, reason));
     }
 
     public void publishWebhookBan(String playerName, String reason, String mod) {
-        if (webhookDispatcher != null) {
-            webhookDispatcher.publish(WebhookEventType.PLAYER_BANNED, playerName, mod, reason);
+        eventBus.fire(new HandShakerEvent.PlayerBanned(playerName, mod, reason));
+    }
+
+    private void loadModules() {
+        Path modulesDir = getDataFolder().toPath().resolve("Modules");
+        ApiDataProvider dataProvider = createApiProvider();
+        List<HandShakerModule> found = ModuleLoader.loadFrom(
+                modulesDir, getClass().getClassLoader(),
+                LoggerFactory.getLogger("hand-shaker-modules"));
+        for (HandShakerModule module : found) {
+            String moduleId = module.getId();
+            ModuleContext ctx = new ModuleContext() {
+                @Override public ApiDataProvider dataProvider() { return dataProvider; }
+                @Override public EventBus eventBus() { return eventBus; }
+                @Override public org.slf4j.Logger logger(String cat) { return LoggerFactory.getLogger(cat); }
+                @Override public Path dataFolder() {
+                    Path dir = getDataFolder().toPath().resolve("Modules").resolve(moduleId);
+                    try { Files.createDirectories(dir); } catch (Exception ignored) {}
+                    return dir;
+                }
+                @Override public void registerApiRoute(String subPath, com.sun.net.httpserver.HttpHandler handler) {
+                    pendingModuleRoutes.put("/api/v1/modules/" + subPath, handler);
+                }
+            };
+            try {
+                module.onEnable(ctx);
+                loadedModules.add(module);
+            } catch (Exception e) {
+                getLogger().warning("[ModuleLoader] Module '" + moduleId + "' failed to enable: " + e.getMessage());
+            }
         }
     }
 
@@ -250,8 +287,9 @@ public class HandShakerPlugin extends JavaPlugin {
             return;
         }
 
-        ApiServerConfig apiConfig = new ApiServerConfig(true, configManager.getRestApiPort(), "");
+        ApiServerConfig apiConfig = new ApiServerConfig(true, configManager.getRestApiPort(), configManager.getRestApiKey());
         localRestApiServer = new LocalRestApiServer(apiConfig, createApiProvider(), LoggerFactory.getLogger("hand-shaker-paper-api"));
+        pendingModuleRoutes.forEach(localRestApiServer::addRoute);
         try {
             localRestApiServer.start();
         } catch (IOException e) {
@@ -380,25 +418,4 @@ public class HandShakerPlugin extends JavaPlugin {
         };
     }
 
-    private void startWebhookIfEnabled() {
-        if (configManager == null || !configManager.isWebhookEnabled()) {
-            return;
-        }
-
-        EnumSet<WebhookEventType> events = EnumSet.noneOf(WebhookEventType.class);
-        if (configManager.isWebhookNotifyOnKick()) {
-            events.add(WebhookEventType.PLAYER_KICKED);
-        }
-        if (configManager.isWebhookNotifyOnBan()) {
-            events.add(WebhookEventType.PLAYER_BANNED);
-        }
-
-        WebhookConfig webhookConfig = new WebhookConfig(
-            true,
-            configManager.getWebhookUrl(),
-            "",
-            events
-        );
-        webhookDispatcher = new WebhookDispatcher(webhookConfig, LoggerFactory.getLogger("hand-shaker-paper-webhook"));
-    }
 }

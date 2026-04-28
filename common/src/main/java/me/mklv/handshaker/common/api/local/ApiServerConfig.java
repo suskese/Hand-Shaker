@@ -1,6 +1,7 @@
 package me.mklv.handshaker.common.api.local;
 
-import java.util.Objects;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 public record ApiServerConfig(
     boolean enabled,
@@ -21,6 +22,14 @@ public record ApiServerConfig(
     }
 
     public boolean authMatches(String providedKey) {
-        return !requiresAuth() || Objects.equals(apiKey, providedKey);
+        if (!requiresAuth()) {
+            return true;
+        }
+        if (providedKey == null) {
+            return false;
+        }
+        byte[] expected = apiKey.getBytes(StandardCharsets.UTF_8);
+        byte[] provided = providedKey.getBytes(StandardCharsets.UTF_8);
+        return MessageDigest.isEqual(expected, provided);
     }
 }

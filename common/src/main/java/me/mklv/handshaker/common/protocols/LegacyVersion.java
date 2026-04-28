@@ -10,7 +10,7 @@ public final class LegacyVersion {
         void warn(String message);
     }
 
-    public enum ClientProfile {
+    public enum ModListFormat {
         MODERN,
         HYBRID,
         LEGACY
@@ -19,37 +19,37 @@ public final class LegacyVersion {
     private LegacyVersion() {
     }
 
-    public static ClientProfile detectByPayload(String modListPayload, String modListHash, boolean hashMissingOrInvalid) {
+    public static ModListFormat detectByPayload(String modListPayload, String modListHash, boolean hashMissingOrInvalid) {
         if (hashMissingOrInvalid) {
-            return ClientProfile.LEGACY;
+            return ModListFormat.LEGACY;
         }
         if (modListPayload != null && modListPayload.contains(":")) {
-            return ClientProfile.MODERN;
+            return ModListFormat.MODERN;
         }
         if (modListHash != null && !modListHash.isBlank()) {
-            return ClientProfile.HYBRID;
+            return ModListFormat.HYBRID;
         }
-        return ClientProfile.LEGACY;
+        return ModListFormat.LEGACY;
     }
 
-    public static ClientProfile detectByMods(Set<String> mods) {
+    public static ModListFormat detectByMods(Set<String> mods) {
         if (mods == null || mods.isEmpty()) {
-            return ClientProfile.LEGACY;
+            return ModListFormat.LEGACY;
         }
         for (String mod : mods) {
             ConfigTypes.ModEntry entry = ConfigTypes.ModEntry.parse(mod);
             if (entry != null && entry.version() != null && !entry.version().isBlank()) {
-                return ClientProfile.MODERN;
+                return ModListFormat.MODERN;
             }
         }
-        return ClientProfile.HYBRID;
+        return ModListFormat.HYBRID;
     }
 
-    public static boolean isAllowed(ClientProfile profile,
+    public static boolean isAllowed(ModListFormat modListFormat,
                                     boolean modernEnabled,
                                     boolean hybridEnabled,
                                     boolean legacyEnabled) {
-        return switch (profile) {
+        return switch (modListFormat) {
             case MODERN -> modernEnabled;
             case HYBRID -> hybridEnabled;
             case LEGACY -> legacyEnabled;

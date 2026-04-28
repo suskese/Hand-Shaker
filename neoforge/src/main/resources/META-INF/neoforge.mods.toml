@@ -14,20 +14,20 @@ authors="IceVallish / Suskese"
 [[dependencies.hand_shaker]]
 modId="neoforge"
 type="required"
-versionRange="[21,)"
+versionRange="[26,)"
 ordering="NONE"
 side="BOTH"
 
 [[dependencies.hand_shaker]]
 modId="minecraft"
 type="required"
-versionRange="[1.21,)"
+versionRange="[26.1,)"
 ordering="NONE"
 side="BOTH"
 
 [[dependencies.hand_shaker]]
 modId = "handlib"
 type = "required"
-versionRange = "[0.1.0,)"
+versionRange = "[0.0.1,)"
 ordering = "NONE"
 side = "BOTH"

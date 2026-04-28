@@ -31,13 +31,13 @@ public final class CommonClientHandshakeOrchestrator {
         }
 
         CommonClientHashPayloadService.ModListData modList = payloads.getModListData();
-        String modsNonce = nextNonce();
-        sender.sendModList(modList.transportPayload(), modList.modListHash(), modsNonce);
+        String modListNonce = nextNonce();
+        sender.sendModList(modList.transportPayload(), modList.modListHash(), modListNonce);
         logger.info(
             "Sent mod list ({} chars, hash: {}) with nonce: {}",
             modList.transportPayload().length(),
             abbreviateHash(modList.modListHash()),
-            modsNonce
+            modListNonce
         );
 
         CommonClientHashPayloadService.IntegrityData integrity = payloads.getIntegrityData();

@@ -12,7 +12,6 @@ import java.util.function.Consumer;
 public class NetworkSetup {
     private static final Logger LOGGER = LoggerFactory.getLogger("hand-shaker-network");
 
-    @SuppressWarnings("null")
     @SubscribeEvent
     public static void registerPayloads(RegisterPayloadHandlersEvent event) {
         final PayloadRegistrar registrar = event.registrar("1").optional();

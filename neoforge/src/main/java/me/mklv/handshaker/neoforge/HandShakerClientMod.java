@@ -68,7 +68,7 @@ public class HandShakerClientMod {
         );
     }
 
-    @SuppressWarnings("null")
+
     private void sendPacket(ClientPlayerNetworkEvent.LoggingIn event, CustomPacketPayload payload) {
         if (event.getPlayer() != null && event.getPlayer().connection != null) {
             event.getPlayer().connection.send(new ServerboundCustomPayloadPacket(payload));

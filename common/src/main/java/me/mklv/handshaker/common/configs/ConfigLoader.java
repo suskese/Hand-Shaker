@@ -89,11 +89,10 @@ public final class ConfigLoader {
                 result.setDebug(readBoolean(root.get("debug"), false));
             }
 
-            if (root.containsKey("force-handshaker-mod")) {
+            if (root.containsKey("handshaker-enforcement")) {
+                result.setForceHandshakerMod(readBoolean(root.get("handshaker-enforcement"), true));
+            } else if (root.containsKey("force-handshaker-mod")) {
                 result.setForceHandshakerMod(readBoolean(root.get("force-handshaker-mod"), true));
-            } else if (root.containsKey("behavior")) {
-                String behaviorStr = String.valueOf(root.get("behavior")).toLowerCase(Locale.ROOT);
-                result.setForceHandshakerMod(behaviorStr.startsWith("strict"));
                 result.setRewriteToV7(true);
             }
 
@@ -103,52 +102,61 @@ public final class ConfigLoader {
                 result.setHybridCompatibility(readBoolean(compatibility.get("hybrid-6.0"), false));
                 result.setLegacyCompatibility(readBoolean(compatibility.get("legacy-3.0+"), false));
                 result.setUnsignedCompatibility(readBoolean(compatibility.get("unsigned"), false));
-            } else if (root.containsKey("integrity-mode")) {
-                String integrityStr = String.valueOf(root.get("integrity-mode")).toLowerCase(Locale.ROOT);
-                boolean unsigned = "dev".equals(integrityStr);
-                result.setModernCompatibility(true);
-                result.setHybridCompatibility(false);
-                result.setLegacyCompatibility(false);
-                result.setUnsignedCompatibility(unsigned);
-                result.setRewriteToV7(true);
             }
 
-            if (root.containsKey("enforce-whitelisted-mod-list")) {
+            if (root.containsKey("whitelist-enforcement")) {
+                result.setWhitelist(readBoolean(root.get("whitelist-enforcement"), false));
+            } else if (root.containsKey("enforce-whitelisted-mod-list")) {
                 result.setWhitelist(readBoolean(root.get("enforce-whitelisted-mod-list"), false));
+                result.setRewriteToV7(true);
             } else if (root.containsKey("whitelist")) {
                 result.setWhitelist(readBoolean(root.get("whitelist"), false));
                 result.setRewriteToV7(true);
             }
 
-            if (root.containsKey("allow-bedrock-players")) {
+            if (root.containsKey("bedrock-policy")) {
+                result.setAllowBedrockPlayers(readBoolean(root.get("bedrock-policy"), false));
+            } else if (root.containsKey("allow-bedrock-players")) {
                 result.setAllowBedrockPlayers(readBoolean(root.get("allow-bedrock-players"), false));
+                result.setRewriteToV7(true);
             }
 
-            if (root.containsKey("handshake-timeout-seconds")) {
+            if (root.containsKey("timeout-seconds")) {
+                Integer timeout = readInteger(root.get("timeout-seconds"));
+                result.setHandshakeTimeoutSeconds(timeout != null ? Math.max(1, timeout) : 5);
+            } else if (root.containsKey("handshake-timeout-seconds")) {
                 Integer timeout = readInteger(root.get("handshake-timeout-seconds"));
                 result.setHandshakeTimeoutSeconds(timeout != null ? Math.max(1, timeout) : 5);
+                result.setRewriteToV7(true);
             }
 
-            Map<String, Object> playerDatabase = asMap(root.get("player-database"));
-            if (playerDatabase != null && !playerDatabase.isEmpty()) {
-                result.setPlayerdbEnabled(readBoolean(playerDatabase.get("enabled"), false));
-                result.setHashMods(readBoolean(playerDatabase.get("use-hash-for-mods"), true));
-                result.setRuntimeCache(readBoolean(playerDatabase.get("runtime-cache"), false));
+            if (root.containsKey("database")) {
+                result.setPlayerdbEnabled(readBoolean(root.get("database"), false));
+                result.setHashMods(readBoolean(root.get("use-hash-for-mods"), true));
+                result.setRuntimeCache(readBoolean(root.get("runtime-cache"), false));
             } else {
-                if (root.containsKey("playerdb-enabled")) {
-                    result.setPlayerdbEnabled(readBoolean(root.get("playerdb-enabled"), false));
+                Map<String, Object> playerDatabase = asMap(root.get("player-database"));
+                if (playerDatabase != null && !playerDatabase.isEmpty()) {
+                    result.setPlayerdbEnabled(readBoolean(playerDatabase.get("enabled"), false));
+                    result.setHashMods(readBoolean(playerDatabase.get("use-hash-for-mods"), true));
+                    result.setRuntimeCache(readBoolean(playerDatabase.get("runtime-cache"), false));
                     result.setRewriteToV7(true);
-                }
-                if (root.containsKey("hash-mods")) {
-                    result.setHashMods(readBoolean(root.get("hash-mods"), true));
-                    result.setRewriteToV7(true);
-                }
-                if (root.containsKey("Runtime_cache")) {
-                    result.setRuntimeCache(readBoolean(root.get("Runtime_cache"), false));
-                    result.setRewriteToV7(true);
-                } else if (root.containsKey("runtime_cache")) {
-                    result.setRuntimeCache(readBoolean(root.get("runtime_cache"), false));
-                    result.setRewriteToV7(true);
+                } else {
+                    if (root.containsKey("playerdb-enabled")) {
+                        result.setPlayerdbEnabled(readBoolean(root.get("playerdb-enabled"), false));
+                        result.setRewriteToV7(true);
+                    }
+                    if (root.containsKey("hash-mods")) {
+                        result.setHashMods(readBoolean(root.get("hash-mods"), true));
+                        result.setRewriteToV7(true);
+                    }
+                    if (root.containsKey("Runtime_cache")) {
+                        result.setRuntimeCache(readBoolean(root.get("Runtime_cache"), false));
+                        result.setRewriteToV7(true);
+                    } else if (root.containsKey("runtime_cache")) {
+                        result.setRuntimeCache(readBoolean(root.get("runtime_cache"), false));
+                        result.setRewriteToV7(true);
+                    }
                 }
             }
 
@@ -176,8 +184,11 @@ public final class ConfigLoader {
                 result.setModVersioning(readBoolean(root.get("mod-versioning"), true));
             }
 
-            if (root.containsKey("required-modpack-hashes")) {
+            if (root.containsKey("modpack-hashes")) {
+                result.setRequiredModpackHashes(parseRequiredModpackHashes(root.get("modpack-hashes")));
+            } else if (root.containsKey("required-modpack-hashes")) {
                 result.setRequiredModpackHashes(parseRequiredModpackHashes(root.get("required-modpack-hashes")));
+                result.setRewriteToV7(true);
             } else if (root.containsKey("required-modpack-hash")) {
                 result.setRequiredModpackHashes(parseRequiredModpackHashes(root.get("required-modpack-hash")));
                 result.setRewriteToV7(true);
@@ -199,10 +210,6 @@ public final class ConfigLoader {
                 if (advanced.containsKey("enable-diagnostic-command")) {
                     result.setDiagnosticCommandEnabled(readBoolean(advanced.get("enable-diagnostic-command"), true));
                 }
-                if (advanced.containsKey("enable-export-command")) {
-                    result.setExportCommandEnabled(readBoolean(advanced.get("enable-export-command"), true));
-                }
-
                 Map<String, Object> database = asMap(advanced.get("database"));
                 if (database != null && !database.isEmpty()) {
                     if (database.containsKey("async-operations")) {
@@ -240,24 +247,9 @@ public final class ConfigLoader {
                     if (restApiPort != null) {
                         result.setRestApiPort(restApiPort);
                     }
-
-                    Map<String, Object> discordIntegration = asMap(api.get("discord-integration"));
-                    if (discordIntegration != null && !discordIntegration.isEmpty()) {
-                        Map<String, Object> webhook = asMap(discordIntegration.get("webhook"));
-                        if (webhook != null && !webhook.isEmpty()) {
-                            if (webhook.containsKey("enabled")) {
-                                result.setWebhookEnabled(readBoolean(webhook.get("enabled"), false));
-                            }
-                            if (webhook.containsKey("webhook-url")) {
-                                result.setWebhookUrl(String.valueOf(webhook.get("webhook-url")));
-                            }
-                            if (webhook.containsKey("notify-on-ban")) {
-                                result.setWebhookNotifyOnBan(readBoolean(webhook.get("notify-on-ban"), true));
-                            }
-                            if (webhook.containsKey("notify-on-kick")) {
-                                result.setWebhookNotifyOnKick(readBoolean(webhook.get("notify-on-kick"), false));
-                            }
-                        }
+                    String apiKey = readString(api.get("api-key"));
+                    if (apiKey != null && !apiKey.isEmpty()) {
+                        result.setRestApiKey(apiKey);
                     }
                 }
             }

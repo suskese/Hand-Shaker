@@ -114,9 +114,24 @@ public final class ModListFiles {
 
     private static List<Path> listYamlFiles(Path configDir) {
         List<Path> out = new ArrayList<>();
-        try (var stream = Files.list(configDir)) {
+        if (configDir == null) {
+            return out;
+        }
+
+        // Support both legacy top-level files and v7 nested mod-lists layout.
+        addYamlFilesFromDir(configDir, out);
+        addYamlFilesFromDir(configDir.resolve("mod-lists"), out);
+        return out;
+    }
+
+    private static void addYamlFilesFromDir(Path dir, List<Path> out) {
+        if (dir == null || !Files.isDirectory(dir)) {
+            return;
+        }
+
+        try (var stream = Files.list(dir)) {
             stream
-                .filter(p -> Files.isRegularFile(p))
+                .filter(Files::isRegularFile)
                 .filter(p -> {
                     String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
                     return name.endsWith(".yml") || name.endsWith(".yaml");
@@ -125,7 +140,6 @@ public final class ModListFiles {
         } catch (IOException ignored) {
             // ignore
         }
-        return out;
     }
 
     private static String normalizeListName(String listName) {

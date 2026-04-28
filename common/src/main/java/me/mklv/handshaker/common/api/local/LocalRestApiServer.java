@@ -2,6 +2,7 @@ package me.mklv.handshaker.common.api.local;
 
 import com.google.gson.Gson;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import me.mklv.handshaker.common.utils.Gsons;
 import org.slf4j.Logger;
@@ -14,6 +15,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,6 +30,15 @@ public final class LocalRestApiServer {
 
     private HttpServer server;
     private ExecutorService executor;
+    private final Map<String, HttpHandler> contributedRoutes = new LinkedHashMap<>();
+
+    /**
+     * Registers an additional HTTP route. Must be called before {@link #start()}.
+     * The API key authorization check is automatically applied to contributed routes.
+     */
+    public void addRoute(String path, HttpHandler handler) {
+        contributedRoutes.put(path, handler);
+    }
 
     public LocalRestApiServer(ApiServerConfig config, ApiDataProvider provider, Logger logger) {
         this.config = config != null ? config : ApiServerConfig.disabled();
@@ -43,14 +54,27 @@ public final class LocalRestApiServer {
             return;
         }
 
-        server = HttpServer.create(new InetSocketAddress(config.port()), 0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", config.port()), 0);
         executor = Executors.newFixedThreadPool(2);
         server.setExecutor(executor);
         server.createContext("/api/v1", this::handle);
+        for (Map.Entry<String, HttpHandler> entry : contributedRoutes.entrySet()) {
+            final HttpHandler delegate = entry.getValue();
+            server.createContext(entry.getKey(), exchange -> {
+                if (!isAuthorized(exchange)) {
+                    writeJson(exchange, 401, Map.of("error", "Unauthorized"));
+                    return;
+                }
+                delegate.handle(exchange);
+            });
+        }
         server.start();
 
         if (logger != null) {
             logger.info("Local REST API started on port {}", config.port());
+            if (!config.requiresAuth()) {
+                logger.warn("Local REST API is running without api-key protection (localhost only)");
+            }
         }
     }
 
@@ -198,12 +222,28 @@ public final class LocalRestApiServer {
             return true;
         }
 
-        String provided = exchange.getRequestHeaders().getFirst("X-Api-Key");
-        if (provided == null || provided.isBlank()) {
-            Map<String, String> query = parseQuery(exchange.getRequestURI());
-            provided = query.get("apiKey");
-        }
+        String provided = resolveProvidedApiKey(exchange);
         return config.authMatches(provided);
+    }
+
+    private static String resolveProvidedApiKey(HttpExchange exchange) {
+        String provided = exchange.getRequestHeaders().getFirst("X-Api-Key");
+        if (provided != null && !provided.isBlank()) {
+            return provided;
+        }
+
+        String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+        if (authHeader == null) {
+            return null;
+        }
+
+        final String bearerPrefix = "Bearer ";
+        if (authHeader.regionMatches(true, 0, bearerPrefix, 0, bearerPrefix.length())) {
+            String token = authHeader.substring(bearerPrefix.length()).trim();
+            return token.isEmpty() ? null : token;
+        }
+
+        return null;
     }
 
     private void writeJson(HttpExchange exchange, int statusCode, Object payload) throws IOException {

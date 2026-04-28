@@ -1,14 +1,9 @@
 package me.mklv.handshaker.common.server;
 
-import me.mklv.handshaker.common.api.discord.WebhookConfig;
-import me.mklv.handshaker.common.api.discord.WebhookDispatcher;
-import me.mklv.handshaker.common.api.discord.WebhookEventType;
-import me.mklv.handshaker.common.configs.ConfigRuntime.CommonConfigManagerBase;
 import me.mklv.handshaker.common.protocols.CertLoader;
 import me.mklv.handshaker.common.utils.SignatureVerifier;
 
 import java.security.PublicKey;
-import java.util.EnumSet;
 
 public final class ServerSecurityWebhookSupport {
     private ServerSecurityWebhookSupport() {
@@ -16,7 +11,6 @@ public final class ServerSecurityWebhookSupport {
 
     public interface Logger {
         void info(String message);
-
         void warn(String message);
     }
 
@@ -59,37 +53,5 @@ public final class ServerSecurityWebhookSupport {
         }
 
         return new SecurityMaterial(publicKey, verifier);
-    }
-
-    public static WebhookDispatcher createWebhookDispatcher(CommonConfigManagerBase config,
-                                                            org.slf4j.Logger logger) {
-        if (config == null || !config.isWebhookEnabled()) {
-            return null;
-        }
-
-        EnumSet<WebhookEventType> events = EnumSet.noneOf(WebhookEventType.class);
-        if (config.isWebhookNotifyOnKick()) {
-            events.add(WebhookEventType.PLAYER_KICKED);
-        }
-        if (config.isWebhookNotifyOnBan()) {
-            events.add(WebhookEventType.PLAYER_BANNED);
-        }
-
-        return new WebhookDispatcher(
-            new WebhookConfig(true, config.getWebhookUrl(), "", events),
-            logger
-        );
-    }
-
-    public static void publishKick(WebhookDispatcher dispatcher, String playerName, String reason, String mod) {
-        if (dispatcher != null) {
-            dispatcher.publish(WebhookEventType.PLAYER_KICKED, playerName, mod, reason);
-        }
-    }
-
-    public static void publishBan(WebhookDispatcher dispatcher, String playerName, String reason, String mod) {
-        if (dispatcher != null) {
-            dispatcher.publish(WebhookEventType.PLAYER_BANNED, playerName, mod, reason);
-        }
     }
 }

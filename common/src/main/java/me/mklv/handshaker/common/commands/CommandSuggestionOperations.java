@@ -11,27 +11,22 @@ public final class CommandSuggestionOperations {
     public static final List<String> ROOT_COMMANDS = List.of("reload", "info", "config", "mode", "manage");
     public static final List<String> INFO_SUBCOMMANDS = List.of("configured_mods", "all_mods", "mod", "player");
     public static final List<String> CONFIG_PARAMS = List.of(
-        "force_handshaker_mod",
-        "compat_modern",
-        "compat_hybrid",
-        "compat_legacy",
-        "compat_unsigned",
+        "bedrock_policy",
+        "database",
         "default_action",
-        "enforce_whitelisted_mod_list",
-        "allow_bedrock_players",
-        "player_database_enabled",
-        "handshake_timeout_seconds",
-        "use_hash_for_mods",
+        "handshaker_enforcement",
         "mod_versioning",
+        "modpack_hashes",
         "runtime_cache",
-        "required_modpack_hashes"
+        "timeout_seconds",
+        "use_hash_for_mods",
+        "whitelist_enforcement"
     );
+    public static final List<String> COMPAT_SUBPARAMS = List.of("modern", "hybrid", "legacy", "unsigned");
     public static final List<String> MODE_LISTS = List.of("mods_required", "mods_blacklisted", "mods_whitelisted");
     public static final List<String> MANAGE_SUBCOMMANDS = List.of("add", "change", "remove", "ignore", "player");
     public static final List<String> MOD_MODES = List.of("allowed", "required", "blacklisted", "optional");
     public static final List<String> BOOLEAN_VALUES = List.of("true", "false");
-    public static final List<String> INTEGRITY_MODES = List.of("signed", "dev");
-    public static final List<String> BEHAVIOR_MODES = List.of("strict", "vanilla");
     public static final List<String> IGNORE_SUBCOMMANDS = List.of("add", "remove", "list");
     public static final List<String> DEFAULT_ACTIONS = List.of("kick", "ban", "none");
 
@@ -73,6 +68,10 @@ public final class CommandSuggestionOperations {
         return filterByPrefix(CONFIG_PARAMS, remaining);
     }
 
+    public static List<String> compatSubparamSuggestions(String remaining) {
+        return filterByPrefix(COMPAT_SUBPARAMS, remaining);
+    }
+
     public static List<String> actionSuggestions(Collection<String> availableActions, boolean includeDefaults, boolean fallbackToDefaultsWhenEmpty) {
         Set<String> combined = new LinkedHashSet<>();
         boolean hasCustom = availableActions != null && !availableActions.isEmpty();
@@ -95,12 +94,11 @@ public final class CommandSuggestionOperations {
 
         String normalized = param.toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "force_handshaker_mod", "compat_modern", "compat_hybrid", "compat_legacy", "compat_unsigned",
-                 "enforce_whitelisted_mod_list", "allow_bedrock_players", "player_database_enabled", "use_hash_for_mods",
-                 "mod_versioning", "runtime_cache",
-                 "whitelist", "allow_bedrock", "playerdb_enabled", "hash_mods" ->
+            case "handshaker_enforcement", "compat_modern", "compat_hybrid", "compat_legacy", "compat_unsigned",
+                 "whitelist_enforcement", "bedrock_policy", "database", "use_hash_for_mods",
+                 "mod_versioning", "runtime_cache" ->
                 BOOLEAN_VALUES;
-            case "required_modpack_hash", "required_modpack_hashes" -> List.of("off", "current");
+            case "modpack_hashes" -> List.of("off", "current");
             case "default_action", "default" -> actionSuggestions(availableActions, true, true);
             default -> List.of();
         };

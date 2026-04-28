@@ -52,12 +52,15 @@ public final class ConfigWriter {
             Map<String, Object> settings = new LinkedHashMap<>();
             settings.put("config-version", 7);
             settings.put("debug", data.isDebug());
-            settings.put("force-handshaker-mod", data.isForceHandshakerMod());
-            settings.put("allow-bedrock-players", data.isAllowBedrockPlayers());
-            settings.put("handshake-timeout-seconds", data.getHandshakeTimeoutSeconds());
-            settings.put("enforce-whitelisted-mod-list", data.isWhitelist());
+            settings.put("handshaker-enforcement", data.isForceHandshakerMod());
+            settings.put("bedrock-policy", data.isAllowBedrockPlayers());
+            settings.put("timeout-seconds", data.getHandshakeTimeoutSeconds());
+            settings.put("whitelist-enforcement", data.isWhitelist());
             settings.put("mod-versioning", data.isModVersioning());
-            settings.put("required-modpack-hashes", new ArrayList<>(data.getRequiredModpackHashes()));
+            settings.put("modpack-hashes", new ArrayList<>(data.getRequiredModpackHashes()));
+            settings.put("database", data.isPlayerdbEnabled());
+            settings.put("use-hash-for-mods", data.isHashMods());
+            settings.put("runtime-cache", data.isRuntimeCache());
 
             Map<String, Object> compatibility = new LinkedHashMap<>();
             compatibility.put("modern-7.0+", data.isModernCompatibility());
@@ -65,12 +68,6 @@ public final class ConfigWriter {
             compatibility.put("legacy-3.0+", data.isLegacyCompatibility());
             compatibility.put("unsigned", data.isUnsignedCompatibility());
             settings.put("handshaker-version-compatibility", compatibility);
-
-            Map<String, Object> playerDatabase = new LinkedHashMap<>();
-            playerDatabase.put("enabled", data.isPlayerdbEnabled());
-            playerDatabase.put("use-hash-for-mods", data.isHashMods());
-            playerDatabase.put("runtime-cache", data.isRuntimeCache());
-            settings.put("player-database", playerDatabase);
 
             Map<String, Object> customLists = new LinkedHashMap<>();
             customLists.put("mods-required-enabled", data.areModsRequiredEnabled());
@@ -82,10 +79,16 @@ public final class ConfigWriter {
             root.put("settings", settings);
             root.remove("config");
             root.remove("debug");
+            root.remove("force-handshaker-mod");
+            root.remove("handshake-timeout-seconds");
             root.remove("behavior");
             root.remove("integrity-mode");
             root.remove("whitelist");
+            root.remove("enforce-whitelisted-mod-list");
+            root.remove("allow-bedrock-players");
+            root.remove("required-modpack-hashes");
             root.remove("playerdb-enabled");
+            root.remove("player-database");
             root.remove("mods-required-enabled");
             root.remove("mods-blacklisted-enabled");
             root.remove("mods-whitelisted-enabled");
@@ -458,18 +461,18 @@ public final class ConfigWriter {
         }
 
         private static void rewriteRequiredModpackHashesInline(Path configPath,
-                                                               Set<String> requiredModpackHashes,
-                                                               ConfigFileBootstrap.Logger logger) {
+                                       Set<String> requiredModpackHashes,
+                                       ConfigFileBootstrap.Logger logger) {
             try {
                 List<String> lines = Files.readAllLines(configPath);
                 List<String> rewritten = new ArrayList<>();
 
                 for (int i = 0; i < lines.size(); i++) {
                     String line = lines.get(i);
-                    if (line.trim().startsWith("required-modpack-hashes:")) {
+                    if (line.trim().startsWith("modpack-hashes:")) {
                         String indent = leadingWhitespace(line);
                         int keyIndent = indent.length();
-                        rewritten.add(indent + "required-modpack-hashes: " + formatInlineYamlList(requiredModpackHashes));
+                        rewritten.add(indent + "modpack-hashes: " + formatInlineYamlList(requiredModpackHashes));
 
                         while (i + 1 < lines.size()) {
                             String next = lines.get(i + 1);
@@ -504,7 +507,7 @@ public final class ConfigWriter {
                 Files.write(configPath, rewritten);
             } catch (IOException e) {
                 if (logger != null) {
-                    logger.warn("Failed to rewrite required-modpack-hashes inline: " + e.getMessage());
+                    logger.warn("Failed to rewrite modpack-hashes inline: " + e.getMessage());
                 }
             }
         }

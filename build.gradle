@@ -1,31 +1,41 @@
 plugins {
     id 'base'
-    id 'fabric-loom' apply false
-    id 'net.neoforged.moddev' apply false
 }
 
-version = mod_version
-group = maven_group
-
-tasks.register('copyCert') {
-    doLast {
-        if (findProject(':common') != null) {
-            copy {
-                from '.Integrity/public.cer'
-                into 'common/src/main/resources'
+tasks.create('00-loadDotEnv') {
+    def map = [:]
+    def dotEnvFile = file('.env')
+    if (dotEnvFile.exists()) {
+        dotEnvFile.eachLine { rawLine ->
+            def line = rawLine.trim()
+            if (!line || line.startsWith('#') || !line.contains('=')) return
+            def idx = line.indexOf('=')
+            def key = line.substring(0, idx).trim()
+            def value = line.substring(idx + 1).trim()
+            if (value.length() >= 2 && value.startsWith('"') && value.endsWith('"')) {
+                value = value.substring(1, value.length() - 1)
             }
+            map[key] = value
         }
+    }
+    project.ext.dotEnv = map
+    project.ext.resolveSecret = { String key ->
+        (System.getenv(key) ?: System.getProperty(key) ?: map[key])?.toString()
     }
 }
 
-tasks.register('copyArtifacts') {
+tasks.register('01-copyCertificate') {
+    copy {
+        from '.Integrity/public.cer'
+        into 'common/src/main/resources'
+    }
+}
+
+tasks.register('02-copyArtifacts') {
     def projectList = [
-        'handlib:1.21',
-        'handlib:1.21.11',
         'fabric',
         'neoforge',
         'paper',
-        'velton'
     ]
     
     def projects = [:]
@@ -42,12 +52,9 @@ tasks.register('copyArtifacts') {
 
     doLast {
         def copyConfigs = [
-            'handlib:1.21': '*.jar',
-            'handlib:1.21.11': '*.jar',
             'fabric': '*-s.jar',
             'neoforge': '*.jar',
-            'paper': '*',
-            'velton': '*-signed.jar'
+            'paper': '*'
         ]
         
         projects.each { projectPath, proj ->
@@ -61,5 +68,22 @@ tasks.register('copyArtifacts') {
 }
 
 tasks.named('build') {
-    dependsOn 'copyArtifacts'
+    dependsOn '01-copyCertificate'
+    dependsOn '02-copyArtifacts'
+}
+
+
+
+tasks.register('releaseBundle', Zip) {
+    group = 'publishing'
+    description = 'Assembles all build output artifacts into one release archive.'
+    dependsOn '02-copyArtifacts'
+
+    archiveBaseName = "${project.mod_id}-${project.mod_version}"
+    archiveClassifier = 'release'
+    destinationDirectory = layout.buildDirectory.dir('release')
+
+    from(layout.buildDirectory.dir('output')) {
+        include '*.jar'
+    }
 }

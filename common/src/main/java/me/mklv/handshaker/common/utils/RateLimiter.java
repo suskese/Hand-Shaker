@@ -14,12 +14,12 @@ public class RateLimiter {
         this.refillIntervalMillis = Math.max(1_000L, windowSeconds * 1_000L);
     }
 
-    public boolean tryConsume(UUID key) {
-        if (key == null) {
+    public boolean tryConsume(UUID playerId) {
+        if (playerId == null) {
             return false;
         }
         long now = System.currentTimeMillis();
-        Bucket bucket = buckets.computeIfAbsent(key, ignored -> new Bucket(maxTokens, now));
+        Bucket bucket = buckets.computeIfAbsent(playerId, ignored -> new Bucket(maxTokens, now));
         synchronized (bucket) {
             refill(bucket, now);
             if (bucket.tokens < 1) {

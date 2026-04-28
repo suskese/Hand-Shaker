@@ -34,7 +34,6 @@ public final class ConfigSnapshotBuilder {
                                                      int handshakeTimeoutSeconds,
                                                      int rateLimitPerMinute,
                                                      boolean diagnosticCommandEnabled,
-                                                     boolean exportCommandEnabled,
                                                      boolean asyncDatabaseOperations,
                                                      int databasePoolSize,
                                                      long databaseIdleTimeoutMs,
@@ -43,10 +42,7 @@ public final class ConfigSnapshotBuilder {
                                                      boolean payloadCompressionEnabled,
                                                      boolean restApiEnabled,
                                                      int restApiPort,
-                                                     boolean webhookEnabled,
-                                                     String webhookUrl,
-                                                     boolean webhookNotifyOnBan,
-                                                     boolean webhookNotifyOnKick,
+                                                     String restApiKey,
                                                      Map<String, String> messages,
                                                      Map<String, ConfigTypes.ConfigState.ModConfig> modConfigMap,
                                                      Set<String> ignoredMods,
@@ -82,7 +78,6 @@ public final class ConfigSnapshotBuilder {
         snapshot.setHandshakeTimeoutSeconds(handshakeTimeoutSeconds);
         snapshot.setRateLimitPerMinute(rateLimitPerMinute);
         snapshot.setDiagnosticCommandEnabled(diagnosticCommandEnabled);
-        snapshot.setExportCommandEnabled(exportCommandEnabled);
         snapshot.setAsyncDatabaseOperations(asyncDatabaseOperations);
         snapshot.setDatabasePoolSize(databasePoolSize);
         snapshot.setDatabaseIdleTimeoutMs(databaseIdleTimeoutMs);
@@ -91,10 +86,7 @@ public final class ConfigSnapshotBuilder {
         snapshot.setPayloadCompressionEnabled(payloadCompressionEnabled);
         snapshot.setRestApiEnabled(restApiEnabled);
         snapshot.setRestApiPort(restApiPort);
-        snapshot.setWebhookEnabled(webhookEnabled);
-        snapshot.setWebhookUrl(webhookUrl);
-        snapshot.setWebhookNotifyOnBan(webhookNotifyOnBan);
-        snapshot.setWebhookNotifyOnKick(webhookNotifyOnKick);
+        snapshot.setRestApiKey(restApiKey);
 
         Map<String, String> messageSnapshot = messages != null ? messages : Collections.emptyMap();
         snapshot.getMessages().putAll(messageSnapshot);

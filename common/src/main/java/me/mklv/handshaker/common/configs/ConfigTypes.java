@@ -84,7 +84,7 @@ public final class ConfigTypes {
         public static final String DEFAULT_KICK_MESSAGE =
             "You are using a blacklisted mod: {mod}. Please remove it to join this server.";
         public static final String DEFAULT_BAN_MESSAGE =
-            "You have been banned from this server.";
+            "You have been banned for using a blacklisted mod: {mod}.";
         public static final String DEFAULT_BEDROCK_MESSAGE =
             "Bedrock players are not allowed on this server.";
         public static final String DEFAULT_NO_HANDSHAKE_MESSAGE =
@@ -315,7 +315,6 @@ public final class ConfigTypes {
         private int handshakeTimeoutSeconds = 5;
         private int rateLimitPerMinute = 10;
         private boolean diagnosticCommandEnabled = true;
-        private boolean exportCommandEnabled = true;
         private boolean asyncDatabaseOperations = true;
         private int databasePoolSize = 15;
         private long databaseIdleTimeoutMs = 300_000L;
@@ -324,10 +323,7 @@ public final class ConfigTypes {
         private boolean payloadCompressionEnabled = true;
         private boolean restApiEnabled = false;
         private int restApiPort = 8080;
-        private boolean webhookEnabled = false;
-        private String webhookUrl = "";
-        private boolean webhookNotifyOnBan = true;
-        private boolean webhookNotifyOnKick = false;
+        private String restApiKey = "";
 
         private final Map<String, String> messages = new LinkedHashMap<>();
         private final Map<String, ConfigState.ModConfig> modConfigMap = new LinkedHashMap<>();
@@ -598,14 +594,6 @@ public final class ConfigTypes {
             this.diagnosticCommandEnabled = diagnosticCommandEnabled;
         }
 
-        public boolean isExportCommandEnabled() {
-            return exportCommandEnabled;
-        }
-
-        public void setExportCommandEnabled(boolean exportCommandEnabled) {
-            this.exportCommandEnabled = exportCommandEnabled;
-        }
-
         public boolean isAsyncDatabaseOperations() {
             return asyncDatabaseOperations;
         }
@@ -670,36 +658,12 @@ public final class ConfigTypes {
             this.restApiPort = Math.max(1, restApiPort);
         }
 
-        public boolean isWebhookEnabled() {
-            return webhookEnabled;
+        public String getRestApiKey() {
+            return restApiKey;
         }
 
-        public void setWebhookEnabled(boolean webhookEnabled) {
-            this.webhookEnabled = webhookEnabled;
-        }
-
-        public String getWebhookUrl() {
-            return webhookUrl;
-        }
-
-        public void setWebhookUrl(String webhookUrl) {
-            this.webhookUrl = webhookUrl == null ? "" : webhookUrl.trim();
-        }
-
-        public boolean isWebhookNotifyOnBan() {
-            return webhookNotifyOnBan;
-        }
-
-        public void setWebhookNotifyOnBan(boolean webhookNotifyOnBan) {
-            this.webhookNotifyOnBan = webhookNotifyOnBan;
-        }
-
-        public boolean isWebhookNotifyOnKick() {
-            return webhookNotifyOnKick;
-        }
-
-        public void setWebhookNotifyOnKick(boolean webhookNotifyOnKick) {
-            this.webhookNotifyOnKick = webhookNotifyOnKick;
+        public void setRestApiKey(String restApiKey) {
+            this.restApiKey = restApiKey != null ? restApiKey : "";
         }
 
         public Map<String, String> getMessages() {

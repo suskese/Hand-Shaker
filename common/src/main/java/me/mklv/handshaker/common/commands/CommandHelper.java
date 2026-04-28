@@ -34,7 +34,7 @@ public class CommandHelper {
         return List.of(
             new HelpSection("Core Commands", List.of(
                 new HelpEntry("/handshaker reload", "Reload config"),
-                new HelpEntry("/handshaker info <configured_mods|all_mods|mod|player|diagnostic|export>", "Show info"),
+                new HelpEntry("/handshaker info <configured_mods|all_mods|mod|player|diagnostic>", "Show info"),
                 new HelpEntry("/handshaker config <param> <value>", "Modify config"),
                 new HelpEntry("/handshaker mode <list> <on|off>", "Toggle mod lists")
             )),
@@ -50,12 +50,12 @@ public class CommandHelper {
 
     public static List<String> getConfigFields() {
         return List.of(
-            "Force HandShaker Mod",
-            "Compatibility",
-            "Enforce Whitelisted Mod List",
-            "Bedrock Players",
-            "Player Database",
-            "Required Modpack Hashes"
+            "Handshaker Enforcement",
+            "compatibility",
+            "Whitelist Enforcement",
+            "Bedrock Policy",
+            "Database",
+            "Modpack Hashes"
         );
     }
 

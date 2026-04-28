@@ -22,25 +22,25 @@ public class PayloadDecoder {
 
     private DecodeResult decodeLengthPrefixedByteArrayWithOffset(byte[] data, int startOffset) {
         try {
-            int idx = startOffset;
-            int numRead = 0;
-            int result = 0;
+            int pos = startOffset;
+            int bytesRead = 0;
+            int decodedLength = 0;
             byte read;
             do {
-                if (idx >= data.length) return null;
-                read = data[idx++];
+                if (pos >= data.length) return null;
+                read = data[pos++];
                 int value = (read & 0b01111111);
-                result |= (value << (7 * numRead));
-                numRead++;
-                if (numRead > 5) return null;
+                decodedLength |= (value << (7 * bytesRead));
+                bytesRead++;
+                if (bytesRead > 5) return null;
             } while ((read & 0b10000000) != 0);
             
-            int length = result;
-            if (length < 0 || idx + length > data.length) return null;
+            int length = decodedLength;
+            if (length < 0 || pos + length > data.length) return null;
             
             byte[] bytes = new byte[length];
-            System.arraycopy(data, idx, bytes, 0, length);
-            return new DecodeResult(idx + length, bytes);
+            System.arraycopy(data, pos, bytes, 0, length);
+            return new DecodeResult(pos + length, bytes);
         } catch (Exception e) {
             logger.warning("Failed to decode byte array payload: " + e.getMessage());
             return null;
@@ -49,24 +49,24 @@ public class PayloadDecoder {
 
     private DecodeResult decodeLengthPrefixedStringWithOffset(byte[] data, int startOffset) {
         try {
-            int idx = startOffset;
-            int numRead = 0;
-            int result = 0;
+            int pos = startOffset;
+            int bytesRead = 0;
+            int decodedLength = 0;
             byte read;
             do {
-                if (idx >= data.length) return null;
-                read = data[idx++];
+                if (pos >= data.length) return null;
+                read = data[pos++];
                 int value = (read & 0b01111111);
-                result |= (value << (7 * numRead));
-                numRead++;
-                if (numRead > 5) return null;
+                decodedLength |= (value << (7 * bytesRead));
+                bytesRead++;
+                if (bytesRead > 5) return null;
             } while ((read & 0b10000000) != 0);
             
-            int length = result;
-            if (length < 0 || idx + length > data.length) return null;
+            int length = decodedLength;
+            if (length < 0 || pos + length > data.length) return null;
             
-            String str = new String(data, idx, length, StandardCharsets.UTF_8);
-            return new DecodeResult(idx + length, str);
+            String str = new String(data, pos, length, StandardCharsets.UTF_8);
+            return new DecodeResult(pos + length, str);
         } catch (Exception e) {
             logger.warning("Failed to decode string payload: " + e.getMessage());
             return null;

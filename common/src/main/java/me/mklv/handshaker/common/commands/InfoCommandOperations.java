@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import me.mklv.handshaker.common.configs.ConfigTypes.ConfigState;
 import me.mklv.handshaker.common.configs.ConfigTypes.ModEntry;
@@ -62,6 +63,15 @@ public final class InfoCommandOperations {
         String modInput,
         boolean aggregateVersionsWhenVersionMissing
     ) {
+        return loadModInfo(db, modInput, aggregateVersionsWhenVersionMissing, null);
+    }
+
+    public static ModInfoResult loadModInfo(
+        PlayerHistoryDatabase db,
+        String modInput,
+        boolean aggregateVersionsWhenVersionMissing,
+        Predicate<String> ignorePredicate
+    ) {
         if (db == null || !db.isEnabled()) {
             return new ModInfoResult(false, "Player history database not available", modInput, List.of());
         }
@@ -74,6 +84,9 @@ public final class InfoCommandOperations {
             String searchModId = entry.modId();
             Set<String> matchedTokens = new LinkedHashSet<>();
             for (String token : db.getModPopularity().keySet()) {
+                if (ignorePredicate != null && ignorePredicate.test(token)) {
+                    continue;
+                }
                 ModEntry candidate = ModEntry.parse(token);
                 if (candidate != null && candidate.modId().equalsIgnoreCase(searchModId)) {
                     matchedTokens.add(token);
@@ -89,6 +102,9 @@ public final class InfoCommandOperations {
             }
             players = new ArrayList<>(unique.values());
         } else {
+            if (ignorePredicate != null && ignorePredicate.test(displayKey)) {
+                return new ModInfoResult(true, null, displayKey, List.of());
+            }
             players = db.getPlayersWithMod(displayKey);
         }
 
@@ -102,6 +118,17 @@ public final class InfoCommandOperations {
         int pageNum,
         int pageSize
     ) {
+        return loadPlayerHistory(db, playerName, onlinePlayerUuid, pageNum, pageSize, null);
+    }
+
+    public static PlayerHistoryResult loadPlayerHistory(
+        PlayerHistoryDatabase db,
+        String playerName,
+        UUID onlinePlayerUuid,
+        int pageNum,
+        int pageSize,
+        Predicate<String> ignorePredicate
+    ) {
         if (db == null || !db.isEnabled()) {
             return new PlayerHistoryResult(false, "Player history database not available", playerName, List.of(), null);
         }
@@ -112,6 +139,18 @@ public final class InfoCommandOperations {
         }
 
         List<PlayerHistoryDatabase.ModHistoryEntry> history = db.getPlayerHistory(uuid);
+        if (ignorePredicate != null && !history.isEmpty()) {
+            List<PlayerHistoryDatabase.ModHistoryEntry> filtered = new ArrayList<>();
+            for (PlayerHistoryDatabase.ModHistoryEntry entry : history) {
+                String modToken = entry.modName();
+                if (modToken != null && ignorePredicate.test(modToken)) {
+                    continue;
+                }
+                filtered.add(entry);
+            }
+            history = filtered;
+        }
+
         if (history.isEmpty()) {
             return new PlayerHistoryResult(true, null, playerName, history, null);
         }
@@ -132,8 +171,28 @@ public final class InfoCommandOperations {
         int pageNum,
         int pageSize
     ) {
+        return loadConfiguredModsPage(mods, pageNum, pageSize, null);
+    }
+
+    public static ConfiguredModsPageResult loadConfiguredModsPage(
+        Map<String, ConfigState.ModConfig> mods,
+        int pageNum,
+        int pageSize,
+        Predicate<String> ignorePredicate
+    ) {
+        Map<String, ConfigState.ModConfig> filtered = new LinkedHashMap<>();
+        if (mods != null) {
+            for (Map.Entry<String, ConfigState.ModConfig> entry : mods.entrySet()) {
+                String modToken = entry.getKey();
+                if (ignorePredicate != null && ignorePredicate.test(modToken)) {
+                    continue;
+                }
+                filtered.put(modToken, entry.getValue());
+            }
+        }
+
         CommandHelper.PagedList<Map.Entry<String, ConfigState.ModConfig>> paged =
-            CommandHelper.configuredModsPage(mods, pageNum, pageSize);
+            CommandHelper.configuredModsPage(filtered, pageNum, pageSize);
         List<Map.Entry<String, ConfigState.ModConfig>> items = paged.items();
         int totalPages = CommandHelper.totalPages(items.size(), pageSize);
         return new ConfiguredModsPageResult(items, paged.page(), totalPages);
@@ -144,8 +203,28 @@ public final class InfoCommandOperations {
         int pageNum,
         int pageSize
     ) {
+        return loadPopularityPage(popularity, pageNum, pageSize, null);
+    }
+
+    public static PopularityPageResult loadPopularityPage(
+        Map<String, Integer> popularity,
+        int pageNum,
+        int pageSize,
+        Predicate<String> ignorePredicate
+    ) {
+        Map<String, Integer> filtered = new LinkedHashMap<>();
+        if (popularity != null) {
+            for (Map.Entry<String, Integer> entry : popularity.entrySet()) {
+                String modToken = entry.getKey();
+                if (ignorePredicate != null && ignorePredicate.test(modToken)) {
+                    continue;
+                }
+                filtered.put(modToken, entry.getValue());
+            }
+        }
+
         CommandHelper.PagedList<Map.Entry<String, Integer>> paged =
-            CommandHelper.popularityPage(popularity, pageNum, pageSize);
+            CommandHelper.popularityPage(filtered, pageNum, pageSize);
         List<Map.Entry<String, Integer>> items = paged.items();
         int totalPages = CommandHelper.totalPages(items.size(), pageSize);
         return new PopularityPageResult(items, paged.page(), totalPages);
